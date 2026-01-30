@@ -30,9 +30,19 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 
 	// Setup commands (registers flags).
 	createCmd := commands.NewCreateCommand(rootCmd, app)
+	listCmd := commands.NewListCommand(rootCmd, app)
+	statusCmd := commands.NewStatusCommand(rootCmd, app)
+	stopCmd := commands.NewStopCommand(rootCmd, app)
+	startCmd := commands.NewStartCommand(rootCmd, app)
+	removeCmd := commands.NewRemoveCommand(rootCmd, app)
 
 	cmds := map[string]commands.Command{
 		createCmd.Name(): createCmd,
+		listCmd.Name():   listCmd,
+		statusCmd.Name(): statusCmd,
+		stopCmd.Name():   stopCmd,
+		startCmd.Name():  startCmd,
+		removeCmd.Name(): removeCmd,
 	}
 
 	// Parse command.

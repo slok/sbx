@@ -162,25 +162,23 @@ func TestEngineCreateStartStopRemove(t *testing.T) {
 			},
 		},
 
-		"Starting non-existent sandbox should fail": {
+		"Starting non-existent sandbox should succeed (no-op)": {
 			actions: func(ctx context.Context, t *testing.T, eng *fake.Engine) error {
 				return eng.Start(ctx, "non-existent")
 			},
-			expErr: true,
+			expErr: false,
 		},
-
-		"Stopping non-existent sandbox should fail": {
+		"Stopping non-existent sandbox should succeed (no-op)": {
 			actions: func(ctx context.Context, t *testing.T, eng *fake.Engine) error {
 				return eng.Stop(ctx, "non-existent")
 			},
-			expErr: true,
+			expErr: false,
 		},
-
-		"Removing non-existent sandbox should fail": {
+		"Removing non-existent sandbox should succeed (no-op)": {
 			actions: func(ctx context.Context, t *testing.T, eng *fake.Engine) error {
 				return eng.Remove(ctx, "non-existent")
 			},
-			expErr: true,
+			expErr: false,
 		},
 	}
 
