@@ -12,7 +12,9 @@ jobs:
     container: golangci/golangci-lint:v2.4.0-alpine
     steps:
       - uses: actions/checkout@v4
-      - run: ./scripts/check/check.sh
+      - run: |
+          export GOFLAGS="-buildvcs=false"
+          ./scripts/check/check.sh
 
   unit-test:
     name: Unit test
