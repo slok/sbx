@@ -105,3 +105,10 @@ When stopping, provide:
 ---
 
 ## Done tasks
+
+- **Task 0001**: Foundation (PR #1) - Merged on 2026-01-30
+  - Core SBX implementation: domain models, storage layer (SQLite + memory), engine interface with fake implementation
+  - CLI `create` command with YAML config parsing
+  - Comprehensive test suite: 58 unit tests + 5 integration test scenarios
+  - CI/CD pipeline with GitHub Actions
+  - Coverage: Model (100%), App/Create (100%), Engine/Fake (96.4%), Storage/Memory (96.1%), Storage/SQLite (76.3%)
