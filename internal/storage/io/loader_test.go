@@ -11,7 +11,7 @@ import (
 	"github.com/slok/sbx/internal/model"
 )
 
-func TestLoader_Load(t *testing.T) {
+func TestConfigYAMLRepository_GetConfig(t *testing.T) {
 	tests := map[string]struct {
 		fs     fstest.MapFS
 		path   string
@@ -175,8 +175,8 @@ resources:
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			loader := NewLoader(tc.fs)
-			cfg, err := loader.Load(context.Background(), tc.path)
+			repo := NewConfigYAMLRepository(tc.fs)
+			cfg, err := repo.GetConfig(context.Background(), tc.path)
 
 			if tc.expErr {
 				require.Error(t, err)
@@ -190,7 +190,7 @@ resources:
 	}
 }
 
-func TestLoader_Load_ContextCancellation(t *testing.T) {
+func TestConfigYAMLRepository_GetConfig_ContextCancellation(t *testing.T) {
 	fs := fstest.MapFS{
 		"test.yaml": &fstest.MapFile{
 			Data: []byte(`name: test
@@ -203,11 +203,11 @@ resources:
 		},
 	}
 
-	loader := NewLoader(fs)
+	repo := NewConfigYAMLRepository(fs)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
-	_, err := loader.Load(ctx, "test.yaml")
+	_, err := repo.GetConfig(ctx, "test.yaml")
 	require.Error(t, err)
 	assert.Equal(t, context.Canceled, err)
 }

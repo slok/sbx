@@ -48,11 +48,11 @@ func (c CreateCommand) Run(ctx context.Context) error {
 		configPath = absPath
 	}
 
-	// Load configuration from YAML file using OS filesystem rooted at /.
+	// Load configuration from YAML file using ConfigYAMLRepository.
 	// We use absolute paths so DirFS("/") works correctly.
-	loader := io.NewLoader(os.DirFS("/"))
+	configRepo := io.NewConfigYAMLRepository(os.DirFS("/"))
 	// Remove leading "/" for fs.FS which expects relative paths.
-	cfg, err := loader.Load(ctx, configPath[1:])
+	cfg, err := configRepo.GetConfig(ctx, configPath[1:])
 	if err != nil {
 		return fmt.Errorf("could not load config: %w", err)
 	}
