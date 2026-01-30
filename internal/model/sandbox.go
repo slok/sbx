@@ -33,18 +33,18 @@ type Sandbox struct {
 
 // SandboxConfig is the configuration for creating a sandbox.
 type SandboxConfig struct {
-	Name      string            `yaml:"name"`
-	Base      string            `yaml:"base"`
-	Packages  []string          `yaml:"packages"`
-	Env       map[string]string `yaml:"env"`
-	Resources Resources         `yaml:"resources"`
+	Name      string
+	Base      string
+	Packages  []string
+	Env       map[string]string
+	Resources Resources
 }
 
 // Resources defines the compute resources for a sandbox.
 type Resources struct {
-	VCPUs    int `yaml:"vcpus"`
-	MemoryMB int `yaml:"memory_mb"`
-	DiskGB   int `yaml:"disk_gb"`
+	VCPUs    int
+	MemoryMB int
+	DiskGB   int
 }
 
 // Validate validates the sandbox configuration.

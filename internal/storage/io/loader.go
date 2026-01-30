@@ -10,19 +10,19 @@ import (
 	"github.com/slok/sbx/internal/model"
 )
 
-// Loader loads sandbox configuration from files.
-type Loader struct {
+// ConfigYAMLRepository loads sandbox configuration from YAML files.
+type ConfigYAMLRepository struct {
 	fs fs.FS
 }
 
-// NewLoader creates a new config loader.
-func NewLoader(filesystem fs.FS) *Loader {
-	return &Loader{fs: filesystem}
+// NewConfigYAMLRepository creates a new YAML config repository.
+func NewConfigYAMLRepository(filesystem fs.FS) *ConfigYAMLRepository {
+	return &ConfigYAMLRepository{fs: filesystem}
 }
 
-// Load loads a sandbox configuration from a YAML file and returns a validated domain model.
-func (l *Loader) Load(ctx context.Context, path string) (model.SandboxConfig, error) {
-	data, err := fs.ReadFile(l.fs, path)
+// GetConfig loads a sandbox configuration from a YAML file and returns a validated domain model.
+func (r *ConfigYAMLRepository) GetConfig(ctx context.Context, path string) (model.SandboxConfig, error) {
+	data, err := fs.ReadFile(r.fs, path)
 	if err != nil {
 		return model.SandboxConfig{}, fmt.Errorf("reading config file: %w", err)
 	}
