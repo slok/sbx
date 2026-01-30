@@ -1,0 +1,100 @@
+# SBX - Tasks
+
+**Purpose:** Guide for AI agents working on SBX. Follow these instructions throughout the project lifecycle.
+
+---
+
+## Workflow
+
+### Task Lifecycle
+
+1. **Read task** — Understand the current task from this file
+2. **Implement** — Write code and tests
+3. **Test locally** — Run unit tests, iterate until green
+4. **Create PR** — Push branch, open pull request
+5. **Wait for CI** — Integration tests run in CI
+6. **Fix if needed** — Iterate on failures
+7. **Merge** — Once CI passes
+8. **Stop** — Wait for next task to be added
+
+### Rules
+
+- **One task at a time** — Do not start the next task until current is merged
+- **Tests are mandatory** — No PR without tests
+- **CI must pass** — Do not merge with failing CI
+- **Iterate on failures** — Fix and push until green
+- **Know when to stop** — If stuck on the same issue for 15+ iterations, stop and report the blocker
+
+### Pull Request Requirements
+
+Every PR must include:
+
+- **Description** — What this PR does, why it's needed
+- **Key decisions** — Important implementation choices made and why
+- **Trade-offs** — What alternatives were considered, why this approach won
+- **Testing** — How it was tested, what the tests cover
+
+Example PR description:
+
+```markdown
+## What
+
+Implements storage interface with SQLite and memory backends.
+
+## Key Decisions
+
+- **Pure Go SQLite** — Chose `modernc.org/sqlite` over `mattn/go-sqlite3` to avoid CGO. 
+  Trade-off: Slightly slower but simpler builds and cross-compilation.
+
+- **Repository pattern** — Storage interface returns domain models, not DB rows.
+  Keeps business logic decoupled from storage implementation.
+
+## Testing
+
+- Unit tests for memory storage
+- Unit tests for SQLite storage with temp file
+- Integration test for CLI create command
+```
+
+---
+
+## Testing Strategy
+
+### Local (Unit Tests)
+
+- Run frequently during development
+- Fast feedback loop — seconds, not minutes
+- Mock external dependencies
+- Use memory storage and fake engine implementations
+
+### CI (Integration Tests)
+
+- Run on PR
+- Can use real dependencies (SQLite files, etc.)
+- Slower but more thorough
+
+### Test-Driven Iteration
+
+1. Write/run tests
+2. If red: fix code, go to 1
+3. If green: commit and push
+4. If CI fails: fix, go to 1
+
+---
+
+## Stuck Protocol
+
+If you hit the same error or issue repeatedly:
+
+| Iterations | Action |
+|------------|--------|
+| 1-5 | Normal debugging, keep trying |
+| 6-10 | Step back, try different approach |
+| 11-14 | Simplify, remove complexity, check assumptions |
+| 15+ | **STOP** — Report blocker, wait for human input |
+
+When stopping, provide:
+
+- What you tried
+- The specific error or blocker
+- Your hypothesis on root cause
