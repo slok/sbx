@@ -389,7 +389,7 @@ func TestServiceCreate(t *testing.T) {
 	}
 }
 
-// Helper function to create a test config file
+// Helper function to create a test config file.
 func createTestConfig(t *testing.T, cfg model.SandboxConfig) string {
 	t.Helper()
 
@@ -403,7 +403,7 @@ func createTestConfig(t *testing.T, cfg model.SandboxConfig) string {
 	return createTestFile(t, content)
 }
 
-// Helper function to create a test file with content
+// Helper function to create a test file with content.
 func createTestFile(t *testing.T, content string) string {
 	t.Helper()
 
