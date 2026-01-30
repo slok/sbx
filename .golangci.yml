@@ -1,0 +1,35 @@
+version: "2"
+run:
+  timeout: 5m
+  build-tags:
+    - integration
+linters:
+  enable:
+    - godot
+    - misspell
+    - revive
+    - govet
+    - staticcheck
+    - unused
+    - gosimple
+    - ineffassign
+  settings:
+    revive:
+      rules:
+        # Omit unused-parameter as it can be too spammy
+        - name: unused-parameter
+          disabled: true
+    staticcheck:
+      checks:
+        - all
+        # Omit embedded fields from selector expression
+        - -QF1008
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - std-error-handling
+formatters:
+  enable:
+    - gofmt
+    - goimports

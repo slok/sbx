@@ -1,0 +1,13 @@
+name: example-sandbox
+base: ubuntu:22.04
+packages:
+  - curl
+  - git
+  - vim
+env:
+  ENVIRONMENT: development
+  LOG_LEVEL: debug
+resources:
+  vcpus: 2
+  memory_mb: 2048
+  disk_gb: 10

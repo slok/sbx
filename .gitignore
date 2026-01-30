@@ -1,1 +1,42 @@
 tasks/
+
+# Binaries
+sbx
+sbx-test
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binaries
+*.test
+
+# Output of the go coverage tool
+*.out
+.test_coverage.txt
+
+# SQLite databases
+*.db
+*.db-shm
+*.db-wal
+
+# IDE/Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Dependency directories
+vendor/
+
+# Go workspace file
+go.work
+
+# Build artifacts
+dist/
+build/

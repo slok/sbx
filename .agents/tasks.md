@@ -15,10 +15,13 @@
 5. **Wait for CI** — Integration tests run in CI
 6. **Fix if needed** — Iterate on failures
 7. **Merge** — Once CI passes
-8. **Stop** — Wait for next task to be added
+8. **Mark as done** — Mark as done at the end of this file. 
+9. **Stop** — Wait for next task to be added
 
 ### Rules
 
+- **Tasks place** — Check `tasks` directory at the root of the project.
+- **Dont repeat tasks** — Check at the end of this file the tasks done.
 - **One task at a time** — Do not start the next task until current is merged
 - **Tests are mandatory** — No PR without tests
 - **CI must pass** — Do not merge with failing CI
@@ -98,3 +101,7 @@ When stopping, provide:
 - What you tried
 - The specific error or blocker
 - Your hypothesis on root cause
+ 
+---
+
+## Done tasks
