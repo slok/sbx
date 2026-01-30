@@ -3,11 +3,14 @@ package commands
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/alecthomas/kingpin/v2"
 
 	"github.com/slok/sbx/internal/app/create"
 	"github.com/slok/sbx/internal/engine/fake"
+	"github.com/slok/sbx/internal/storage/io"
 	"github.com/slok/sbx/internal/storage/sqlite"
 )
 
@@ -34,6 +37,30 @@ func (c CreateCommand) Name() string { return c.Cmd.FullCommand() }
 
 func (c CreateCommand) Run(ctx context.Context) error {
 	logger := c.rootCmd.Logger
+
+	// Convert config file path to absolute path.
+	configPath := c.configFile
+	if !filepath.IsAbs(configPath) {
+		absPath, err := filepath.Abs(configPath)
+		if err != nil {
+			return fmt.Errorf("could not resolve config path: %w", err)
+		}
+		configPath = absPath
+	}
+
+	// Load configuration from YAML file using OS filesystem rooted at /.
+	// We use absolute paths so DirFS("/") works correctly.
+	loader := io.NewLoader(os.DirFS("/"))
+	// Remove leading "/" for fs.FS which expects relative paths.
+	cfg, err := loader.Load(ctx, configPath[1:])
+	if err != nil {
+		return fmt.Errorf("could not load config: %w", err)
+	}
+
+	// Apply name override if provided.
+	if c.nameOverride != "" {
+		cfg.Name = c.nameOverride
+	}
 
 	// Initialize storage (SQLite).
 	repo, err := sqlite.NewRepository(ctx, sqlite.RepositoryConfig{
@@ -64,8 +91,7 @@ func (c CreateCommand) Run(ctx context.Context) error {
 
 	// Execute create.
 	sandbox, err := svc.Create(ctx, create.CreateOptions{
-		ConfigPath:   c.configFile,
-		NameOverride: c.nameOverride,
+		Config: cfg,
 	})
 	if err != nil {
 		return fmt.Errorf("could not create sandbox: %w", err)
