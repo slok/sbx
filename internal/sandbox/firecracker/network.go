@@ -142,32 +142,12 @@ func (e *Engine) getDefaultInterface() (string, error) {
 	return "", fmt.Errorf("no default route found")
 }
 
-// getInterfaceIndex returns the interface index for the given interface name.
-func (e *Engine) getInterfaceIndex(ifaceName string) (uint32, error) {
-	link, err := netlink.LinkByName(ifaceName)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get interface %s: %w", ifaceName, err)
-	}
-	return uint32(link.Attrs().Index), nil
-}
-
 // setupNftables sets up NAT and forwarding rules for the VM using nftables.
 // This uses the google/nftables Go library which works with CAP_NET_ADMIN.
 func (e *Engine) setupNftables(tapDevice, gateway, vmIP string) error {
 	outInterface, err := e.getDefaultInterface()
 	if err != nil {
 		return fmt.Errorf("failed to get default interface: %w", err)
-	}
-
-	// Get interface indices
-	outIfaceIdx, err := e.getInterfaceIndex(outInterface)
-	if err != nil {
-		return fmt.Errorf("failed to get output interface index: %w", err)
-	}
-
-	tapIfaceIdx, err := e.getInterfaceIndex(tapDevice)
-	if err != nil {
-		return fmt.Errorf("failed to get TAP interface index: %w", err)
 	}
 
 	// Parse subnet
@@ -199,29 +179,25 @@ func (e *Engine) setupNftables(tapDevice, gateway, vmIP string) error {
 	}
 	conn.AddChain(natChain)
 
-	// Create filter chain for forwarding
+	// Create filter chain for forwarding with a lower (more negative) priority
+	// to ensure our rules are evaluated before Docker's iptables rules.
+	// Docker uses priority 0, so we use -10 to be evaluated first.
 	filterChain := &nftables.Chain{
 		Name:     "forward",
 		Table:    table,
 		Type:     nftables.ChainTypeFilter,
 		Hooknum:  nftables.ChainHookForward,
-		Priority: nftables.ChainPriorityFilter,
+		Priority: nftables.ChainPriorityRef(-10),
 	}
 	conn.AddChain(filterChain)
 
-	// Rule 1: Masquerade traffic from VM subnet going out through the default interface
-	// nft add rule ip sbx postrouting oifname "eno1" ip saddr 10.x.x.0/24 masquerade
+	// Rule 1: Masquerade traffic from VM subnet going out
+	// nft add rule ip sbx postrouting ip saddr 10.x.x.0/24 masquerade
+	// Simplified: don't match output interface, just masquerade all traffic from VM subnet
 	conn.AddRule(&nftables.Rule{
 		Table: table,
 		Chain: natChain,
 		Exprs: []expr.Any{
-			// Match output interface
-			&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
-			&expr.Cmp{
-				Op:       expr.CmpOpEq,
-				Register: 1,
-				Data:     ifname(outInterface),
-			},
 			// Match source IP in subnet
 			&expr.Payload{
 				DestRegister: 1,
@@ -246,64 +222,36 @@ func (e *Engine) setupNftables(tapDevice, gateway, vmIP string) error {
 		},
 	})
 
-	// Rule 2: Allow forwarding from TAP to outside
-	// nft add rule ip sbx forward iif "sbx-xxx" oif "eno1" accept
+	// Rule 2: Allow forwarding from TAP to anywhere (not just outInterface)
+	// nft add rule ip sbx forward iifname "sbx-xxx" accept
 	conn.AddRule(&nftables.Rule{
 		Table: table,
 		Chain: filterChain,
 		Exprs: []expr.Any{
-			// Match input interface (TAP)
-			&expr.Meta{Key: expr.MetaKeyIIF, Register: 1},
+			// Match input interface name (TAP)
+			&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
 			&expr.Cmp{
 				Op:       expr.CmpOpEq,
 				Register: 1,
-				Data:     binaryUint32(tapIfaceIdx),
-			},
-			// Match output interface (default)
-			&expr.Meta{Key: expr.MetaKeyOIF, Register: 1},
-			&expr.Cmp{
-				Op:       expr.CmpOpEq,
-				Register: 1,
-				Data:     binaryUint32(outIfaceIdx),
+				Data:     ifname(tapDevice),
 			},
 			// Accept
 			&expr.Verdict{Kind: expr.VerdictAccept},
 		},
 	})
 
-	// Rule 3: Allow established/related traffic back to TAP
-	// nft add rule ip sbx forward iif "eno1" oif "sbx-xxx" ct state established,related accept
+	// Rule 3: Allow forwarding to TAP (return traffic)
+	// nft add rule ip sbx forward oifname "sbx-xxx" accept
 	conn.AddRule(&nftables.Rule{
 		Table: table,
 		Chain: filterChain,
 		Exprs: []expr.Any{
-			// Match input interface (default)
-			&expr.Meta{Key: expr.MetaKeyIIF, Register: 1},
+			// Match output interface name (TAP)
+			&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
 			&expr.Cmp{
 				Op:       expr.CmpOpEq,
 				Register: 1,
-				Data:     binaryUint32(outIfaceIdx),
-			},
-			// Match output interface (TAP)
-			&expr.Meta{Key: expr.MetaKeyOIF, Register: 1},
-			&expr.Cmp{
-				Op:       expr.CmpOpEq,
-				Register: 1,
-				Data:     binaryUint32(tapIfaceIdx),
-			},
-			// Match connection state: established or related
-			&expr.Ct{Register: 1, SourceRegister: false, Key: expr.CtKeySTATE},
-			&expr.Bitwise{
-				SourceRegister: 1,
-				DestRegister:   1,
-				Len:            4,
-				Mask:           binaryUint32(expr.CtStateBitESTABLISHED | expr.CtStateBitRELATED),
-				Xor:            []byte{0, 0, 0, 0},
-			},
-			&expr.Cmp{
-				Op:       expr.CmpOpNeq,
-				Register: 1,
-				Data:     []byte{0, 0, 0, 0},
+				Data:     ifname(tapDevice),
 			},
 			// Accept
 			&expr.Verdict{Kind: expr.VerdictAccept},
@@ -466,9 +414,4 @@ func ifname(name string) []byte {
 	b := make([]byte, unix.IFNAMSIZ)
 	copy(b, name)
 	return b
-}
-
-// binaryUint32 converts a uint32 to a 4-byte slice in native endian.
-func binaryUint32(v uint32) []byte {
-	return []byte{byte(v), byte(v >> 8), byte(v >> 16), byte(v >> 24)}
 }
