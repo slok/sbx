@@ -142,3 +142,15 @@ When stopping, provide:
   - 8 unit test functions (23 scenarios), 3 integration tests (4 scenarios)
   - Coverage: Task SQLite manager (100%), Docker engine task integration (covered)
   - Design decisions: auto-increment sequences, no auto-cleanup, auto-resume on crash
+
+- **Task 0005**: Exec Command (PR #9) - Completed on 2026-01-31
+  - Implemented command execution inside running sandboxes (essential for agentic workflows)
+  - Added Exec method to Engine interface with ExecOpts (workdir, env, stdin/stdout/stderr, TTY) and ExecResult (exit code)
+  - Docker engine implementation using os/exec with real-time streaming and proper exit code propagation
+  - Fake engine exec implementation for unit tests with validation
+  - Created sbx exec CLI command with --workdir, --env, and --tty flags
+  - Created sbx shell CLI command as convenience wrapper for interactive shells (/bin/sh with TTY)
+  - 12 unit tests with 100% coverage + 11 integration tests (all passing)
+  - Fixed CI issues: linting errors (errcheck, godot) and TTY test graceful skipping
+  - Technical details: Commands require -- separator, direct stream wiring, supports lookup by name or ID
+  - Documentation: README updated with exec and shell command examples

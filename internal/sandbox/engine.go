@@ -13,4 +13,5 @@ type Engine interface {
 	Stop(ctx context.Context, id string) error
 	Remove(ctx context.Context, id string) error
 	Status(ctx context.Context, id string) (*model.Sandbox, error)
+	Exec(ctx context.Context, id string, command []string, opts model.ExecOpts) (*model.ExecResult, error)
 }

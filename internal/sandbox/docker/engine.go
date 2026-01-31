@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"io"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -184,6 +185,75 @@ cleanup:
 	e.logger.Infof("Created Docker sandbox: %s (container: %s)", id, containerID)
 
 	return sandbox, nil
+}
+
+// Exec executes a command inside a running Docker container sandbox.
+func (e *Engine) Exec(ctx context.Context, id string, command []string, opts model.ExecOpts) (*model.ExecResult, error) {
+	if len(command) == 0 {
+		return nil, fmt.Errorf("command cannot be empty: %w", model.ErrNotValid)
+	}
+
+	containerName := fmt.Sprintf("sbx-%s", strings.ToLower(id))
+
+	// Build docker exec command
+	args := []string{"exec"}
+
+	// Add flags
+	if opts.Tty {
+		args = append(args, "-it")
+	}
+	if opts.WorkingDir != "" {
+		args = append(args, "-w", opts.WorkingDir)
+	}
+	for k, v := range opts.Env {
+		args = append(args, "-e", fmt.Sprintf("%s=%s", k, v))
+	}
+
+	// Add container name and command
+	args = append(args, containerName)
+	args = append(args, command...)
+
+	// Execute docker command
+	e.logger.Debugf("Executing command in container %s: docker %v", containerName, args)
+
+	cmd := exec.CommandContext(ctx, "docker", args...)
+
+	// Wire up streams
+	if opts.Stdin != nil {
+		cmd.Stdin = opts.Stdin
+	}
+	if opts.Stdout != nil {
+		cmd.Stdout = opts.Stdout
+	}
+	if opts.Stderr != nil {
+		cmd.Stderr = opts.Stderr
+	}
+
+	// Run the command
+	err := cmd.Run()
+
+	// Get exit code
+	exitCode := 0
+	if err != nil {
+		// Check if it's an exit error (non-zero exit code)
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+			e.logger.Debugf("Command exited with code %d", exitCode)
+		} else {
+			// Other error (e.g., container not found, not running)
+			if strings.Contains(err.Error(), "No such container") {
+				return nil, fmt.Errorf("container %s: %w", containerName, model.ErrNotFound)
+			}
+			if strings.Contains(err.Error(), "is not running") {
+				return nil, fmt.Errorf("container %s is not running: %w", containerName, model.ErrNotValid)
+			}
+			return nil, fmt.Errorf("failed to execute command: %w", err)
+		}
+	}
+
+	return &model.ExecResult{
+		ExitCode: exitCode,
+	}, nil
 }
 
 // executeTask executes a task function and tracks its completion.
