@@ -113,10 +113,12 @@ When stopping, provide:
   - CI/CD pipeline with GitHub Actions
   - Coverage: Model (100%), App/Create (100%), Engine/Fake (96.4%), Storage/Memory (96.1%), Storage/SQLite (76.3%)
 
-- **Task 0002**: Lifecycle Commands (PR #4) - Submitted on 2026-01-30
+- **Task 0002**: Lifecycle Commands (PR #4) - Merged on 2026-01-30
   - Implemented sandbox lifecycle CLI commands: list, status, stop, start, rm
   - Created printer abstraction layer with table and JSON output formatters
   - Added 5 app services (list, status, start, stop, remove) with full business logic
   - 46 new unit tests with 100% coverage on new services and printer package
+  - 21 integration test scenarios covering full sandbox lifecycle
   - Commands support filtering (list --status), force operations (rm --force), and flexible output formats
   - Enhanced README with comprehensive command documentation and usage examples
+  - Modified fake engine to be stateless-friendly for integration testing
