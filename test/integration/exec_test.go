@@ -306,6 +306,8 @@ func TestShellCommand(t *testing.T) {
 	})
 
 	// Test shell command by piping a command to exit immediately
+	// Note: In CI environments without a TTY, the shell command will fail with "the input device is not a TTY"
+	// This is expected behavior since shell requires TTY mode
 	shellCmd := exec.Command("./sbx-test", "shell", "--db-path", dbPath, "--no-log", "example-sandbox")
 	shellCmd.Stdin = strings.NewReader("exit\n")
 	var stdout, stderr bytes.Buffer
@@ -313,8 +315,16 @@ func TestShellCommand(t *testing.T) {
 	shellCmd.Stderr = &stderr
 
 	err = shellCmd.Run()
-	// Shell will exit with code 0 since we exit cleanly
-	assert.NoError(t, err, "Shell command should execute without error")
+	// In CI without TTY, the command will fail with exit code 1, which is expected
+	if err != nil {
+		// Check if it's the expected TTY error
+		stderrStr := stderr.String()
+		if strings.Contains(stderrStr, "the input device is not a TTY") || strings.Contains(stderrStr, "not a tty") {
+			t.Skip("Skipping shell test: no TTY available in CI environment")
+		}
+		// If it's a different error, fail the test
+		assert.Fail(t, "Shell command failed with unexpected error", "error: %v, stderr: %s", err, stderrStr)
+	}
 }
 
 func TestExecRunsInContainer(t *testing.T) {

@@ -318,7 +318,7 @@ func TestServiceRun(t *testing.T) {
 	}
 }
 
-// Test helper to verify stdout/stderr output
+// Test helper to verify stdout/stderr output.
 func TestServiceRunWithOutput(t *testing.T) {
 	assert := assert.New(t)
 	require := require.New(t)
@@ -338,7 +338,7 @@ func TestServiceRunWithOutput(t *testing.T) {
 		Run(func(args mock.Arguments) {
 			opts := args.Get(3).(model.ExecOpts)
 			if opts.Stdout != nil {
-				io.WriteString(opts.Stdout, "hello\n")
+				_, _ = io.WriteString(opts.Stdout, "hello\n")
 			}
 		}).
 		Return(&model.ExecResult{ExitCode: 0}, nil)
