@@ -50,6 +50,18 @@ func NewEngine(cfg EngineConfig) (*Engine, error) {
 	}, nil
 }
 
+// Check performs preflight checks for the fake engine.
+// Always returns OK since the fake engine has no real dependencies.
+func (e *Engine) Check(ctx context.Context) []model.CheckResult {
+	return []model.CheckResult{
+		{
+			ID:      "fake_engine",
+			Message: "Fake engine is always ready",
+			Status:  model.CheckStatusOK,
+		},
+	}
+}
+
 // Create creates a new sandbox.
 func (e *Engine) Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sandbox, error) {
 	e.mu.Lock()
@@ -232,4 +244,29 @@ func (e *Engine) Status(ctx context.Context, id string) (*model.Sandbox, error) 
 	// Return a copy to avoid external modifications
 	sandboxCopy := *sandbox
 	return &sandboxCopy, nil
+}
+
+// Exec simulates executing a command in a sandbox.
+// The fake engine validates inputs but doesn't actually execute anything.
+func (e *Engine) Exec(ctx context.Context, id string, command []string, opts model.ExecOpts) (*model.ExecResult, error) {
+	if len(command) == 0 {
+		return nil, fmt.Errorf("command cannot be empty: %w", model.ErrNotValid)
+	}
+
+	e.mu.RLock()
+	sandbox, ok := e.sandboxes[id]
+	e.mu.RUnlock()
+
+	if !ok {
+		// For stateless integration tests, just return success
+		e.logger.Debugf("Executing in fake sandbox: %s (not in engine memory)", id)
+		return &model.ExecResult{ExitCode: 0}, nil
+	}
+
+	if sandbox.Status != model.SandboxStatusRunning {
+		return nil, fmt.Errorf("sandbox %s is not running: %w", id, model.ErrNotValid)
+	}
+
+	e.logger.Debugf("Fake exec in sandbox %s: %v", id, command)
+	return &model.ExecResult{ExitCode: 0}, nil
 }

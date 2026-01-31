@@ -4,17 +4,19 @@ set -o nounset
 
 # Download latest release
 ARCH=$(uname -m)
-VERSION="v1.6.0"
+VERSION="v1.14.1"
+OUT_DIR="./bin"
 curl -L -o firecracker.tgz https://github.com/firecracker-microvm/firecracker/releases/download/${VERSION}/firecracker-${VERSION}-${ARCH}.tgz
 
 # Extract and install
 tar -xzf firecracker.tgz
-sudo mv release-${VERSION}-${ARCH}/firecracker-${VERSION}-${ARCH} /usr/local/bin/firecracker
-sudo mv release-${VERSION}-${ARCH}/jailer-${VERSION}-${ARCH} /usr/local/bin/jailer
-chmod +x /usr/local/bin/firecracker /usr/local/bin/jailer
+mkdir -p ${OUT_DIR}
+mv release-${VERSION}-${ARCH}/firecracker-${VERSION}-${ARCH} ${OUT_DIR}/firecracker
+mv release-${VERSION}-${ARCH}/jailer-${VERSION}-${ARCH} ${OUT_DIR}/jailer
+chmod +x ${OUT_DIR}/firecracker ${OUT_DIR}/jailer
 
 # Cleanup
 rm -rf firecracker.tgz release-${VERSION}-${ARCH}
 
 # Verify
-firecracker --version
+${OUT_DIR}/firecracker --version
