@@ -122,3 +122,13 @@ When stopping, provide:
   - Commands support filtering (list --status), force operations (rm --force), and flexible output formats
   - Enhanced README with comprehensive command documentation and usage examples
   - Modified fake engine to be stateless-friendly for integration testing
+
+- **Task 0003**: Docker Engine (PR #5) - Merged on 2026-01-31
+  - Implemented full Docker engine with create, start, stop, remove, and status operations
+  - Updated domain model with engine-based config (DockerEngine/FirecrackerEngine)
+  - YAML config loader updated to parse new engine block format
+  - SQLite schema migration added container_id column
+  - Fixed CLI commands (stop/start/rm) to use correct engine based on sandbox config
+  - All integration tests updated and passing with real Docker containers
+  - Config format changed from `base: ubuntu:22.04` to `engine: { docker: { image: ubuntu:22.04 } }`
+  - README updated with new configuration format and requirements
