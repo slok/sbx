@@ -125,33 +125,46 @@ func (e *Engine) getDefaultInterface() (string, error) {
 	return "", fmt.Errorf("no default route found")
 }
 
+// getIptablesCmd returns the iptables command to use.
+// Prefers iptables-legacy over iptables (nftables) because:
+// - iptables-legacy works better with CAP_NET_ADMIN capability
+// - iptables (nftables backend) often requires root even with capabilities
+func (e *Engine) getIptablesCmd() string {
+	// Check for iptables-legacy first
+	if path, err := exec.LookPath("iptables-legacy"); err == nil {
+		return path
+	}
+	return "iptables"
+}
+
 // setupIPTables sets up NAT and forwarding rules for the VM.
 // Note: iptables still requires the iptables command as there's no pure Go library
-// that's as reliable. However, CAP_NET_ADMIN is sufficient for iptables rules.
+// that's as reliable. Prefers iptables-legacy which works with CAP_NET_ADMIN.
 func (e *Engine) setupIPTables(tapDevice, gateway, vmIP string) error {
 	outInterface, err := e.getDefaultInterface()
 	if err != nil {
 		return fmt.Errorf("failed to get default interface: %w", err)
 	}
 
+	iptables := e.getIptablesCmd()
 	subnet := e.subnetFromGateway(gateway)
 
 	// NAT rule: masquerade outgoing traffic from VM subnet
-	if err := e.runCmd("iptables", "-t", "nat", "-A", "POSTROUTING", "-o", outInterface, "-s", subnet, "-j", "MASQUERADE"); err != nil {
+	if err := e.runCmd(iptables, "-t", "nat", "-A", "POSTROUTING", "-o", outInterface, "-s", subnet, "-j", "MASQUERADE"); err != nil {
 		return fmt.Errorf("failed to add NAT rule: %w", err)
 	}
 
 	// Forward rule: allow traffic from TAP to outside
-	if err := e.runCmd("iptables", "-A", "FORWARD", "-i", tapDevice, "-o", outInterface, "-j", "ACCEPT"); err != nil {
+	if err := e.runCmd(iptables, "-A", "FORWARD", "-i", tapDevice, "-o", outInterface, "-j", "ACCEPT"); err != nil {
 		return fmt.Errorf("failed to add forward rule (out): %w", err)
 	}
 
 	// Forward rule: allow established/related traffic back to TAP
-	if err := e.runCmd("iptables", "-A", "FORWARD", "-i", outInterface, "-o", tapDevice, "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT"); err != nil {
+	if err := e.runCmd(iptables, "-A", "FORWARD", "-i", outInterface, "-o", tapDevice, "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT"); err != nil {
 		return fmt.Errorf("failed to add forward rule (in): %w", err)
 	}
 
-	e.logger.Debugf("Set up iptables NAT for %s via %s", tapDevice, outInterface)
+	e.logger.Debugf("Set up iptables NAT for %s via %s (using %s)", tapDevice, outInterface, iptables)
 	return nil
 }
 
@@ -163,14 +176,15 @@ func (e *Engine) cleanupIPTables(tapDevice, gateway, vmIP string) error {
 		return nil
 	}
 
+	iptables := e.getIptablesCmd()
 	subnet := e.subnetFromGateway(gateway)
 
 	// Remove NAT rule
-	_ = e.runCmd("iptables", "-t", "nat", "-D", "POSTROUTING", "-o", outInterface, "-s", subnet, "-j", "MASQUERADE")
+	_ = e.runCmd(iptables, "-t", "nat", "-D", "POSTROUTING", "-o", outInterface, "-s", subnet, "-j", "MASQUERADE")
 
 	// Remove forward rules
-	_ = e.runCmd("iptables", "-D", "FORWARD", "-i", tapDevice, "-o", outInterface, "-j", "ACCEPT")
-	_ = e.runCmd("iptables", "-D", "FORWARD", "-i", outInterface, "-o", tapDevice, "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT")
+	_ = e.runCmd(iptables, "-D", "FORWARD", "-i", tapDevice, "-o", outInterface, "-j", "ACCEPT")
+	_ = e.runCmd(iptables, "-D", "FORWARD", "-i", outInterface, "-o", tapDevice, "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT")
 
 	e.logger.Debugf("Cleaned up iptables rules for %s", tapDevice)
 	return nil
