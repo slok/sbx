@@ -6,15 +6,15 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/slok/sbx/internal/engine"
 	"github.com/slok/sbx/internal/log"
 	"github.com/slok/sbx/internal/model"
+	"github.com/slok/sbx/internal/sandbox"
 	"github.com/slok/sbx/internal/storage"
 )
 
 // ServiceConfig is the configuration for the start service.
 type ServiceConfig struct {
-	Engine     engine.Engine
+	Engine     sandbox.Engine
 	Repository storage.Repository
 	Logger     log.Logger
 }
@@ -37,7 +37,7 @@ func (c *ServiceConfig) defaults() error {
 
 // Service starts a stopped sandbox.
 type Service struct {
-	engine engine.Engine
+	engine sandbox.Engine
 	repo   storage.Repository
 	logger log.Logger
 }

@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/slok/sbx/internal/app/remove"
-	"github.com/slok/sbx/internal/engine/enginemock"
 	"github.com/slok/sbx/internal/log"
 	"github.com/slok/sbx/internal/model"
+	"github.com/slok/sbx/internal/sandbox/sandboxmock"
 	"github.com/slok/sbx/internal/storage/storagemock"
 )
 
@@ -24,7 +24,7 @@ func TestNewService(t *testing.T) {
 	}{
 		"valid config": {
 			config: remove.ServiceConfig{
-				Engine:     &enginemock.MockEngine{},
+				Engine:     &sandboxmock.MockEngine{},
 				Repository: &storagemock.MockRepository{},
 			},
 			expErr: false,
@@ -58,7 +58,7 @@ func TestService_Run(t *testing.T) {
 
 	tests := map[string]struct {
 		mockRepo   func(m *storagemock.MockRepository)
-		mockEngine func(m *enginemock.MockEngine)
+		mockEngine func(m *sandboxmock.MockEngine)
 		req        remove.Request
 		expErr     bool
 	}{
@@ -73,7 +73,7 @@ func TestService_Run(t *testing.T) {
 				}, nil)
 				m.On("DeleteSandbox", mock.Anything, "01H2QWERTYASDFGZXCVBNMLKJH").Once().Return(nil)
 			},
-			mockEngine: func(m *enginemock.MockEngine) {
+			mockEngine: func(m *sandboxmock.MockEngine) {
 				m.On("Remove", mock.Anything, "01H2QWERTYASDFGZXCVBNMLKJH").Once().Return(nil)
 			},
 			req:    remove.Request{NameOrID: "my-sandbox"},
@@ -89,7 +89,7 @@ func TestService_Run(t *testing.T) {
 					StartedAt: &startedAt,
 				}, nil)
 			},
-			mockEngine: func(m *enginemock.MockEngine) {},
+			mockEngine: func(m *sandboxmock.MockEngine) {},
 			req:        remove.Request{NameOrID: "my-sandbox", Force: false},
 			expErr:     true,
 		},
@@ -104,7 +104,7 @@ func TestService_Run(t *testing.T) {
 				}, nil)
 				m.On("DeleteSandbox", mock.Anything, "01H2QWERTYASDFGZXCVBNMLKJH").Once().Return(nil)
 			},
-			mockEngine: func(m *enginemock.MockEngine) {
+			mockEngine: func(m *sandboxmock.MockEngine) {
 				m.On("Stop", mock.Anything, "01H2QWERTYASDFGZXCVBNMLKJH").Once().Return(nil)
 				m.On("Remove", mock.Anything, "01H2QWERTYASDFGZXCVBNMLKJH").Once().Return(nil)
 			},
@@ -115,7 +115,7 @@ func TestService_Run(t *testing.T) {
 			mockRepo: func(m *storagemock.MockRepository) {
 				m.On("GetSandboxByName", mock.Anything, "nonexistent").Once().Return(nil, model.ErrNotFound)
 			},
-			mockEngine: func(m *enginemock.MockEngine) {},
+			mockEngine: func(m *sandboxmock.MockEngine) {},
 			req:        remove.Request{NameOrID: "nonexistent"},
 			expErr:     true,
 		},
@@ -129,7 +129,7 @@ func TestService_Run(t *testing.T) {
 					StoppedAt: &stoppedAt,
 				}, nil)
 			},
-			mockEngine: func(m *enginemock.MockEngine) {
+			mockEngine: func(m *sandboxmock.MockEngine) {
 				m.On("Remove", mock.Anything, "01H2QWERTYASDFGZXCVBNMLKJH").Once().Return(fmt.Errorf("engine error"))
 			},
 			req:    remove.Request{NameOrID: "my-sandbox"},
@@ -143,7 +143,7 @@ func TestService_Run(t *testing.T) {
 			require := require.New(t)
 
 			mRepo := &storagemock.MockRepository{}
-			mEngine := &enginemock.MockEngine{}
+			mEngine := &sandboxmock.MockEngine{}
 			test.mockRepo(mRepo)
 			test.mockEngine(mEngine)
 

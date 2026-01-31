@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/slok/sbx/internal/app/create"
-	"github.com/slok/sbx/internal/engine/enginemock"
 	"github.com/slok/sbx/internal/log"
 	"github.com/slok/sbx/internal/model"
+	"github.com/slok/sbx/internal/sandbox/sandboxmock"
 	"github.com/slok/sbx/internal/storage/storagemock"
 )
 
@@ -25,7 +25,7 @@ func TestNewService(t *testing.T) {
 	}{
 		"Valid config with all fields": {
 			cfg: create.ServiceConfig{
-				Engine:     &enginemock.MockEngine{},
+				Engine:     &sandboxmock.MockEngine{},
 				Repository: &storagemock.MockRepository{},
 				Logger:     log.Noop,
 			},
@@ -33,7 +33,7 @@ func TestNewService(t *testing.T) {
 		},
 		"Valid config without logger uses Noop": {
 			cfg: create.ServiceConfig{
-				Engine:     &enginemock.MockEngine{},
+				Engine:     &sandboxmock.MockEngine{},
 				Repository: &storagemock.MockRepository{},
 			},
 			expErr: false,
@@ -47,7 +47,7 @@ func TestNewService(t *testing.T) {
 		},
 		"Missing repository returns error": {
 			cfg: create.ServiceConfig{
-				Engine: &enginemock.MockEngine{},
+				Engine: &sandboxmock.MockEngine{},
 			},
 			expErr: true,
 			errMsg: "repository is required",
@@ -73,7 +73,7 @@ func TestNewService(t *testing.T) {
 func TestServiceCreate(t *testing.T) {
 	tests := map[string]struct {
 		config      model.SandboxConfig
-		setupMocks  func(engine *enginemock.MockEngine, repo *storagemock.MockRepository)
+		setupMocks  func(engine *sandboxmock.MockEngine, repo *storagemock.MockRepository)
 		expErr      bool
 		errMsg      string
 		validateRes func(t *testing.T, sb *model.Sandbox)
@@ -88,7 +88,7 @@ func TestServiceCreate(t *testing.T) {
 					DiskGB:   10240,
 				},
 			},
-			setupMocks: func(eng *enginemock.MockEngine, repo *storagemock.MockRepository) {
+			setupMocks: func(eng *sandboxmock.MockEngine, repo *storagemock.MockRepository) {
 				// Check name uniqueness - not found
 				repo.On("GetSandboxByName", mock.Anything, "test-sandbox").
 					Return((*model.Sandbox)(nil), model.ErrNotFound)
@@ -133,7 +133,7 @@ func TestServiceCreate(t *testing.T) {
 					DiskGB:   10240,
 				},
 			},
-			setupMocks: func(eng *enginemock.MockEngine, repo *storagemock.MockRepository) {
+			setupMocks: func(eng *sandboxmock.MockEngine, repo *storagemock.MockRepository) {
 				// Name already exists
 				existingSandbox := &model.Sandbox{
 					ID:   "01HRW9YZTEST000000000002",
@@ -155,7 +155,7 @@ func TestServiceCreate(t *testing.T) {
 					DiskGB:   10240,
 				},
 			},
-			setupMocks: func(eng *enginemock.MockEngine, repo *storagemock.MockRepository) {
+			setupMocks: func(eng *sandboxmock.MockEngine, repo *storagemock.MockRepository) {
 				// No mocks needed - fails at validation
 			},
 			expErr: true,
@@ -171,7 +171,7 @@ func TestServiceCreate(t *testing.T) {
 					DiskGB:   10240,
 				},
 			},
-			setupMocks: func(eng *enginemock.MockEngine, repo *storagemock.MockRepository) {
+			setupMocks: func(eng *sandboxmock.MockEngine, repo *storagemock.MockRepository) {
 				// No mocks needed - fails at validation
 			},
 			expErr: true,
@@ -187,7 +187,7 @@ func TestServiceCreate(t *testing.T) {
 					DiskGB:   10240,
 				},
 			},
-			setupMocks: func(eng *enginemock.MockEngine, repo *storagemock.MockRepository) {
+			setupMocks: func(eng *sandboxmock.MockEngine, repo *storagemock.MockRepository) {
 				// No mocks needed - fails at validation
 			},
 			expErr: true,
@@ -203,7 +203,7 @@ func TestServiceCreate(t *testing.T) {
 					DiskGB:   10240,
 				},
 			},
-			setupMocks: func(eng *enginemock.MockEngine, repo *storagemock.MockRepository) {
+			setupMocks: func(eng *sandboxmock.MockEngine, repo *storagemock.MockRepository) {
 				repo.On("GetSandboxByName", mock.Anything, "test-sandbox").
 					Return((*model.Sandbox)(nil), model.ErrNotFound)
 
@@ -224,7 +224,7 @@ func TestServiceCreate(t *testing.T) {
 					DiskGB:   10240,
 				},
 			},
-			setupMocks: func(eng *enginemock.MockEngine, repo *storagemock.MockRepository) {
+			setupMocks: func(eng *sandboxmock.MockEngine, repo *storagemock.MockRepository) {
 				repo.On("GetSandboxByName", mock.Anything, "test-sandbox").
 					Return((*model.Sandbox)(nil), model.ErrNotFound)
 
@@ -253,7 +253,7 @@ func TestServiceCreate(t *testing.T) {
 					DiskGB:   10240,
 				},
 			},
-			setupMocks: func(eng *enginemock.MockEngine, repo *storagemock.MockRepository) {
+			setupMocks: func(eng *sandboxmock.MockEngine, repo *storagemock.MockRepository) {
 				// Repository check fails with unexpected error
 				repo.On("GetSandboxByName", mock.Anything, "test-sandbox").
 					Return((*model.Sandbox)(nil), errors.New("database connection error"))
@@ -266,7 +266,7 @@ func TestServiceCreate(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			// Setup mocks
-			mockEngine := enginemock.NewMockEngine(t)
+			mockEngine := sandboxmock.NewMockEngine(t)
 			mockRepo := storagemock.NewMockRepository(t)
 			tt.setupMocks(mockEngine, mockRepo)
 

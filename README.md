@@ -263,7 +263,7 @@ make go-gen
 ```
 
 Mocks are generated for:
-- `internal/engine.Engine`
+- `internal/sandbox.Engine`
 - `internal/storage.Repository`
 
 ### Code Quality
@@ -287,7 +287,7 @@ sbx/
 │   ├── model/            # Domain models
 │   ├── log/              # Logging interface
 │   ├── printer/          # Output formatting (table, JSON)
-│   ├── engine/           # Engine interface + implementations
+│   ├── sandbox/           # Sandbox engine interface + implementations
 │   ├── storage/          # Storage interface + implementations
 │   └── app/              # Business logic services
 │       ├── create/       # Create sandbox service
@@ -306,7 +306,7 @@ sbx/
 The project follows a clean architecture pattern:
 
 1. **Domain Layer** (`internal/model`): Core business models and validation
-2. **Engine Layer** (`internal/engine`): Sandbox lifecycle management interface
+2. **Sandbox Layer** (`internal/sandbox`): Sandbox lifecycle management interface
 3. **Storage Layer** (`internal/storage`): Persistence interface with SQLite implementation
 4. **App Layer** (`internal/app`): Business logic orchestration for all operations
 5. **Printer Layer** (`internal/printer`): Output formatting (table, JSON) with time utilities

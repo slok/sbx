@@ -9,7 +9,7 @@ import (
 	"github.com/alecthomas/kingpin/v2"
 
 	"github.com/slok/sbx/internal/app/create"
-	"github.com/slok/sbx/internal/engine/fake"
+	"github.com/slok/sbx/internal/sandbox/fake"
 	"github.com/slok/sbx/internal/storage/io"
 	"github.com/slok/sbx/internal/storage/sqlite"
 )

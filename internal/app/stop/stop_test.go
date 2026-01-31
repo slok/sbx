@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/slok/sbx/internal/app/stop"
-	"github.com/slok/sbx/internal/engine/enginemock"
 	"github.com/slok/sbx/internal/log"
 	"github.com/slok/sbx/internal/model"
+	"github.com/slok/sbx/internal/sandbox/sandboxmock"
 	"github.com/slok/sbx/internal/storage/storagemock"
 )
 
@@ -24,7 +24,7 @@ func TestNewService(t *testing.T) {
 	}{
 		"valid config should create service": {
 			config: stop.ServiceConfig{
-				Engine:     &enginemock.MockEngine{},
+				Engine:     &sandboxmock.MockEngine{},
 				Repository: &storagemock.MockRepository{},
 				Logger:     log.Noop,
 			},
@@ -39,14 +39,14 @@ func TestNewService(t *testing.T) {
 		},
 		"missing repository should fail": {
 			config: stop.ServiceConfig{
-				Engine: &enginemock.MockEngine{},
+				Engine: &sandboxmock.MockEngine{},
 				Logger: log.Noop,
 			},
 			expErr: true,
 		},
 		"nil logger should default to noop": {
 			config: stop.ServiceConfig{
-				Engine:     &enginemock.MockEngine{},
+				Engine:     &sandboxmock.MockEngine{},
 				Repository: &storagemock.MockRepository{},
 			},
 			expErr: false,
@@ -76,7 +76,7 @@ func TestService_Run(t *testing.T) {
 
 	tests := map[string]struct {
 		mockRepo   func(m *storagemock.MockRepository)
-		mockEngine func(m *enginemock.MockEngine)
+		mockEngine func(m *sandboxmock.MockEngine)
 		req        stop.Request
 		expErr     bool
 	}{
@@ -95,7 +95,7 @@ func TestService_Run(t *testing.T) {
 						s.StoppedAt != nil
 				})).Once().Return(nil)
 			},
-			mockEngine: func(m *enginemock.MockEngine) {
+			mockEngine: func(m *sandboxmock.MockEngine) {
 				m.On("Stop", mock.Anything, "01H2QWERTYASDFGZXCVBNMLKJH").Once().Return(nil)
 			},
 			req:    stop.Request{NameOrID: "my-sandbox"},
@@ -115,7 +115,7 @@ func TestService_Run(t *testing.T) {
 					return s.Status == model.SandboxStatusStopped
 				})).Once().Return(nil)
 			},
-			mockEngine: func(m *enginemock.MockEngine) {
+			mockEngine: func(m *sandboxmock.MockEngine) {
 				m.On("Stop", mock.Anything, "01H2QWERTYASDFGZXCVBNMLKJH").Once().Return(nil)
 			},
 			req:    stop.Request{NameOrID: "01H2QWERTYASDFGZXCVBNMLKJH"},
@@ -133,7 +133,7 @@ func TestService_Run(t *testing.T) {
 					StoppedAt: &stoppedAt,
 				}, nil)
 			},
-			mockEngine: func(m *enginemock.MockEngine) {
+			mockEngine: func(m *sandboxmock.MockEngine) {
 				// Engine stop should not be called
 			},
 			req:    stop.Request{NameOrID: "my-sandbox"},
@@ -148,7 +148,7 @@ func TestService_Run(t *testing.T) {
 					CreatedAt: createdAt,
 				}, nil)
 			},
-			mockEngine: func(m *enginemock.MockEngine) {
+			mockEngine: func(m *sandboxmock.MockEngine) {
 				// Engine stop should not be called
 			},
 			req:    stop.Request{NameOrID: "my-sandbox"},
@@ -164,7 +164,7 @@ func TestService_Run(t *testing.T) {
 					Error:     "provisioning failed",
 				}, nil)
 			},
-			mockEngine: func(m *enginemock.MockEngine) {
+			mockEngine: func(m *sandboxmock.MockEngine) {
 				// Engine stop should not be called
 			},
 			req:    stop.Request{NameOrID: "my-sandbox"},
@@ -174,7 +174,7 @@ func TestService_Run(t *testing.T) {
 			mockRepo: func(m *storagemock.MockRepository) {
 				m.On("GetSandboxByName", mock.Anything, "nonexistent").Once().Return(nil, model.ErrNotFound)
 			},
-			mockEngine: func(m *enginemock.MockEngine) {
+			mockEngine: func(m *sandboxmock.MockEngine) {
 				// Engine stop should not be called
 			},
 			req:    stop.Request{NameOrID: "nonexistent"},
@@ -190,7 +190,7 @@ func TestService_Run(t *testing.T) {
 					StartedAt: &startedAt,
 				}, nil)
 			},
-			mockEngine: func(m *enginemock.MockEngine) {
+			mockEngine: func(m *sandboxmock.MockEngine) {
 				m.On("Stop", mock.Anything, "01H2QWERTYASDFGZXCVBNMLKJH").Once().Return(fmt.Errorf("engine error"))
 			},
 			req:    stop.Request{NameOrID: "my-sandbox"},
@@ -207,7 +207,7 @@ func TestService_Run(t *testing.T) {
 				}, nil)
 				m.On("UpdateSandbox", mock.Anything, mock.Anything).Once().Return(fmt.Errorf("database error"))
 			},
-			mockEngine: func(m *enginemock.MockEngine) {
+			mockEngine: func(m *sandboxmock.MockEngine) {
 				m.On("Stop", mock.Anything, "01H2QWERTYASDFGZXCVBNMLKJH").Once().Return(nil)
 			},
 			req:    stop.Request{NameOrID: "my-sandbox"},
@@ -222,7 +222,7 @@ func TestService_Run(t *testing.T) {
 
 			// Setup
 			mRepo := &storagemock.MockRepository{}
-			mEngine := &enginemock.MockEngine{}
+			mEngine := &sandboxmock.MockEngine{}
 			test.mockRepo(mRepo)
 			test.mockEngine(mEngine)
 

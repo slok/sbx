@@ -5,15 +5,15 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/slok/sbx/internal/engine"
 	"github.com/slok/sbx/internal/log"
 	"github.com/slok/sbx/internal/model"
+	"github.com/slok/sbx/internal/sandbox"
 	"github.com/slok/sbx/internal/storage"
 )
 
 // ServiceConfig is the configuration for the remove service.
 type ServiceConfig struct {
-	Engine     engine.Engine
+	Engine     sandbox.Engine
 	Repository storage.Repository
 	Logger     log.Logger
 }
@@ -36,7 +36,7 @@ func (c *ServiceConfig) defaults() error {
 
 // Service removes a sandbox.
 type Service struct {
-	engine engine.Engine
+	engine sandbox.Engine
 	repo   storage.Repository
 	logger log.Logger
 }

@@ -1,10 +1,10 @@
 with-expecter: true
 packages:
-  github.com/slok/sbx/internal/engine:
+  github.com/slok/sbx/internal/sandbox:
     config:
-      dir: "{{.InterfaceDir}}/enginemock"
+      dir: "{{.InterfaceDir}}/sandboxmock"
       filename: "mocks.go"
-      outpkg: "enginemock"
+      outpkg: "sandboxmock"
     interfaces:
       Engine:
   github.com/slok/sbx/internal/storage:

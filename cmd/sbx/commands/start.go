@@ -7,8 +7,8 @@ import (
 	"github.com/alecthomas/kingpin/v2"
 
 	"github.com/slok/sbx/internal/app/start"
-	"github.com/slok/sbx/internal/engine/fake"
 	"github.com/slok/sbx/internal/printer"
+	"github.com/slok/sbx/internal/sandbox/fake"
 	"github.com/slok/sbx/internal/storage/sqlite"
 )
 
