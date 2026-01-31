@@ -9,6 +9,8 @@ import (
 	"github.com/alecthomas/kingpin/v2"
 
 	"github.com/slok/sbx/internal/app/create"
+	"github.com/slok/sbx/internal/sandbox"
+	"github.com/slok/sbx/internal/sandbox/docker"
 	"github.com/slok/sbx/internal/sandbox/fake"
 	"github.com/slok/sbx/internal/storage/io"
 	"github.com/slok/sbx/internal/storage/sqlite"
@@ -71,10 +73,20 @@ func (c CreateCommand) Run(ctx context.Context) error {
 		return fmt.Errorf("could not create repository: %w", err)
 	}
 
-	// Initialize engine (fake for now).
-	eng, err := fake.NewEngine(fake.EngineConfig{
-		Logger: logger,
-	})
+	// Initialize engine based on config.
+	var eng sandbox.Engine
+	if cfg.DockerEngine != nil {
+		eng, err = docker.NewEngine(docker.EngineConfig{
+			Logger: logger,
+		})
+	} else if cfg.FirecrackerEngine != nil {
+		return fmt.Errorf("firecracker engine not yet implemented")
+	} else {
+		// Fallback to fake engine for testing
+		eng, err = fake.NewEngine(fake.EngineConfig{
+			Logger: logger,
+		})
+	}
 	if err != nil {
 		return fmt.Errorf("could not create engine: %w", err)
 	}
@@ -102,7 +114,12 @@ func (c CreateCommand) Run(ctx context.Context) error {
 	fmt.Fprintf(c.rootCmd.Stdout, "  ID:     %s\n", sandbox.ID)
 	fmt.Fprintf(c.rootCmd.Stdout, "  Name:   %s\n", sandbox.Name)
 	fmt.Fprintf(c.rootCmd.Stdout, "  Status: %s\n", sandbox.Status)
-	fmt.Fprintf(c.rootCmd.Stdout, "  Base:   %s\n", sandbox.Config.Base)
+	if sandbox.Config.DockerEngine != nil {
+		fmt.Fprintf(c.rootCmd.Stdout, "  Engine: docker\n")
+		fmt.Fprintf(c.rootCmd.Stdout, "  Image:  %s\n", sandbox.Config.DockerEngine.Image)
+	} else if sandbox.Config.FirecrackerEngine != nil {
+		fmt.Fprintf(c.rootCmd.Stdout, "  Engine: firecracker\n")
+	}
 
 	return nil
 }

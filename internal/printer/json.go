@@ -28,17 +28,25 @@ type listItem struct {
 
 // statusOutput represents the full sandbox status output.
 type statusOutput struct {
-	ID        string     `json:"id"`
-	Name      string     `json:"name"`
-	Status    string     `json:"status"`
-	Base      string     `json:"base"`
-	VCPUs     int        `json:"vcpus"`
-	MemoryMB  int        `json:"memory_mb"`
-	DiskGB    int        `json:"disk_gb"`
-	CreatedAt time.Time  `json:"created_at"`
-	StartedAt *time.Time `json:"started_at"`
-	StoppedAt *time.Time `json:"stopped_at"`
-	Error     string     `json:"error,omitempty"`
+	ID        string        `json:"id"`
+	Name      string        `json:"name"`
+	Status    string        `json:"status"`
+	Engine    *engineOutput `json:"engine,omitempty"`
+	VCPUs     int           `json:"vcpus"`
+	MemoryMB  int           `json:"memory_mb"`
+	DiskGB    int           `json:"disk_gb"`
+	CreatedAt time.Time     `json:"created_at"`
+	StartedAt *time.Time    `json:"started_at"`
+	StoppedAt *time.Time    `json:"stopped_at"`
+	Error     string        `json:"error,omitempty"`
+}
+
+// engineOutput represents engine configuration output.
+type engineOutput struct {
+	Type        string `json:"type"` // "docker" or "firecracker"
+	Image       string `json:"image,omitempty"`
+	RootFS      string `json:"root_fs,omitempty"`
+	KernelImage string `json:"kernel_image,omitempty"`
 }
 
 // messageOutput represents a simple message output.
@@ -69,7 +77,6 @@ func (j *JSONPrinter) PrintStatus(sandbox model.Sandbox) error {
 		ID:        sandbox.ID,
 		Name:      sandbox.Name,
 		Status:    string(sandbox.Status),
-		Base:      sandbox.Config.Base,
 		VCPUs:     sandbox.Config.Resources.VCPUs,
 		MemoryMB:  sandbox.Config.Resources.MemoryMB,
 		DiskGB:    sandbox.Config.Resources.DiskGB,
@@ -77,6 +84,20 @@ func (j *JSONPrinter) PrintStatus(sandbox model.Sandbox) error {
 		StartedAt: nil,
 		StoppedAt: nil,
 		Error:     sandbox.Error,
+	}
+
+	// Add engine info
+	if sandbox.Config.DockerEngine != nil {
+		output.Engine = &engineOutput{
+			Type:  "docker",
+			Image: sandbox.Config.DockerEngine.Image,
+		}
+	} else if sandbox.Config.FirecrackerEngine != nil {
+		output.Engine = &engineOutput{
+			Type:        "firecracker",
+			RootFS:      sandbox.Config.FirecrackerEngine.RootFS,
+			KernelImage: sandbox.Config.FirecrackerEngine.KernelImage,
+		}
 	}
 
 	if sandbox.StartedAt != nil {

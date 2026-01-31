@@ -1,5 +1,7 @@
 name: example-sandbox
-base: ubuntu:22.04
+engine:
+  docker:
+    image: ubuntu:22.04
 packages:
   - curl
   - git

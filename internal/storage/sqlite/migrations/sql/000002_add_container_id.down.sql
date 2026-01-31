@@ -1,0 +1,3 @@
+-- SQLite doesn't support DROP COLUMN in older versions
+-- For down migration, we would need to recreate the table
+-- For now, leave container_id column (safe, just unused)

@@ -90,7 +90,9 @@ func TestTablePrinter_PrintStatus(t *testing.T) {
 				CreatedAt: createdAt,
 				StartedAt: &startedAt,
 				Config: model.SandboxConfig{
-					Base: "ubuntu:22.04",
+					DockerEngine: &model.DockerEngineConfig{
+						Image: "ubuntu:22.04",
+					},
 					Resources: model.Resources{
 						VCPUs:    2,
 						MemoryMB: 2048,
@@ -102,7 +104,8 @@ func TestTablePrinter_PrintStatus(t *testing.T) {
 				"Name:", "my-sandbox",
 				"ID:", "01234567890ABCDEFGHIJKLMNOP",
 				"Status:", "running",
-				"Base:", "ubuntu:22.04",
+				"Engine:", "docker",
+				"Image:", "ubuntu:22.04",
 				"VCPUs:", "2",
 				"Memory:", "2048 MB",
 				"Disk:", "10 GB",
@@ -120,7 +123,9 @@ func TestTablePrinter_PrintStatus(t *testing.T) {
 				StartedAt: &startedAt,
 				StoppedAt: &stoppedAt,
 				Config: model.SandboxConfig{
-					Base: "ubuntu:22.04",
+					DockerEngine: &model.DockerEngineConfig{
+						Image: "ubuntu:22.04",
+					},
 					Resources: model.Resources{
 						VCPUs:    2,
 						MemoryMB: 2048,
@@ -144,7 +149,9 @@ func TestTablePrinter_PrintStatus(t *testing.T) {
 				CreatedAt: createdAt,
 				Error:     "failed to provision VM",
 				Config: model.SandboxConfig{
-					Base: "ubuntu:22.04",
+					DockerEngine: &model.DockerEngineConfig{
+						Image: "ubuntu:22.04",
+					},
 					Resources: model.Resources{
 						VCPUs:    2,
 						MemoryMB: 2048,
@@ -305,7 +312,9 @@ func TestJSONPrinter_PrintStatus(t *testing.T) {
 				CreatedAt: createdAt,
 				StartedAt: &startedAt,
 				Config: model.SandboxConfig{
-					Base: "ubuntu:22.04",
+					DockerEngine: &model.DockerEngineConfig{
+						Image: "ubuntu:22.04",
+					},
 					Resources: model.Resources{
 						VCPUs:    2,
 						MemoryMB: 2048,
@@ -317,7 +326,10 @@ func TestJSONPrinter_PrintStatus(t *testing.T) {
   "id": "01234567890ABCDEFGHIJKLMNOP",
   "name": "my-sandbox",
   "status": "running",
-  "base": "ubuntu:22.04",
+  "engine": {
+    "type": "docker",
+    "image": "ubuntu:22.04"
+  },
   "vcpus": 2,
   "memory_mb": 2048,
   "disk_gb": 10,
@@ -335,7 +347,9 @@ func TestJSONPrinter_PrintStatus(t *testing.T) {
 				StartedAt: &startedAt,
 				StoppedAt: &stoppedAt,
 				Config: model.SandboxConfig{
-					Base: "ubuntu:22.04",
+					DockerEngine: &model.DockerEngineConfig{
+						Image: "ubuntu:22.04",
+					},
 					Resources: model.Resources{
 						VCPUs:    4,
 						MemoryMB: 4096,
@@ -347,7 +361,10 @@ func TestJSONPrinter_PrintStatus(t *testing.T) {
   "id": "01234567890ABCDEFGHIJKLMNOP",
   "name": "stopped-sandbox",
   "status": "stopped",
-  "base": "ubuntu:22.04",
+  "engine": {
+    "type": "docker",
+    "image": "ubuntu:22.04"
+  },
   "vcpus": 4,
   "memory_mb": 4096,
   "disk_gb": 20,
@@ -364,7 +381,9 @@ func TestJSONPrinter_PrintStatus(t *testing.T) {
 				CreatedAt: createdAt,
 				Error:     "failed to provision VM",
 				Config: model.SandboxConfig{
-					Base: "ubuntu:22.04",
+					DockerEngine: &model.DockerEngineConfig{
+						Image: "ubuntu:22.04",
+					},
 					Resources: model.Resources{
 						VCPUs:    2,
 						MemoryMB: 2048,
@@ -376,7 +395,10 @@ func TestJSONPrinter_PrintStatus(t *testing.T) {
   "id": "01234567890ABCDEFGHIJKLMNOP",
   "name": "failed-sandbox",
   "status": "failed",
-  "base": "ubuntu:22.04",
+  "engine": {
+    "type": "docker",
+    "image": "ubuntu:22.04"
+  },
   "vcpus": 2,
   "memory_mb": 2048,
   "disk_gb": 10,

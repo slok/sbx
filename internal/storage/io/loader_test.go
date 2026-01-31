@@ -19,11 +19,13 @@ func TestConfigYAMLRepository_GetConfig(t *testing.T) {
 		expErr bool
 		errMsg string
 	}{
-		"Valid configuration should load successfully": {
+		"Valid Docker configuration should load successfully": {
 			fs: fstest.MapFS{
 				"sandbox.yaml": &fstest.MapFile{
 					Data: []byte(`name: test-sandbox
-base: ubuntu:22.04
+engine:
+  docker:
+    image: ubuntu:22.04
 packages:
   - curl
   - git
@@ -39,8 +41,10 @@ resources:
 			},
 			path: "sandbox.yaml",
 			expCfg: model.SandboxConfig{
-				Name:     "test-sandbox",
-				Base:     "ubuntu:22.04",
+				Name: "test-sandbox",
+				DockerEngine: &model.DockerEngineConfig{
+					Image: "ubuntu:22.04",
+				},
 				Packages: []string{"curl", "git"},
 				Env:      map[string]string{"FOO": "bar", "DEBUG": "true"},
 				Resources: model.Resources{
@@ -51,11 +55,43 @@ resources:
 			},
 			expErr: false,
 		},
-		"Minimal valid configuration should load": {
+		"Valid Firecracker configuration should load successfully": {
+			fs: fstest.MapFS{
+				"firecracker.yaml": &fstest.MapFile{
+					Data: []byte(`name: fc-sandbox
+engine:
+  firecracker:
+    root_fs: /path/to/rootfs.ext4
+    kernel_image: /path/to/vmlinux
+resources:
+  vcpus: 2
+  memory_mb: 2048
+  disk_gb: 10
+`),
+				},
+			},
+			path: "firecracker.yaml",
+			expCfg: model.SandboxConfig{
+				Name: "fc-sandbox",
+				FirecrackerEngine: &model.FirecrackerEngineConfig{
+					RootFS:      "/path/to/rootfs.ext4",
+					KernelImage: "/path/to/vmlinux",
+				},
+				Resources: model.Resources{
+					VCPUs:    2,
+					MemoryMB: 2048,
+					DiskGB:   10,
+				},
+			},
+			expErr: false,
+		},
+		"Minimal Docker configuration should load": {
 			fs: fstest.MapFS{
 				"minimal.yaml": &fstest.MapFile{
 					Data: []byte(`name: minimal
-base: alpine:latest
+engine:
+  docker:
+    image: alpine:latest
 resources:
   vcpus: 1
   memory_mb: 512
@@ -65,8 +101,10 @@ resources:
 			},
 			path: "minimal.yaml",
 			expCfg: model.SandboxConfig{
-				Name:     "minimal",
-				Base:     "alpine:latest",
+				Name: "minimal",
+				DockerEngine: &model.DockerEngineConfig{
+					Image: "alpine:latest",
+				},
 				Packages: nil,
 				Env:      nil,
 				Resources: model.Resources{
@@ -96,7 +134,9 @@ resources:
 		"Missing name should return validation error": {
 			fs: fstest.MapFS{
 				"no-name.yaml": &fstest.MapFile{
-					Data: []byte(`base: ubuntu:22.04
+					Data: []byte(`engine:
+  docker:
+    image: ubuntu:22.04
 resources:
   vcpus: 2
   memory_mb: 2048
@@ -108,9 +148,9 @@ resources:
 			expErr: true,
 			errMsg: "name is required",
 		},
-		"Missing base should return validation error": {
+		"Missing engine should return validation error": {
 			fs: fstest.MapFS{
-				"no-base.yaml": &fstest.MapFile{
+				"no-engine.yaml": &fstest.MapFile{
 					Data: []byte(`name: test
 resources:
   vcpus: 2
@@ -119,15 +159,56 @@ resources:
 `),
 				},
 			},
-			path:   "no-base.yaml",
+			path:   "no-engine.yaml",
 			expErr: true,
-			errMsg: "base is required",
+			errMsg: "exactly one engine must be specified",
+		},
+		"Both engines specified should return validation error": {
+			fs: fstest.MapFS{
+				"both-engines.yaml": &fstest.MapFile{
+					Data: []byte(`name: test
+engine:
+  docker:
+    image: ubuntu:22.04
+  firecracker:
+    root_fs: /path/to/rootfs.ext4
+    kernel_image: /path/to/vmlinux
+resources:
+  vcpus: 2
+  memory_mb: 2048
+  disk_gb: 10
+`),
+				},
+			},
+			path:   "both-engines.yaml",
+			expErr: true,
+			errMsg: "only one engine can be specified",
+		},
+		"Docker engine with missing image should return error": {
+			fs: fstest.MapFS{
+				"no-image.yaml": &fstest.MapFile{
+					Data: []byte(`name: test
+engine:
+  docker:
+    image: ""
+resources:
+  vcpus: 2
+  memory_mb: 2048
+  disk_gb: 10
+`),
+				},
+			},
+			path:   "no-image.yaml",
+			expErr: true,
+			errMsg: "docker engine image is required",
 		},
 		"Invalid resources (zero vcpus) should return error": {
 			fs: fstest.MapFS{
 				"invalid-vcpus.yaml": &fstest.MapFile{
 					Data: []byte(`name: test
-base: ubuntu:22.04
+engine:
+  docker:
+    image: ubuntu:22.04
 resources:
   vcpus: 0
   memory_mb: 2048
@@ -143,7 +224,9 @@ resources:
 			fs: fstest.MapFS{
 				"invalid-memory.yaml": &fstest.MapFile{
 					Data: []byte(`name: test
-base: ubuntu:22.04
+engine:
+  docker:
+    image: ubuntu:22.04
 resources:
   vcpus: 2
   memory_mb: -1024
@@ -159,7 +242,9 @@ resources:
 			fs: fstest.MapFS{
 				"invalid-disk.yaml": &fstest.MapFile{
 					Data: []byte(`name: test
-base: ubuntu:22.04
+engine:
+  docker:
+    image: ubuntu:22.04
 resources:
   vcpus: 2
   memory_mb: 2048
@@ -194,7 +279,9 @@ func TestConfigYAMLRepository_GetConfig_ContextCancellation(t *testing.T) {
 	fs := fstest.MapFS{
 		"test.yaml": &fstest.MapFile{
 			Data: []byte(`name: test
-base: ubuntu:22.04
+engine:
+  docker:
+    image: ubuntu:22.04
 resources:
   vcpus: 2
   memory_mb: 2048

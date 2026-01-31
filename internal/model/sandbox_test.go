@@ -14,10 +14,28 @@ func TestSandboxConfigValidate(t *testing.T) {
 		config model.SandboxConfig
 		expErr bool
 	}{
-		"A valid config should not fail": {
+		"A valid Docker config should not fail": {
 			config: model.SandboxConfig{
 				Name: "test",
-				Base: "ubuntu-22.04",
+				DockerEngine: &model.DockerEngineConfig{
+					Image: "ubuntu:22.04",
+				},
+				Resources: model.Resources{
+					VCPUs:    2,
+					MemoryMB: 2048,
+					DiskGB:   10,
+				},
+			},
+			expErr: false,
+		},
+
+		"A valid Firecracker config should not fail": {
+			config: model.SandboxConfig{
+				Name: "test",
+				FirecrackerEngine: &model.FirecrackerEngineConfig{
+					RootFS:      "/path/to/rootfs.ext4",
+					KernelImage: "/path/to/vmlinux",
+				},
 				Resources: model.Resources{
 					VCPUs:    2,
 					MemoryMB: 2048,
@@ -29,7 +47,9 @@ func TestSandboxConfigValidate(t *testing.T) {
 
 		"Missing name should fail": {
 			config: model.SandboxConfig{
-				Base: "ubuntu-22.04",
+				DockerEngine: &model.DockerEngineConfig{
+					Image: "ubuntu:22.04",
+				},
 				Resources: model.Resources{
 					VCPUs:    2,
 					MemoryMB: 2048,
@@ -39,9 +59,73 @@ func TestSandboxConfigValidate(t *testing.T) {
 			expErr: true,
 		},
 
-		"Missing base should fail": {
+		"Missing engine should fail": {
 			config: model.SandboxConfig{
 				Name: "test",
+				Resources: model.Resources{
+					VCPUs:    2,
+					MemoryMB: 2048,
+					DiskGB:   10,
+				},
+			},
+			expErr: true,
+		},
+
+		"Both engines specified should fail": {
+			config: model.SandboxConfig{
+				Name: "test",
+				DockerEngine: &model.DockerEngineConfig{
+					Image: "ubuntu:22.04",
+				},
+				FirecrackerEngine: &model.FirecrackerEngineConfig{
+					RootFS:      "/path/to/rootfs.ext4",
+					KernelImage: "/path/to/vmlinux",
+				},
+				Resources: model.Resources{
+					VCPUs:    2,
+					MemoryMB: 2048,
+					DiskGB:   10,
+				},
+			},
+			expErr: true,
+		},
+
+		"Docker engine with empty image should fail": {
+			config: model.SandboxConfig{
+				Name: "test",
+				DockerEngine: &model.DockerEngineConfig{
+					Image: "",
+				},
+				Resources: model.Resources{
+					VCPUs:    2,
+					MemoryMB: 2048,
+					DiskGB:   10,
+				},
+			},
+			expErr: true,
+		},
+
+		"Firecracker engine with missing rootfs should fail": {
+			config: model.SandboxConfig{
+				Name: "test",
+				FirecrackerEngine: &model.FirecrackerEngineConfig{
+					KernelImage: "/path/to/vmlinux",
+				},
+				Resources: model.Resources{
+					VCPUs:    2,
+					MemoryMB: 2048,
+					DiskGB:   10,
+				},
+			},
+			expErr: true,
+		},
+
+		"Firecracker engine with missing kernel should fail": {
+			config: model.SandboxConfig{
+				Name: "test",
+				FirecrackerEngine: &model.FirecrackerEngineConfig{
+					RootFS: "/path/to/rootfs.ext4",
+				},
 				Resources: model.Resources{
 					VCPUs:    2,
 					MemoryMB: 2048,
@@ -54,7 +138,9 @@ func TestSandboxConfigValidate(t *testing.T) {
 		"Zero VCPUs should fail": {
 			config: model.SandboxConfig{
 				Name: "test",
-				Base: "ubuntu-22.04",
+				DockerEngine: &model.DockerEngineConfig{
+					Image: "ubuntu:22.04",
+				},
 				Resources: model.Resources{
 					VCPUs:    0,
 					MemoryMB: 2048,
@@ -67,7 +153,9 @@ func TestSandboxConfigValidate(t *testing.T) {
 		"Negative VCPUs should fail": {
 			config: model.SandboxConfig{
 				Name: "test",
-				Base: "ubuntu-22.04",
+				DockerEngine: &model.DockerEngineConfig{
+					Image: "ubuntu:22.04",
+				},
 				Resources: model.Resources{
 					VCPUs:    -1,
 					MemoryMB: 2048,
@@ -80,7 +168,9 @@ func TestSandboxConfigValidate(t *testing.T) {
 		"Zero memory should fail": {
 			config: model.SandboxConfig{
 				Name: "test",
-				Base: "ubuntu-22.04",
+				DockerEngine: &model.DockerEngineConfig{
+					Image: "ubuntu:22.04",
+				},
 				Resources: model.Resources{
 					VCPUs:    2,
 					MemoryMB: 0,
@@ -93,7 +183,9 @@ func TestSandboxConfigValidate(t *testing.T) {
 		"Negative memory should fail": {
 			config: model.SandboxConfig{
 				Name: "test",
-				Base: "ubuntu-22.04",
+				DockerEngine: &model.DockerEngineConfig{
+					Image: "ubuntu:22.04",
+				},
 				Resources: model.Resources{
 					VCPUs:    2,
 					MemoryMB: -1,
@@ -106,7 +198,9 @@ func TestSandboxConfigValidate(t *testing.T) {
 		"Zero disk should fail": {
 			config: model.SandboxConfig{
 				Name: "test",
-				Base: "ubuntu-22.04",
+				DockerEngine: &model.DockerEngineConfig{
+					Image: "ubuntu:22.04",
+				},
 				Resources: model.Resources{
 					VCPUs:    2,
 					MemoryMB: 2048,
@@ -119,7 +213,9 @@ func TestSandboxConfigValidate(t *testing.T) {
 		"Negative disk should fail": {
 			config: model.SandboxConfig{
 				Name: "test",
-				Base: "ubuntu-22.04",
+				DockerEngine: &model.DockerEngineConfig{
+					Image: "ubuntu:22.04",
+				},
 				Resources: model.Resources{
 					VCPUs:    2,
 					MemoryMB: 2048,
@@ -131,8 +227,10 @@ func TestSandboxConfigValidate(t *testing.T) {
 
 		"Config with optional fields should not fail": {
 			config: model.SandboxConfig{
-				Name:     "test",
-				Base:     "ubuntu-22.04",
+				Name: "test",
+				DockerEngine: &model.DockerEngineConfig{
+					Image: "ubuntu:22.04",
+				},
 				Packages: []string{"git", "curl"},
 				Env:      map[string]string{"EDITOR": "vim"},
 				Resources: model.Resources{
