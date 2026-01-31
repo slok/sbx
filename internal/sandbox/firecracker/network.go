@@ -3,32 +3,69 @@ package firecracker
 import (
 	"context"
 	"fmt"
+	"net"
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/vishvananda/netlink"
 )
 
-// createTAP creates a TAP device for the VM.
+// createTAP creates a TAP device for the VM using netlink.
+// This requires CAP_NET_ADMIN capability instead of root.
 func (e *Engine) createTAP(tapDevice, gateway string) error {
-	// Create TAP device
-	if err := e.runCmd("ip", "tuntap", "add", "dev", tapDevice, "mode", "tap"); err != nil {
-		// Ignore if already exists
-		if !strings.Contains(err.Error(), "File exists") {
-			return fmt.Errorf("failed to create TAP device %s: %w", tapDevice, err)
-		}
+	// Check if device already exists
+	if link, err := netlink.LinkByName(tapDevice); err == nil {
 		e.logger.Debugf("TAP device %s already exists", tapDevice)
+		// Ensure it's up
+		if err := netlink.LinkSetUp(link); err != nil {
+			return fmt.Errorf("failed to bring up existing TAP device %s: %w", tapDevice, err)
+		}
+		return nil
 	}
 
-	// Assign IP address to TAP device (gateway address with /24)
-	if err := e.runCmd("ip", "addr", "add", gateway+"/24", "dev", tapDevice); err != nil {
-		// Ignore if already assigned
-		if !strings.Contains(err.Error(), "File exists") {
-			return fmt.Errorf("failed to assign IP to TAP device %s: %w", tapDevice, err)
+	// Create TAP device
+	tap := &netlink.Tuntap{
+		LinkAttrs: netlink.LinkAttrs{
+			Name: tapDevice,
+		},
+		Mode:  netlink.TUNTAP_MODE_TAP,
+		Flags: netlink.TUNTAP_DEFAULTS,
+	}
+
+	if err := netlink.LinkAdd(tap); err != nil {
+		return fmt.Errorf("failed to create TAP device %s: %w", tapDevice, err)
+	}
+
+	// Get the link after creation (needed for subsequent operations)
+	link, err := netlink.LinkByName(tapDevice)
+	if err != nil {
+		return fmt.Errorf("failed to get TAP device %s after creation: %w", tapDevice, err)
+	}
+
+	// Parse gateway IP and create address with /24 mask
+	gatewayIP := net.ParseIP(gateway)
+	if gatewayIP == nil {
+		return fmt.Errorf("invalid gateway IP: %s", gateway)
+	}
+
+	addr := &netlink.Addr{
+		IPNet: &net.IPNet{
+			IP:   gatewayIP,
+			Mask: net.CIDRMask(24, 32),
+		},
+	}
+
+	// Assign IP address to TAP device
+	if err := netlink.AddrAdd(link, addr); err != nil {
+		// Check if address already exists
+		if !strings.Contains(err.Error(), "file exists") {
+			return fmt.Errorf("failed to assign IP %s to TAP device %s: %w", gateway, tapDevice, err)
 		}
 	}
 
 	// Bring up TAP device
-	if err := e.runCmd("ip", "link", "set", tapDevice, "up"); err != nil {
+	if err := netlink.LinkSetUp(link); err != nil {
 		return fmt.Errorf("failed to bring up TAP device %s: %w", tapDevice, err)
 	}
 
@@ -36,22 +73,52 @@ func (e *Engine) createTAP(tapDevice, gateway string) error {
 	return nil
 }
 
-// deleteTAP deletes a TAP device.
+// deleteTAP deletes a TAP device using netlink.
 func (e *Engine) deleteTAP(tapDevice string) error {
-	if err := e.runCmd("ip", "link", "del", tapDevice); err != nil {
-		// Ignore if doesn't exist
-		if strings.Contains(err.Error(), "Cannot find device") {
+	link, err := netlink.LinkByName(tapDevice)
+	if err != nil {
+		// Device doesn't exist, that's fine
+		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "no such") {
 			return nil
 		}
+		return fmt.Errorf("failed to find TAP device %s: %w", tapDevice, err)
+	}
+
+	if err := netlink.LinkDel(link); err != nil {
 		return fmt.Errorf("failed to delete TAP device %s: %w", tapDevice, err)
 	}
+
 	e.logger.Debugf("Deleted TAP device %s", tapDevice)
 	return nil
 }
 
+// getDefaultInterface returns the name of the default outbound network interface using netlink.
+func (e *Engine) getDefaultInterface() (string, error) {
+	// Get all routes
+	routes, err := netlink.RouteList(nil, netlink.FAMILY_V4)
+	if err != nil {
+		return "", fmt.Errorf("failed to list routes: %w", err)
+	}
+
+	// Find the default route (Dst == nil means default)
+	for _, route := range routes {
+		if route.Dst == nil && route.LinkIndex > 0 {
+			// Get the link by index
+			link, err := netlink.LinkByIndex(route.LinkIndex)
+			if err != nil {
+				continue
+			}
+			return link.Attrs().Name, nil
+		}
+	}
+
+	return "", fmt.Errorf("no default route found")
+}
+
 // setupIPTables sets up NAT and forwarding rules for the VM.
+// Note: iptables still requires the iptables command as there's no pure Go library
+// that's as reliable. However, CAP_NET_ADMIN is sufficient for iptables rules.
 func (e *Engine) setupIPTables(tapDevice, gateway, vmIP string) error {
-	// Get the default outbound interface
 	outInterface, err := e.getDefaultInterface()
 	if err != nil {
 		return fmt.Errorf("failed to get default interface: %w", err)
@@ -82,7 +149,6 @@ func (e *Engine) setupIPTables(tapDevice, gateway, vmIP string) error {
 func (e *Engine) cleanupIPTables(tapDevice, gateway, vmIP string) error {
 	outInterface, err := e.getDefaultInterface()
 	if err != nil {
-		// Can't cleanup if we don't know the interface
 		e.logger.Warningf("Could not determine default interface for cleanup: %v", err)
 		return nil
 	}
@@ -186,26 +252,6 @@ func (e *Engine) sshExec(ctx context.Context, vmIP, sshKeyPath string, command [
 		return fmt.Errorf("ssh exec failed: %w, output: %s", err, string(output))
 	}
 	return nil
-}
-
-// getDefaultInterface returns the name of the default outbound network interface.
-func (e *Engine) getDefaultInterface() (string, error) {
-	// Get default route and extract interface name
-	cmd := exec.Command("ip", "route", "show", "default")
-	output, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("failed to get default route: %w", err)
-	}
-
-	// Parse output: "default via 192.168.1.1 dev eth0 ..."
-	fields := strings.Fields(string(output))
-	for i, f := range fields {
-		if f == "dev" && i+1 < len(fields) {
-			return fields[i+1], nil
-		}
-	}
-
-	return "", fmt.Errorf("could not parse default interface from: %s", string(output))
 }
 
 // subnetFromGateway converts gateway IP to subnet CIDR (e.g., 10.1.2.1 -> 10.1.2.0/24).
