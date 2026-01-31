@@ -100,9 +100,19 @@ func (e *Engine) getDefaultInterface() (string, error) {
 		return "", fmt.Errorf("failed to list routes: %w", err)
 	}
 
-	// Find the default route (Dst == nil means default)
+	// Find the default route
+	// Default route can be identified by:
+	// - Dst == nil, OR
+	// - Dst.IP is all zeros (0.0.0.0/0)
 	for _, route := range routes {
-		if route.Dst == nil && route.LinkIndex > 0 {
+		isDefault := false
+		if route.Dst == nil {
+			isDefault = true
+		} else if route.Dst.IP.Equal(net.IPv4zero) {
+			isDefault = true
+		}
+
+		if isDefault && route.LinkIndex > 0 {
 			// Get the link by index
 			link, err := netlink.LinkByIndex(route.LinkIndex)
 			if err != nil {
