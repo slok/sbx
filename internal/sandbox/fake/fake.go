@@ -68,7 +68,11 @@ func (e *Engine) Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sa
 		// Complete the task immediately since fake engine is instant
 		tsk, _ := e.taskMgr.NextTask(ctx, id, "create")
 		if tsk != nil {
-			defer e.taskMgr.CompleteTask(ctx, tsk.ID)
+			defer func() {
+				if err := e.taskMgr.CompleteTask(ctx, tsk.ID); err != nil {
+					e.logger.Errorf("Failed to complete task %s: %v", tsk.ID, err)
+				}
+			}()
 		}
 	}
 
@@ -102,7 +106,11 @@ func (e *Engine) Start(ctx context.Context, id string) error {
 		// Complete the task immediately since fake engine is instant
 		tsk, _ := e.taskMgr.NextTask(ctx, id, "start")
 		if tsk != nil {
-			defer e.taskMgr.CompleteTask(ctx, tsk.ID)
+			defer func() {
+				if err := e.taskMgr.CompleteTask(ctx, tsk.ID); err != nil {
+					e.logger.Errorf("Failed to complete task %s: %v", tsk.ID, err)
+				}
+			}()
 		}
 	}
 
@@ -144,7 +152,11 @@ func (e *Engine) Stop(ctx context.Context, id string) error {
 		// Complete the task immediately since fake engine is instant
 		tsk, _ := e.taskMgr.NextTask(ctx, id, "stop")
 		if tsk != nil {
-			defer e.taskMgr.CompleteTask(ctx, tsk.ID)
+			defer func() {
+				if err := e.taskMgr.CompleteTask(ctx, tsk.ID); err != nil {
+					e.logger.Errorf("Failed to complete task %s: %v", tsk.ID, err)
+				}
+			}()
 		}
 	}
 
@@ -185,7 +197,11 @@ func (e *Engine) Remove(ctx context.Context, id string) error {
 		// Complete the task immediately since fake engine is instant
 		tsk, _ := e.taskMgr.NextTask(ctx, id, "remove")
 		if tsk != nil {
-			defer e.taskMgr.CompleteTask(ctx, tsk.ID)
+			defer func() {
+				if err := e.taskMgr.CompleteTask(ctx, tsk.ID); err != nil {
+					e.logger.Errorf("Failed to complete task %s: %v", tsk.ID, err)
+				}
+			}()
 		}
 	}
 

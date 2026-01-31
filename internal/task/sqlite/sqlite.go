@@ -63,7 +63,7 @@ func (m *Manager) AddTasks(ctx context.Context, sandboxID, operation string, nam
 	if err != nil {
 		return fmt.Errorf("could not begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }() // Rollback is safe to call after Commit
 
 	// Get the current max sequence for this operation
 	var maxSeq int

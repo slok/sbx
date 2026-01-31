@@ -143,7 +143,8 @@ func TestAddTasks(t *testing.T) {
 					require.NotNil(tsk)
 					assert.Equal(expSeq, tsk.Sequence)
 					// Mark as done to get next
-					mgr.CompleteTask(context.Background(), tsk.ID)
+					err = mgr.CompleteTask(context.Background(), tsk.ID)
+					require.NoError(err)
 				}
 			}
 		})
@@ -161,7 +162,10 @@ func TestNextTask(t *testing.T) {
 	}{
 		"NextTask should return tasks in sequence order": {
 			setup: func(mgr task.Manager) {
-				mgr.AddTasks(context.Background(), "sandbox-1", "create", []string{"task1", "task2", "task3"})
+				err := mgr.AddTasks(context.Background(), "sandbox-1", "create", []string{"task1", "task2", "task3"})
+				if err != nil {
+					panic(err)
+				}
 			},
 			sandboxID: "sandbox-1",
 			operation: "create",
@@ -170,9 +174,9 @@ func TestNextTask(t *testing.T) {
 
 		"NextTask should return nil when no pending tasks": {
 			setup: func(mgr task.Manager) {
-				mgr.AddTask(context.Background(), "sandbox-1", "create", "task1")
+				_ = mgr.AddTask(context.Background(), "sandbox-1", "create", "task1")
 				tsk, _ := mgr.NextTask(context.Background(), "sandbox-1", "create")
-				mgr.CompleteTask(context.Background(), tsk.ID)
+				_ = mgr.CompleteTask(context.Background(), tsk.ID)
 			},
 			sandboxID: "sandbox-1",
 			operation: "create",
@@ -181,9 +185,9 @@ func TestNextTask(t *testing.T) {
 
 		"NextTask should skip failed tasks and return next pending": {
 			setup: func(mgr task.Manager) {
-				mgr.AddTasks(context.Background(), "sandbox-1", "create", []string{"task1", "task2", "task3"})
+				_ = mgr.AddTasks(context.Background(), "sandbox-1", "create", []string{"task1", "task2", "task3"})
 				tsk, _ := mgr.NextTask(context.Background(), "sandbox-1", "create")
-				mgr.FailTask(context.Background(), tsk.ID, fmt.Errorf("test error"))
+				_ = mgr.FailTask(context.Background(), tsk.ID, fmt.Errorf("test error"))
 			},
 			sandboxID: "sandbox-1",
 			operation: "create",
@@ -234,7 +238,7 @@ func TestCompleteTask(t *testing.T) {
 	}{
 		"Completing a pending task should update status": {
 			setup: func(mgr task.Manager) string {
-				mgr.AddTask(context.Background(), "sandbox-1", "create", "task1")
+				_ = mgr.AddTask(context.Background(), "sandbox-1", "create", "task1")
 				tsk, _ := mgr.NextTask(context.Background(), "sandbox-1", "create")
 				return tsk.ID
 			},
@@ -279,7 +283,7 @@ func TestFailTask(t *testing.T) {
 	}{
 		"Failing a pending task should update status and error": {
 			setup: func(mgr task.Manager) string {
-				mgr.AddTask(context.Background(), "sandbox-1", "create", "task1")
+				_ = mgr.AddTask(context.Background(), "sandbox-1", "create", "task1")
 				tsk, _ := mgr.NextTask(context.Background(), "sandbox-1", "create")
 				return tsk.ID
 			},
@@ -289,7 +293,7 @@ func TestFailTask(t *testing.T) {
 
 		"Failing a task with nil error should work": {
 			setup: func(mgr task.Manager) string {
-				mgr.AddTask(context.Background(), "sandbox-1", "create", "task1")
+				_ = mgr.AddTask(context.Background(), "sandbox-1", "create", "task1")
 				tsk, _ := mgr.NextTask(context.Background(), "sandbox-1", "create")
 				return tsk.ID
 			},
@@ -327,7 +331,8 @@ func TestFailTask(t *testing.T) {
 				// Verify error was stored (query db directly)
 				var storedErr string
 				query := `SELECT error FROM tasks WHERE id = ?`
-				db.QueryRow(query, taskID).Scan(&storedErr)
+				err = db.QueryRow(query, taskID).Scan(&storedErr)
+				require.NoError(err)
 				assert.Equal(test.expErrIn, storedErr)
 			}
 		})
@@ -345,9 +350,9 @@ func TestProgress(t *testing.T) {
 	}{
 		"Progress should count done and total tasks": {
 			setup: func(mgr task.Manager) {
-				mgr.AddTasks(context.Background(), "sandbox-1", "create", []string{"task1", "task2", "task3"})
+				_ = mgr.AddTasks(context.Background(), "sandbox-1", "create", []string{"task1", "task2", "task3"})
 				tsk1, _ := mgr.NextTask(context.Background(), "sandbox-1", "create")
-				mgr.CompleteTask(context.Background(), tsk1.ID)
+				_ = mgr.CompleteTask(context.Background(), tsk1.ID)
 			},
 			sandboxID: "sandbox-1",
 			operation: "create",
@@ -365,13 +370,13 @@ func TestProgress(t *testing.T) {
 
 		"Progress should count all done tasks": {
 			setup: func(mgr task.Manager) {
-				mgr.AddTasks(context.Background(), "sandbox-1", "create", []string{"task1", "task2", "task3"})
+				_ = mgr.AddTasks(context.Background(), "sandbox-1", "create", []string{"task1", "task2", "task3"})
 				tsk1, _ := mgr.NextTask(context.Background(), "sandbox-1", "create")
-				mgr.CompleteTask(context.Background(), tsk1.ID)
+				_ = mgr.CompleteTask(context.Background(), tsk1.ID)
 				tsk2, _ := mgr.NextTask(context.Background(), "sandbox-1", "create")
-				mgr.CompleteTask(context.Background(), tsk2.ID)
+				_ = mgr.CompleteTask(context.Background(), tsk2.ID)
 				tsk3, _ := mgr.NextTask(context.Background(), "sandbox-1", "create")
-				mgr.CompleteTask(context.Background(), tsk3.ID)
+				_ = mgr.CompleteTask(context.Background(), tsk3.ID)
 			},
 			sandboxID: "sandbox-1",
 			operation: "create",
@@ -415,7 +420,7 @@ func TestHasPendingOperation(t *testing.T) {
 	}{
 		"Should detect pending operation": {
 			setup: func(mgr task.Manager) {
-				mgr.AddTask(context.Background(), "sandbox-1", "create", "task1")
+				_ = mgr.AddTask(context.Background(), "sandbox-1", "create", "task1")
 			},
 			sandboxID:  "sandbox-1",
 			expOp:      "create",
@@ -424,9 +429,9 @@ func TestHasPendingOperation(t *testing.T) {
 
 		"Should return false when no pending operations": {
 			setup: func(mgr task.Manager) {
-				mgr.AddTask(context.Background(), "sandbox-1", "create", "task1")
+				_ = mgr.AddTask(context.Background(), "sandbox-1", "create", "task1")
 				tsk, _ := mgr.NextTask(context.Background(), "sandbox-1", "create")
-				mgr.CompleteTask(context.Background(), tsk.ID)
+				_ = mgr.CompleteTask(context.Background(), tsk.ID)
 			},
 			sandboxID:  "sandbox-1",
 			expPending: false,
@@ -440,8 +445,8 @@ func TestHasPendingOperation(t *testing.T) {
 
 		"Should return first pending operation when multiple exist": {
 			setup: func(mgr task.Manager) {
-				mgr.AddTask(context.Background(), "sandbox-1", "create", "task1")
-				mgr.AddTask(context.Background(), "sandbox-1", "start", "task2")
+				_ = mgr.AddTask(context.Background(), "sandbox-1", "create", "task1")
+				_ = mgr.AddTask(context.Background(), "sandbox-1", "start", "task2")
 			},
 			sandboxID:  "sandbox-1",
 			expOp:      "create",
@@ -484,7 +489,7 @@ func TestClearOperation(t *testing.T) {
 	}{
 		"Clearing operation should delete all tasks": {
 			setup: func(mgr task.Manager) {
-				mgr.AddTasks(context.Background(), "sandbox-1", "create", []string{"task1", "task2", "task3"})
+				_ = mgr.AddTasks(context.Background(), "sandbox-1", "create", []string{"task1", "task2", "task3"})
 			},
 			sandboxID: "sandbox-1",
 			operation: "create",
@@ -498,8 +503,8 @@ func TestClearOperation(t *testing.T) {
 
 		"Clearing should only affect specified operation": {
 			setup: func(mgr task.Manager) {
-				mgr.AddTask(context.Background(), "sandbox-1", "create", "task1")
-				mgr.AddTask(context.Background(), "sandbox-1", "start", "task2")
+				_ = mgr.AddTask(context.Background(), "sandbox-1", "create", "task1")
+				_ = mgr.AddTask(context.Background(), "sandbox-1", "start", "task2")
 			},
 			sandboxID: "sandbox-1",
 			operation: "create",
