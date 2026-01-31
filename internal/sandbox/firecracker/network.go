@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -21,6 +22,7 @@ const (
 
 // createTAP creates a TAP device for the VM using netlink.
 // This requires CAP_NET_ADMIN capability instead of root.
+// The TAP device is owned by the current user so Firecracker can access it.
 func (e *Engine) createTAP(tapDevice, gateway string) error {
 	// Check if device already exists
 	if link, err := netlink.LinkByName(tapDevice); err == nil {
@@ -32,13 +34,20 @@ func (e *Engine) createTAP(tapDevice, gateway string) error {
 		return nil
 	}
 
-	// Create TAP device
+	// Get current user's UID/GID so Firecracker can access the TAP device
+	uid := uint32(os.Getuid())
+	gid := uint32(os.Getgid())
+
+	// Create TAP device with current user as owner
+	// This allows Firecracker (running as the same user) to open the device
 	tap := &netlink.Tuntap{
 		LinkAttrs: netlink.LinkAttrs{
 			Name: tapDevice,
 		},
 		Mode:  netlink.TUNTAP_MODE_TAP,
-		Flags: netlink.TUNTAP_DEFAULTS,
+		Flags: netlink.TUNTAP_DEFAULTS | netlink.TUNTAP_NO_PI,
+		Owner: uid,
+		Group: gid,
 	}
 
 	if err := netlink.LinkAdd(tap); err != nil {
@@ -77,7 +86,7 @@ func (e *Engine) createTAP(tapDevice, gateway string) error {
 		return fmt.Errorf("failed to bring up TAP device %s: %w", tapDevice, err)
 	}
 
-	e.logger.Debugf("Created TAP device %s with gateway %s", tapDevice, gateway)
+	e.logger.Debugf("Created TAP device %s with gateway %s (owner uid=%d gid=%d)", tapDevice, gateway, uid, gid)
 	return nil
 }
 
