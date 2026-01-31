@@ -81,15 +81,20 @@ func (e *Engine) patchRootFSSSH(vmDir string) error {
 
 	// Use debugfs to create .ssh directory and write authorized_keys
 	// Commands:
-	// 1. mkdir /root/.ssh (if not exists)
-	// 2. Set .ssh directory permissions to 700 (octal 0700 = 448 decimal)
-	// 3. write <tmpfile> /root/.ssh/authorized_keys
-	// 4. Set authorized_keys permissions to 600 (octal 0600 = 384 decimal)
+	// 1. rm /root/.ssh/authorized_keys (remove existing file if present - base image may have one)
+	// 2. mkdir /root/.ssh (if not exists - will fail silently if exists)
+	// 3. Set .ssh directory permissions to 700 (directory type + rwx------)
+	// 4. write <tmpfile> /root/.ssh/authorized_keys
+	// 5. Set authorized_keys permissions to 600 (regular file type + rw-------)
 	//
 	// Note: debugfs set_inode_field uses octal values directly
-	// mode for directory with 700: 040700 (directory type + rwx------)
-	// mode for file with 600: 0100600 (regular file type + rw-------)
-	commands := fmt.Sprintf(`mkdir /root/.ssh
+	// mode for directory with 700: 040700
+	// mode for file with 600: 0100600
+	//
+	// Important: rm must come before mkdir because mkdir errors if dir exists,
+	// and that error stops subsequent set_inode_field from working properly.
+	commands := fmt.Sprintf(`rm /root/.ssh/authorized_keys
+mkdir /root/.ssh
 set_inode_field /root/.ssh mode 040700
 write %s /root/.ssh/authorized_keys
 set_inode_field /root/.ssh/authorized_keys mode 0100600
@@ -98,14 +103,24 @@ set_inode_field /root/.ssh/authorized_keys mode 0100600
 	cmd := exec.Command("debugfs", "-w", rootfsPath)
 	cmd.Stdin = strings.NewReader(commands)
 	output, err := cmd.CombinedOutput()
+	outStr := string(output)
+
+	// Log the output for debugging
+	e.logger.Debugf("debugfs output: %s", outStr)
+
+	// Check for actual errors (not warnings about existing dirs/files)
+	// debugfs often returns non-zero for benign warnings
 	if err != nil {
-		// debugfs returns errors for mkdir if dir exists, which is fine
-		// Check if write succeeded by looking for actual error messages
-		outStr := string(output)
-		if strings.Contains(outStr, "write: ") && strings.Contains(outStr, "error") {
-			return fmt.Errorf("debugfs failed: %w, output: %s", err, outStr)
+		// Check if write actually failed
+		if strings.Contains(outStr, "write:") && strings.Contains(outStr, "error") {
+			return fmt.Errorf("debugfs write failed: %w, output: %s", err, outStr)
 		}
-		e.logger.Debugf("debugfs output (may have warnings): %s", outStr)
+	}
+
+	// Verify the write succeeded by checking for "already exists" message
+	// which indicates the rm didn't work or write failed
+	if strings.Contains(outStr, "Ext2 file already exists") {
+		return fmt.Errorf("failed to write authorized_keys: file already exists after rm")
 	}
 
 	e.logger.Debugf("Patched rootfs with SSH key at %s", rootfsPath)
