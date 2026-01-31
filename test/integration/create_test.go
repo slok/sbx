@@ -33,7 +33,8 @@ func TestCreateCommand(t *testing.T) {
 				"Sandbox created successfully!",
 				"Name:   example-sandbox",
 				"Status: running",
-				"Base:   ubuntu:22.04",
+				"Engine: docker",
+				"Image:  ubuntu:22.04",
 			},
 			validateDB: func(t *testing.T, dbPath string) {
 				repo, err := sqlite.NewRepository(context.Background(), sqlite.RepositoryConfig{
@@ -44,7 +45,8 @@ func TestCreateCommand(t *testing.T) {
 				sandbox, err := repo.GetSandboxByName(context.Background(), "example-sandbox")
 				require.NoError(t, err)
 				assert.Equal(t, "example-sandbox", sandbox.Name)
-				assert.Equal(t, "ubuntu:22.04", sandbox.Config.Base)
+				assert.NotNil(t, sandbox.Config.DockerEngine)
+				assert.Equal(t, "ubuntu:22.04", sandbox.Config.DockerEngine.Image)
 			},
 		},
 		"Name override works": {

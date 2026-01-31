@@ -103,8 +103,8 @@ func (r *Repository) CreateSandbox(ctx context.Context, s model.Sandbox) error {
 	}
 
 	query := `
-		INSERT INTO sandboxes (id, name, status, config_json, created_at, started_at, stopped_at, error)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO sandboxes (id, name, status, config_json, container_id, created_at, started_at, stopped_at, error)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err = r.db.ExecContext(ctx, query,
@@ -112,6 +112,7 @@ func (r *Repository) CreateSandbox(ctx context.Context, s model.Sandbox) error {
 		s.Name,
 		s.Status,
 		string(configJSON),
+		s.ContainerID,
 		s.CreatedAt.Unix(),
 		startedAt,
 		stoppedAt,
@@ -133,7 +134,7 @@ func (r *Repository) CreateSandbox(ctx context.Context, s model.Sandbox) error {
 // GetSandbox retrieves a sandbox by ID.
 func (r *Repository) GetSandbox(ctx context.Context, id string) (*model.Sandbox, error) {
 	query := `
-		SELECT id, name, status, config_json, created_at, started_at, stopped_at, error
+		SELECT id, name, status, config_json, container_id, created_at, started_at, stopped_at, error
 		FROM sandboxes
 		WHERE id = ?
 	`
@@ -147,6 +148,7 @@ func (r *Repository) GetSandbox(ctx context.Context, id string) (*model.Sandbox,
 		&sandbox.Name,
 		&sandbox.Status,
 		&configJSON,
+		&sandbox.ContainerID,
 		&createdAt,
 		&startedAt,
 		&stoppedAt,
@@ -175,7 +177,7 @@ func (r *Repository) GetSandbox(ctx context.Context, id string) (*model.Sandbox,
 // GetSandboxByName retrieves a sandbox by name.
 func (r *Repository) GetSandboxByName(ctx context.Context, name string) (*model.Sandbox, error) {
 	query := `
-		SELECT id, name, status, config_json, created_at, started_at, stopped_at, error
+		SELECT id, name, status, config_json, container_id, created_at, started_at, stopped_at, error
 		FROM sandboxes
 		WHERE name = ?
 	`
@@ -189,6 +191,7 @@ func (r *Repository) GetSandboxByName(ctx context.Context, name string) (*model.
 		&sandbox.Name,
 		&sandbox.Status,
 		&configJSON,
+		&sandbox.ContainerID,
 		&createdAt,
 		&startedAt,
 		&stoppedAt,
@@ -217,7 +220,7 @@ func (r *Repository) GetSandboxByName(ctx context.Context, name string) (*model.
 // ListSandboxes returns all sandboxes.
 func (r *Repository) ListSandboxes(ctx context.Context) ([]model.Sandbox, error) {
 	query := `
-		SELECT id, name, status, config_json, created_at, started_at, stopped_at, error
+		SELECT id, name, status, config_json, container_id, created_at, started_at, stopped_at, error
 		FROM sandboxes
 		ORDER BY created_at DESC
 	`
@@ -239,6 +242,7 @@ func (r *Repository) ListSandboxes(ctx context.Context) ([]model.Sandbox, error)
 			&sandbox.Name,
 			&sandbox.Status,
 			&configJSON,
+			&sandbox.ContainerID,
 			&createdAt,
 			&startedAt,
 			&stoppedAt,
@@ -289,7 +293,7 @@ func (r *Repository) UpdateSandbox(ctx context.Context, s model.Sandbox) error {
 
 	query := `
 		UPDATE sandboxes
-		SET name = ?, status = ?, config_json = ?, created_at = ?, started_at = ?, stopped_at = ?, error = ?
+		SET name = ?, status = ?, config_json = ?, container_id = ?, created_at = ?, started_at = ?, stopped_at = ?, error = ?
 		WHERE id = ?
 	`
 
@@ -297,6 +301,7 @@ func (r *Repository) UpdateSandbox(ctx context.Context, s model.Sandbox) error {
 		s.Name,
 		s.Status,
 		string(configJSON),
+		s.ContainerID,
 		s.CreatedAt.Unix(),
 		startedAt,
 		stoppedAt,

@@ -22,7 +22,7 @@ func TestEngineCreateStartStopRemove(t *testing.T) {
 			actions: func(ctx context.Context, t *testing.T, eng *fake.Engine) error {
 				cfg := model.SandboxConfig{
 					Name: "test",
-					Base: "ubuntu-22.04",
+					DockerEngine: &model.DockerEngineConfig{Image: "ubuntu-22.04"},
 					Resources: model.Resources{
 						VCPUs:    2,
 						MemoryMB: 2048,
@@ -46,7 +46,7 @@ func TestEngineCreateStartStopRemove(t *testing.T) {
 			actions: func(ctx context.Context, t *testing.T, eng *fake.Engine) error {
 				cfg := model.SandboxConfig{
 					Name:      "test",
-					Base:      "ubuntu-22.04",
+					DockerEngine: &model.DockerEngineConfig{Image: "ubuntu-22.04"},
 					Resources: model.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
 				}
 
@@ -74,7 +74,7 @@ func TestEngineCreateStartStopRemove(t *testing.T) {
 			actions: func(ctx context.Context, t *testing.T, eng *fake.Engine) error {
 				cfg := model.SandboxConfig{
 					Name:      "test",
-					Base:      "ubuntu-22.04",
+					DockerEngine: &model.DockerEngineConfig{Image: "ubuntu-22.04"},
 					Resources: model.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
 				}
 
@@ -117,7 +117,7 @@ func TestEngineCreateStartStopRemove(t *testing.T) {
 			actions: func(ctx context.Context, t *testing.T, eng *fake.Engine) error {
 				cfg := model.SandboxConfig{
 					Name:      "test",
-					Base:      "ubuntu-22.04",
+					DockerEngine: &model.DockerEngineConfig{Image: "ubuntu-22.04"},
 					Resources: model.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
 				}
 
@@ -140,7 +140,7 @@ func TestEngineCreateStartStopRemove(t *testing.T) {
 			actions: func(ctx context.Context, t *testing.T, eng *fake.Engine) error {
 				cfg := model.SandboxConfig{
 					Name:      "test",
-					Base:      "ubuntu-22.04",
+					DockerEngine: &model.DockerEngineConfig{Image: "ubuntu-22.04"},
 					Resources: model.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
 				}
 

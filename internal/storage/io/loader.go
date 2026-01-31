@@ -46,19 +46,64 @@ func (r *ConfigYAMLRepository) GetConfig(ctx context.Context, path string) (mode
 // SandboxConfig represents the YAML structure for sandbox configuration.
 type SandboxConfig struct {
 	Name      string            `yaml:"name"`
-	Base      string            `yaml:"base"`
+	Engine    EngineConfig      `yaml:"engine"`
 	Packages  []string          `yaml:"packages"`
 	Env       map[string]string `yaml:"env"`
 	Resources ResourcesConfig   `yaml:"resources"`
+}
+
+// EngineConfig represents the YAML structure for engine configuration.
+type EngineConfig struct {
+	Docker      *DockerEngineConfig      `yaml:"docker,omitempty"`
+	Firecracker *FirecrackerEngineConfig `yaml:"firecracker,omitempty"`
+}
+
+// DockerEngineConfig represents the YAML structure for Docker engine configuration.
+type DockerEngineConfig struct {
+	Image string `yaml:"image"`
+}
+
+// FirecrackerEngineConfig represents the YAML structure for Firecracker engine configuration.
+type FirecrackerEngineConfig struct {
+	RootFS      string `yaml:"root_fs"`
+	KernelImage string `yaml:"kernel_image"`
 }
 
 func (c SandboxConfig) validate() error {
 	if c.Name == "" {
 		return fmt.Errorf("name is required")
 	}
-	if c.Base == "" {
-		return fmt.Errorf("base is required")
+
+	// Ensure exactly one engine is specified
+	engineCount := 0
+	if c.Engine.Docker != nil {
+		engineCount++
 	}
+	if c.Engine.Firecracker != nil {
+		engineCount++
+	}
+	if engineCount == 0 {
+		return fmt.Errorf("exactly one engine must be specified (docker or firecracker)")
+	}
+	if engineCount > 1 {
+		return fmt.Errorf("only one engine can be specified at a time")
+	}
+
+	// Validate engine-specific configuration
+	if c.Engine.Docker != nil {
+		if c.Engine.Docker.Image == "" {
+			return fmt.Errorf("docker engine image is required")
+		}
+	}
+	if c.Engine.Firecracker != nil {
+		if c.Engine.Firecracker.RootFS == "" {
+			return fmt.Errorf("firecracker engine root_fs is required")
+		}
+		if c.Engine.Firecracker.KernelImage == "" {
+			return fmt.Errorf("firecracker engine kernel_image is required")
+		}
+	}
+
 	if err := c.Resources.validate(); err != nil {
 		return fmt.Errorf("resources: %w", err)
 	}
@@ -66,9 +111,8 @@ func (c SandboxConfig) validate() error {
 }
 
 func (c SandboxConfig) toModel() model.SandboxConfig {
-	return model.SandboxConfig{
+	cfg := model.SandboxConfig{
 		Name:     c.Name,
-		Base:     c.Base,
 		Packages: c.Packages,
 		Env:      c.Env,
 		Resources: model.Resources{
@@ -77,6 +121,21 @@ func (c SandboxConfig) toModel() model.SandboxConfig {
 			DiskGB:   c.Resources.DiskGB,
 		},
 	}
+
+	// Convert engine configuration
+	if c.Engine.Docker != nil {
+		cfg.DockerEngine = &model.DockerEngineConfig{
+			Image: c.Engine.Docker.Image,
+		}
+	}
+	if c.Engine.Firecracker != nil {
+		cfg.FirecrackerEngine = &model.FirecrackerEngineConfig{
+			RootFS:      c.Engine.Firecracker.RootFS,
+			KernelImage: c.Engine.Firecracker.KernelImage,
+		}
+	}
+
+	return cfg
 }
 
 // ResourcesConfig represents the YAML structure for resource configuration.

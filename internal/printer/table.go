@@ -43,7 +43,17 @@ func (t *TablePrinter) PrintStatus(sandbox model.Sandbox) error {
 	fmt.Fprintf(t.writer, "Name:       %s\n", sandbox.Name)
 	fmt.Fprintf(t.writer, "ID:         %s\n", sandbox.ID)
 	fmt.Fprintf(t.writer, "Status:     %s\n", sandbox.Status)
-	fmt.Fprintf(t.writer, "Base:       %s\n", sandbox.Config.Base)
+
+	// Print engine-specific info
+	if sandbox.Config.DockerEngine != nil {
+		fmt.Fprintf(t.writer, "Engine:     docker\n")
+		fmt.Fprintf(t.writer, "Image:      %s\n", sandbox.Config.DockerEngine.Image)
+	} else if sandbox.Config.FirecrackerEngine != nil {
+		fmt.Fprintf(t.writer, "Engine:     firecracker\n")
+		fmt.Fprintf(t.writer, "RootFS:     %s\n", sandbox.Config.FirecrackerEngine.RootFS)
+		fmt.Fprintf(t.writer, "Kernel:     %s\n", sandbox.Config.FirecrackerEngine.KernelImage)
+	}
+
 	fmt.Fprintf(t.writer, "VCPUs:      %d\n", sandbox.Config.Resources.VCPUs)
 	fmt.Fprintf(t.writer, "Memory:     %d MB\n", sandbox.Config.Resources.MemoryMB)
 	fmt.Fprintf(t.writer, "Disk:       %d GB\n", sandbox.Config.Resources.DiskGB)
