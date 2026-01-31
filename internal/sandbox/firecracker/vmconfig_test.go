@@ -196,7 +196,7 @@ func TestEngine_newUnixHTTPClient(t *testing.T) {
 		}
 	})
 
-	go http.Serve(listener, handler)
+	go func() { _ = http.Serve(listener, handler) }()
 
 	client := e.newUnixHTTPClient(socketPath)
 	if client == nil {
@@ -237,11 +237,11 @@ func TestEngine_apiPUT(t *testing.T) {
 		if r.Header.Get("Content-Type") != "application/json" {
 			t.Error("Content-Type should be application/json")
 		}
-		json.NewDecoder(r.Body).Decode(&receivedBody)
+		_ = json.NewDecoder(r.Body).Decode(&receivedBody)
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	go http.Serve(listener, handler)
+	go func() { _ = http.Serve(listener, handler) }()
 
 	client := e.newUnixHTTPClient(socketPath)
 
@@ -281,10 +281,10 @@ func TestEngine_apiPUT_error(t *testing.T) {
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error": "invalid configuration"}`))
+		_, _ = w.Write([]byte(`{"error": "invalid configuration"}`))
 	})
 
-	go http.Serve(listener, handler)
+	go func() { _ = http.Serve(listener, handler) }()
 
 	client := e.newUnixHTTPClient(socketPath)
 
@@ -294,7 +294,7 @@ func TestEngine_apiPUT_error(t *testing.T) {
 	}
 }
 
-// TestMockFirecrackerAPI simulates a Firecracker API for testing configureVM
+// TestMockFirecrackerAPI_configureVM simulates a Firecracker API for testing configureVM.
 func TestMockFirecrackerAPI_configureVM(t *testing.T) {
 	// Create a mock Firecracker API server
 	tmpDir := t.TempDir()
@@ -314,7 +314,7 @@ func TestMockFirecrackerAPI_configureVM(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	go http.Serve(listener, handler)
+	go func() { _ = http.Serve(listener, handler) }()
 
 	// Create engine and configure VM
 	e := &Engine{logger: log.Noop}
@@ -373,12 +373,12 @@ func TestMockFirecrackerAPI_bootVM(t *testing.T) {
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/actions" {
-			json.NewDecoder(r.Body).Decode(&receivedAction)
+			_ = json.NewDecoder(r.Body).Decode(&receivedAction)
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	go http.Serve(listener, handler)
+	go func() { _ = http.Serve(listener, handler) }()
 
 	e := &Engine{logger: log.Noop}
 
@@ -394,12 +394,12 @@ func TestMockFirecrackerAPI_bootVM(t *testing.T) {
 	}
 }
 
-// Integration test helper - tests the HTTP client mock setup used in tests
+// TestHTTPTestServer_compatible tests the HTTP client mock setup used in tests.
 func TestHTTPTestServer_compatible(t *testing.T) {
 	// Verify httptest.Server can be used for mocking
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	}))
 	defer server.Close()
 

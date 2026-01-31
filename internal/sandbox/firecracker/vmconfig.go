@@ -237,7 +237,7 @@ func (e *Engine) apiPUT(ctx context.Context, client *http.Client, path string, b
 
 	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
 		var buf bytes.Buffer
-		buf.ReadFrom(resp.Body)
+		_, _ = buf.ReadFrom(resp.Body)
 		return fmt.Errorf("API error (status %d): %s", resp.StatusCode, buf.String())
 	}
 

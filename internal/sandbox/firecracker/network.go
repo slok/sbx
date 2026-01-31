@@ -353,7 +353,7 @@ func (e *Engine) cleanupNftables(tapDevice, gateway, vmIP string) error {
 	return nil
 }
 
-// Wrapper functions for backwards compatibility - now use nftables
+// setupIPTables is a wrapper for backwards compatibility - now uses nftables.
 func (e *Engine) setupIPTables(tapDevice, gateway, vmIP string) error {
 	return e.setupNftables(tapDevice, gateway, vmIP)
 }
@@ -457,16 +457,6 @@ func (e *Engine) subnetFromGateway(gateway string) string {
 		return fmt.Sprintf("%s.%s.%s.0/24", parts[0], parts[1], parts[2])
 	}
 	return gateway + "/24"
-}
-
-// runCmd runs a command and returns an error if it fails.
-func (e *Engine) runCmd(name string, args ...string) error {
-	cmd := exec.Command(name, args...)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%s %v failed: %w, output: %s", name, args, err, string(output))
-	}
-	return nil
 }
 
 // Helper functions for nftables

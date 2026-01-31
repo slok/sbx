@@ -181,7 +181,7 @@ func TestEngine_killFirecracker_InvalidPID(t *testing.T) {
 
 	vmDir := t.TempDir()
 	pidPath := filepath.Join(vmDir, "firecracker.pid")
-	os.WriteFile(pidPath, []byte("not-a-number"), 0644)
+	_ = os.WriteFile(pidPath, []byte("not-a-number"), 0644)
 
 	err := e.killFirecracker(vmDir)
 	if err == nil {
@@ -197,7 +197,7 @@ func TestEngine_killFirecracker_ProcessNotExist(t *testing.T) {
 	vmDir := t.TempDir()
 	pidPath := filepath.Join(vmDir, "firecracker.pid")
 	// Use a PID that almost certainly doesn't exist
-	os.WriteFile(pidPath, []byte("999999"), 0644)
+	_ = os.WriteFile(pidPath, []byte("999999"), 0644)
 
 	err := e.killFirecracker(vmDir)
 	// Should not error - process just doesn't exist
@@ -271,7 +271,7 @@ func TestEngine_Stop_WithTasks(t *testing.T) {
 
 	// Create a PID file with non-existent process
 	pidPath := filepath.Join(vmDir, "firecracker.pid")
-	os.WriteFile(pidPath, []byte("999999"), 0644)
+	_ = os.WriteFile(pidPath, []byte("999999"), 0644)
 
 	// Stop should complete without errors (no running process)
 	err = e.Stop(context.Background(), sandboxID)
