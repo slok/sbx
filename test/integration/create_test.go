@@ -1,4 +1,4 @@
-package integration_test
+package integration
 
 import (
 	"bytes"
@@ -104,6 +104,8 @@ func TestCreateCommand(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
+			docker := newDockerHelper(t)
+
 			// Build the binary first
 			buildCmd := exec.Command("go", "build", "-o", "sbx-test", "../../cmd/sbx")
 			err := buildCmd.Run()
@@ -118,10 +120,25 @@ func TestCreateCommand(t *testing.T) {
 			configPath := tt.setupConfig(t)
 
 			// If test name is "Duplicate name fails", create the first sandbox
+			var firstContainerName string
 			if strings.Contains(name, "Duplicate") {
 				cmd := exec.Command("./sbx-test", "create", "-f", configPath, "--db-path", dbPath)
 				err := cmd.Run()
 				require.NoError(t, err)
+
+				// Get the first sandbox ID for cleanup
+				repo, err := sqlite.NewRepository(context.Background(), sqlite.RepositoryConfig{
+					DBPath: dbPath,
+				})
+				require.NoError(t, err)
+				sandbox, err := repo.GetSandboxByName(context.Background(), "example-sandbox")
+				require.NoError(t, err)
+				firstContainerName = getContainerName(sandbox.ID)
+
+				// Register cleanup for first container
+				t.Cleanup(func() {
+					docker.cleanupContainer(t, firstContainerName)
+				})
 			}
 
 			// Build command args
@@ -154,6 +171,34 @@ func TestCreateCommand(t *testing.T) {
 				if tt.validateDB != nil {
 					tt.validateDB(t, dbPath)
 				}
+
+				// Validate Docker container was created and is running
+				repo, err := sqlite.NewRepository(context.Background(), sqlite.RepositoryConfig{
+					DBPath: dbPath,
+				})
+				require.NoError(t, err)
+
+				// Determine sandbox name from test
+				sandboxName := "example-sandbox"
+				for i, arg := range tt.args {
+					if arg == "--name" && i+1 < len(tt.args) {
+						sandboxName = tt.args[i+1]
+						break
+					}
+				}
+
+				sandbox, err := repo.GetSandboxByName(context.Background(), sandboxName)
+				require.NoError(t, err)
+				containerName := getContainerName(sandbox.ID)
+
+				// Verify Docker container exists and is running
+				docker.requireContainerExists(t, containerName)
+				docker.requireContainerRunning(t, containerName)
+
+				// Register cleanup
+				t.Cleanup(func() {
+					docker.cleanupContainer(t, containerName)
+				})
 			}
 		})
 	}

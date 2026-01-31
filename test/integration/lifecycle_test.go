@@ -1,4 +1,4 @@
-package integration_test
+package integration
 
 import (
 	"bytes"
@@ -15,6 +15,25 @@ import (
 	"github.com/slok/sbx/internal/model"
 	"github.com/slok/sbx/internal/storage/sqlite"
 )
+
+// TestMain runs before all tests and after all tests for cleanup
+func TestMain(m *testing.M) {
+	// Run tests
+	code := m.Run()
+
+	// Cleanup any leftover containers after all tests
+	// Note: Individual tests also cleanup their own containers
+	os.Exit(code)
+}
+
+func buildTestBinary(t *testing.T) {
+	buildCmd := exec.Command("go", "build", "-o", "sbx-test", "../../cmd/sbx")
+	err := buildCmd.Run()
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		os.Remove("sbx-test")
+	})
+}
 
 func TestListCommand(t *testing.T) {
 	tests := map[string]struct {
@@ -90,10 +109,7 @@ func TestListCommand(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			buildCmd := exec.Command("go", "build", "-o", "sbx-test", "../../cmd/sbx")
-			err := buildCmd.Run()
-			require.NoError(t, err)
-			defer os.Remove("sbx-test")
+			buildTestBinary(t)
 
 			tmpDir := t.TempDir()
 			dbPath := filepath.Join(tmpDir, "test.db")
@@ -107,7 +123,7 @@ func TestListCommand(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 			cmd.Stdout = &stdout
 			cmd.Stderr = &stderr
-			err = cmd.Run()
+			err := cmd.Run()
 
 			if tt.expErr {
 				require.Error(t, err)
@@ -433,6 +449,11 @@ func TestRemoveCommand(t *testing.T) {
 }
 
 func TestCompleteLifecycle(t *testing.T) {
+	docker := newDockerHelper(t)
+
+	// Cleanup any leftover containers before starting
+	docker.cleanupAllSbxContainers(t)
+
 	buildCmd := exec.Command("go", "build", "-o", "sbx-test", "../../cmd/sbx")
 	err := buildCmd.Run()
 	require.NoError(t, err)
@@ -449,6 +470,21 @@ func TestCompleteLifecycle(t *testing.T) {
 	err = cmd.Run()
 	require.NoError(t, err)
 	assert.Contains(t, stdout.String(), "lifecycle-test")
+
+	// Get sandbox ID for Docker verification
+	repo := getRepository(t, dbPath)
+	sandbox, err := repo.GetSandboxByName(context.Background(), "lifecycle-test")
+	require.NoError(t, err)
+	containerName := getContainerName(sandbox.ID)
+
+	// Verify Docker container exists and is running
+	docker.requireContainerExists(t, containerName)
+	docker.requireContainerRunning(t, containerName)
+
+	// Register cleanup
+	t.Cleanup(func() {
+		docker.cleanupContainer(t, containerName)
+	})
 
 	// List - should show as running
 	cmd = exec.Command("./sbx-test", "list", "--db-path", dbPath, "--no-log")
@@ -476,6 +512,13 @@ func TestCompleteLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, stdout.String(), "Stopped sandbox: lifecycle-test")
 
+	// Wait for Docker container to stop (docker stop can take up to 10 seconds)
+	docker.waitForContainerStopped(t, containerName)
+
+	// Verify Docker container is stopped
+	docker.requireContainerExists(t, containerName)
+	docker.requireContainerStopped(t, containerName)
+
 	// List - should show as stopped
 	cmd = exec.Command("./sbx-test", "list", "--status", "stopped", "--db-path", dbPath, "--no-log")
 	stdout.Reset()
@@ -492,6 +535,9 @@ func TestCompleteLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, stdout.String(), "Started sandbox: lifecycle-test")
 
+	// Verify Docker container is running again
+	docker.requireContainerRunning(t, containerName)
+
 	// Remove with force (since it's running)
 	cmd = exec.Command("./sbx-test", "rm", "lifecycle-test", "--force", "--db-path", dbPath, "--no-log")
 	stdout.Reset()
@@ -499,6 +545,9 @@ func TestCompleteLifecycle(t *testing.T) {
 	err = cmd.Run()
 	require.NoError(t, err)
 	assert.Contains(t, stdout.String(), "Stopped and removed sandbox: lifecycle-test")
+
+	// Verify Docker container is removed
+	docker.requireContainerNotExists(t, containerName)
 
 	// List - should be empty (no header when empty)
 	cmd = exec.Command("./sbx-test", "list", "--db-path", dbPath, "--no-log")
@@ -515,6 +564,8 @@ func TestCompleteLifecycle(t *testing.T) {
 // Helper functions
 
 func createSandbox(t *testing.T, dbPath, name string) string {
+	docker := newDockerHelper(t)
+
 	configPath := filepath.Join("..", "..", "testdata", "sandbox.yaml")
 	cmd := exec.Command("./sbx-test", "create", "-f", configPath, "--db-path", dbPath, "--no-log", "--name", name)
 	var stderr bytes.Buffer
@@ -526,14 +577,36 @@ func createSandbox(t *testing.T, dbPath, name string) string {
 	repo := getRepository(t, dbPath)
 	sandbox, err := repo.GetSandboxByName(context.Background(), name)
 	require.NoError(t, err)
+
+	// Verify Docker container was created and is running
+	containerName := getContainerName(sandbox.ID)
+	docker.requireContainerExists(t, containerName)
+	docker.requireContainerRunning(t, containerName)
+
+	// Register cleanup to remove container when test finishes
+	t.Cleanup(func() {
+		docker.cleanupContainer(t, containerName)
+	})
+
 	return sandbox.ID
 }
 
 func createAndStopSandbox(t *testing.T, dbPath, name string) string {
+	docker := newDockerHelper(t)
+
 	id := createSandbox(t, dbPath, name)
 	cmd := exec.Command("./sbx-test", "stop", name, "--db-path", dbPath, "--no-log")
 	err := cmd.Run()
 	require.NoError(t, err)
+
+	// Wait for Docker container to stop
+	containerName := getContainerName(id)
+	docker.waitForContainerStopped(t, containerName)
+
+	// Verify Docker container is stopped (not running)
+	docker.requireContainerExists(t, containerName)
+	docker.requireContainerStopped(t, containerName)
+
 	return id
 }
 
