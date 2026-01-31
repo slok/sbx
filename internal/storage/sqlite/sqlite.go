@@ -83,6 +83,11 @@ func (r *Repository) Close() error {
 	return r.db.Close()
 }
 
+// DB returns the underlying database connection.
+func (r *Repository) DB() *sql.DB {
+	return r.db
+}
+
 // CreateSandbox creates a new sandbox in the repository.
 func (r *Repository) CreateSandbox(ctx context.Context, s model.Sandbox) error {
 	// Marshal config to JSON

@@ -132,3 +132,13 @@ When stopping, provide:
   - All integration tests updated and passing with real Docker containers
   - Config format changed from `base: ubuntu:22.04` to `engine: { docker: { image: ubuntu:22.04 } }`
   - README updated with new configuration format and requirements
+
+- **Task 0004**: Task System (PR #8) - Opened on 2026-01-31
+  - Implemented task tracking for multi-step operations with crash recovery
+  - Added tasks table (migration 000003) without FK constraint for flexibility
+  - Created task.Manager interface with SQLite implementation
+  - Integrated into Docker engine (create/start/stop/remove) with progress logging
+  - Added optional task tracking to fake engine
+  - 8 unit test functions (23 scenarios), 3 integration tests (4 scenarios)
+  - Coverage: Task SQLite manager (100%), Docker engine task integration (covered)
+  - Design decisions: auto-increment sequences, no auto-cleanup, auto-resume on crash

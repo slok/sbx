@@ -73,18 +73,29 @@ func (c CreateCommand) Run(ctx context.Context) error {
 		return fmt.Errorf("could not create repository: %w", err)
 	}
 
+	// Initialize task repository with the same database connection.
+	taskRepo, err := sqlite.NewTaskRepository(sqlite.TaskRepositoryConfig{
+		DB:     repo.DB(),
+		Logger: logger,
+	})
+	if err != nil {
+		return fmt.Errorf("could not create task repository: %w", err)
+	}
+
 	// Initialize engine based on config.
 	var eng sandbox.Engine
 	if cfg.DockerEngine != nil {
 		eng, err = docker.NewEngine(docker.EngineConfig{
-			Logger: logger,
+			TaskRepo: taskRepo,
+			Logger:   logger,
 		})
 	} else if cfg.FirecrackerEngine != nil {
 		return fmt.Errorf("firecracker engine not yet implemented")
 	} else {
 		// Fallback to fake engine for testing
 		eng, err = fake.NewEngine(fake.EngineConfig{
-			Logger: logger,
+			TaskRepo: taskRepo,
+			Logger:   logger,
 		})
 	}
 	if err != nil {

@@ -17,6 +17,7 @@ import (
 
 	"github.com/slok/sbx/internal/log"
 	"github.com/slok/sbx/internal/model"
+	"github.com/slok/sbx/internal/storage"
 )
 
 // DockerClient is the interface for Docker operations that we use.
@@ -32,8 +33,9 @@ type DockerClient interface {
 
 // EngineConfig is the configuration for the Docker engine.
 type EngineConfig struct {
-	Client DockerClient
-	Logger log.Logger
+	Client   DockerClient
+	TaskRepo storage.TaskRepository
+	Logger   log.Logger
 }
 
 func (c *EngineConfig) defaults() error {
@@ -54,8 +56,9 @@ func (c *EngineConfig) defaults() error {
 
 // Engine is the Docker implementation of the sandbox.Engine interface.
 type Engine struct {
-	client DockerClient
-	logger log.Logger
+	client   DockerClient
+	taskRepo storage.TaskRepository
+	logger   log.Logger
 }
 
 // NewEngine creates a new Docker engine.
@@ -65,8 +68,9 @@ func NewEngine(cfg EngineConfig) (*Engine, error) {
 	}
 
 	return &Engine{
-		client: cfg.Client,
-		logger: cfg.Logger,
+		client:   cfg.Client,
+		taskRepo: cfg.TaskRepo,
+		logger:   cfg.Logger,
 	}, nil
 }
 
@@ -81,50 +85,88 @@ func (e *Engine) Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sa
 	id := ulid.MustNew(ulid.Timestamp(time.Now()), rand.Reader).String()
 	containerName := fmt.Sprintf("sbx-%s", strings.ToLower(id))
 
-	// Pull the image if not present
-	e.logger.Infof("Pulling image: %s", cfg.DockerEngine.Image)
-	pullResp, err := e.client.ImagePull(ctx, cfg.DockerEngine.Image, image.PullOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to pull image %s: %w", cfg.DockerEngine.Image, err)
-	}
-	// Consume the pull response to ensure it completes
-	_, _ = io.Copy(io.Discard, pullResp)
-	pullResp.Close()
-
-	// Prepare environment variables
-	var envVars []string
-	for k, v := range cfg.Env {
-		envVars = append(envVars, fmt.Sprintf("%s=%s", k, v))
+	// Setup tasks if task manager is available
+	if e.taskRepo != nil {
+		taskNames := []string{"pull_image", "create_container", "start_container"}
+		if err := e.taskRepo.AddTasks(ctx, id, "create", taskNames); err != nil {
+			return nil, fmt.Errorf("failed to add tasks: %w", err)
+		}
 	}
 
-	// Create container config
-	containerConfig := &container.Config{
-		Image: cfg.DockerEngine.Image,
-		Env:   envVars,
-		Cmd:   []string{"tail", "-f", "/dev/null"}, // Keep container running
+	// Execute tasks
+	var containerID string
+	var createErr error
+
+	// Task 1: Pull the image
+	if err := e.executeTask(ctx, id, "create", "pull_image", func() error {
+		e.logger.Infof("[1/3] Pulling image: %s", cfg.DockerEngine.Image)
+		pullResp, err := e.client.ImagePull(ctx, cfg.DockerEngine.Image, image.PullOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to pull image %s: %w", cfg.DockerEngine.Image, err)
+		}
+		// Consume the pull response to ensure it completes
+		_, _ = io.Copy(io.Discard, pullResp)
+		pullResp.Close()
+		return nil
+	}); err != nil {
+		createErr = err
+		goto cleanup
 	}
 
-	// Create host config with resource limits
-	hostConfig := &container.HostConfig{
-		Resources: container.Resources{
-			NanoCPUs: int64(cfg.Resources.VCPUs * 1e9),            // Convert VCPUs to nano CPUs
-			Memory:   int64(cfg.Resources.MemoryMB * 1024 * 1024), // Convert MB to bytes
-		},
+	// Task 2: Create container
+	if err := e.executeTask(ctx, id, "create", "create_container", func() error {
+		e.logger.Infof("[2/3] Creating container: %s", containerName)
+
+		// Prepare environment variables
+		var envVars []string
+		for k, v := range cfg.Env {
+			envVars = append(envVars, fmt.Sprintf("%s=%s", k, v))
+		}
+
+		// Create container config
+		containerConfig := &container.Config{
+			Image: cfg.DockerEngine.Image,
+			Env:   envVars,
+			Cmd:   []string{"tail", "-f", "/dev/null"}, // Keep container running
+		}
+
+		// Create host config with resource limits
+		hostConfig := &container.HostConfig{
+			Resources: container.Resources{
+				NanoCPUs: int64(cfg.Resources.VCPUs * 1e9),            // Convert VCPUs to nano CPUs
+				Memory:   int64(cfg.Resources.MemoryMB * 1024 * 1024), // Convert MB to bytes
+			},
+		}
+
+		// Create the container
+		resp, err := e.client.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, containerName)
+		if err != nil {
+			return fmt.Errorf("failed to create container: %w", err)
+		}
+
+		containerID = resp.ID
+		return nil
+	}); err != nil {
+		createErr = err
+		goto cleanup
 	}
 
-	// Create the container
-	e.logger.Infof("Creating container: %s", containerName)
-	resp, err := e.client.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, containerName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create container: %w", err)
+	// Task 3: Start the container
+	if err := e.executeTask(ctx, id, "create", "start_container", func() error {
+		e.logger.Infof("[3/3] Starting container: %s", containerID)
+		if err := e.client.ContainerStart(ctx, containerID, container.StartOptions{}); err != nil {
+			return fmt.Errorf("failed to start container: %w", err)
+		}
+		return nil
+	}); err != nil {
+		createErr = err
+		goto cleanup
 	}
 
-	containerID := resp.ID
-
-	// Start the container
-	e.logger.Infof("Starting container: %s", containerID)
-	if err := e.client.ContainerStart(ctx, containerID, container.StartOptions{}); err != nil {
-		return nil, fmt.Errorf("failed to start container: %w", err)
+cleanup:
+	// If we have an error, return it
+	if createErr != nil {
+		return nil, createErr
 	}
 
 	// Create sandbox model
@@ -144,21 +186,68 @@ func (e *Engine) Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sa
 	return sandbox, nil
 }
 
+// executeTask executes a task function and tracks its completion.
+func (e *Engine) executeTask(ctx context.Context, sandboxID, operation, taskName string, fn func() error) error {
+	// If no task manager, just execute the function
+	if e.taskRepo == nil {
+		return fn()
+	}
+
+	// Get the next task - should be the one with this name
+	tsk, err := e.taskRepo.NextTask(ctx, sandboxID, operation)
+	if err != nil {
+		return fmt.Errorf("failed to get next task: %w", err)
+	}
+	if tsk == nil {
+		return fmt.Errorf("no pending task found for operation %s", operation)
+	}
+	if tsk.Name != taskName {
+		return fmt.Errorf("expected task %s, got %s", taskName, tsk.Name)
+	}
+
+	// Execute the task function
+	err = fn()
+	if err != nil {
+		// Mark task as failed
+		if failErr := e.taskRepo.FailTask(ctx, tsk.ID, err); failErr != nil {
+			e.logger.Errorf("Failed to mark task as failed: %v", failErr)
+		}
+		return err
+	}
+
+	// Mark task as completed
+	if err := e.taskRepo.CompleteTask(ctx, tsk.ID); err != nil {
+		return fmt.Errorf("failed to mark task as completed: %w", err)
+	}
+
+	return nil
+}
+
 // Start starts a stopped Docker container sandbox.
 func (e *Engine) Start(ctx context.Context, id string) error {
-	// For Docker engine, we need to get the container ID from storage
-	// Since we only have the sandbox ID here, we'll need to handle this differently
-	// For now, we'll try to start by sandbox ID as container name
 	containerName := fmt.Sprintf("sbx-%s", strings.ToLower(id))
 
-	e.logger.Infof("Starting container: %s", containerName)
-	if err := e.client.ContainerStart(ctx, containerName, container.StartOptions{}); err != nil {
-		// Check if already running - this is idempotent
-		if strings.Contains(err.Error(), "already started") || strings.Contains(err.Error(), "is already running") {
-			e.logger.Debugf("Container %s is already running", containerName)
-			return nil
+	// Setup tasks if task manager is available
+	if e.taskRepo != nil {
+		if err := e.taskRepo.AddTask(ctx, id, "start", "start_container"); err != nil {
+			return fmt.Errorf("failed to add task: %w", err)
 		}
-		return fmt.Errorf("failed to start container %s: %w", containerName, err)
+	}
+
+	// Task: Start container
+	if err := e.executeTask(ctx, id, "start", "start_container", func() error {
+		e.logger.Infof("[1/1] Starting container: %s", containerName)
+		if err := e.client.ContainerStart(ctx, containerName, container.StartOptions{}); err != nil {
+			// Check if already running - this is idempotent
+			if strings.Contains(err.Error(), "already started") || strings.Contains(err.Error(), "is already running") {
+				e.logger.Debugf("Container %s is already running", containerName)
+				return nil
+			}
+			return fmt.Errorf("failed to start container %s: %w", containerName, err)
+		}
+		return nil
+	}); err != nil {
+		return err
 	}
 
 	e.logger.Infof("Started Docker sandbox: %s", id)
@@ -169,15 +258,28 @@ func (e *Engine) Start(ctx context.Context, id string) error {
 func (e *Engine) Stop(ctx context.Context, id string) error {
 	containerName := fmt.Sprintf("sbx-%s", strings.ToLower(id))
 
-	e.logger.Infof("Stopping container: %s", containerName)
-	timeout := 10 // 10 seconds timeout for graceful shutdown
-	if err := e.client.ContainerStop(ctx, containerName, container.StopOptions{Timeout: &timeout}); err != nil {
-		// Check if already stopped - this is idempotent
-		if strings.Contains(err.Error(), "is already stopped") || strings.Contains(err.Error(), "is not running") {
-			e.logger.Debugf("Container %s is already stopped", containerName)
-			return nil
+	// Setup tasks if task manager is available
+	if e.taskRepo != nil {
+		if err := e.taskRepo.AddTask(ctx, id, "stop", "stop_container"); err != nil {
+			return fmt.Errorf("failed to add task: %w", err)
 		}
-		return fmt.Errorf("failed to stop container %s: %w", containerName, err)
+	}
+
+	// Task: Stop container
+	if err := e.executeTask(ctx, id, "stop", "stop_container", func() error {
+		e.logger.Infof("[1/1] Stopping container: %s", containerName)
+		timeout := 10 // 10 seconds timeout for graceful shutdown
+		if err := e.client.ContainerStop(ctx, containerName, container.StopOptions{Timeout: &timeout}); err != nil {
+			// Check if already stopped - this is idempotent
+			if strings.Contains(err.Error(), "is already stopped") || strings.Contains(err.Error(), "is not running") {
+				e.logger.Debugf("Container %s is already stopped", containerName)
+				return nil
+			}
+			return fmt.Errorf("failed to stop container %s: %w", containerName, err)
+		}
+		return nil
+	}); err != nil {
+		return err
 	}
 
 	e.logger.Infof("Stopped Docker sandbox: %s", id)
@@ -188,16 +290,29 @@ func (e *Engine) Stop(ctx context.Context, id string) error {
 func (e *Engine) Remove(ctx context.Context, id string) error {
 	containerName := fmt.Sprintf("sbx-%s", strings.ToLower(id))
 
-	e.logger.Infof("Removing container: %s", containerName)
-	if err := e.client.ContainerRemove(ctx, containerName, container.RemoveOptions{
-		Force: true, // Force removal even if running
-	}); err != nil {
-		// Check if already removed
-		if strings.Contains(err.Error(), "No such container") {
-			e.logger.Debugf("Container %s already removed", containerName)
-			return nil
+	// Setup tasks if task manager is available
+	if e.taskRepo != nil {
+		if err := e.taskRepo.AddTask(ctx, id, "remove", "remove_container"); err != nil {
+			return fmt.Errorf("failed to add task: %w", err)
 		}
-		return fmt.Errorf("failed to remove container %s: %w", containerName, err)
+	}
+
+	// Task: Remove container
+	if err := e.executeTask(ctx, id, "remove", "remove_container", func() error {
+		e.logger.Infof("[1/1] Removing container: %s", containerName)
+		if err := e.client.ContainerRemove(ctx, containerName, container.RemoveOptions{
+			Force: true, // Force removal even if running
+		}); err != nil {
+			// Check if already removed
+			if strings.Contains(err.Error(), "No such container") {
+				e.logger.Debugf("Container %s already removed", containerName)
+				return nil
+			}
+			return fmt.Errorf("failed to remove container %s: %w", containerName, err)
+		}
+		return nil
+	}); err != nil {
+		return err
 	}
 
 	e.logger.Infof("Removed Docker sandbox: %s", id)

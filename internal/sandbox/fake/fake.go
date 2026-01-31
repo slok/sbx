@@ -11,11 +11,13 @@ import (
 
 	"github.com/slok/sbx/internal/log"
 	"github.com/slok/sbx/internal/model"
+	"github.com/slok/sbx/internal/storage"
 )
 
 // EngineConfig is the configuration for the fake engine.
 type EngineConfig struct {
-	Logger log.Logger
+	TaskRepo storage.TaskRepository // Optional: for testing task system integration
+	Logger   log.Logger
 }
 
 func (c *EngineConfig) defaults() error {
@@ -30,6 +32,7 @@ func (c *EngineConfig) defaults() error {
 // It simulates sandbox lifecycle without creating real VMs.
 type Engine struct {
 	sandboxes map[string]*model.Sandbox
+	taskRepo  storage.TaskRepository
 	mu        sync.RWMutex
 	logger    log.Logger
 }
@@ -42,6 +45,7 @@ func NewEngine(cfg EngineConfig) (*Engine, error) {
 
 	return &Engine{
 		sandboxes: make(map[string]*model.Sandbox),
+		taskRepo:  cfg.TaskRepo,
 		logger:    cfg.Logger,
 	}, nil
 }
@@ -53,6 +57,24 @@ func (e *Engine) Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sa
 
 	// Generate ULID
 	id := ulid.MustNew(ulid.Timestamp(time.Now()), rand.Reader).String()
+
+	// Setup tasks if task manager is available
+	if e.taskRepo != nil {
+		taskNames := []string{"create_sandbox"}
+		if err := e.taskRepo.AddTasks(ctx, id, "create", taskNames); err != nil {
+			return nil, fmt.Errorf("failed to add tasks: %w", err)
+		}
+
+		// Complete the task immediately since fake engine is instant
+		tsk, _ := e.taskRepo.NextTask(ctx, id, "create")
+		if tsk != nil {
+			defer func() {
+				if err := e.taskRepo.CompleteTask(ctx, tsk.ID); err != nil {
+					e.logger.Errorf("Failed to complete task %s: %v", tsk.ID, err)
+				}
+			}()
+		}
+	}
 
 	now := time.Now().UTC()
 	sandbox := &model.Sandbox{
@@ -74,6 +96,23 @@ func (e *Engine) Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sa
 func (e *Engine) Start(ctx context.Context, id string) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+
+	// Setup tasks if task manager is available
+	if e.taskRepo != nil {
+		if err := e.taskRepo.AddTask(ctx, id, "start", "start_sandbox"); err != nil {
+			return fmt.Errorf("failed to add task: %w", err)
+		}
+
+		// Complete the task immediately since fake engine is instant
+		tsk, _ := e.taskRepo.NextTask(ctx, id, "start")
+		if tsk != nil {
+			defer func() {
+				if err := e.taskRepo.CompleteTask(ctx, tsk.ID); err != nil {
+					e.logger.Errorf("Failed to complete task %s: %v", tsk.ID, err)
+				}
+			}()
+		}
+	}
 
 	// Check if sandbox exists in this engine instance
 	sandbox, ok := e.sandboxes[id]
@@ -104,6 +143,23 @@ func (e *Engine) Stop(ctx context.Context, id string) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
+	// Setup tasks if task manager is available
+	if e.taskRepo != nil {
+		if err := e.taskRepo.AddTask(ctx, id, "stop", "stop_sandbox"); err != nil {
+			return fmt.Errorf("failed to add task: %w", err)
+		}
+
+		// Complete the task immediately since fake engine is instant
+		tsk, _ := e.taskRepo.NextTask(ctx, id, "stop")
+		if tsk != nil {
+			defer func() {
+				if err := e.taskRepo.CompleteTask(ctx, tsk.ID); err != nil {
+					e.logger.Errorf("Failed to complete task %s: %v", tsk.ID, err)
+				}
+			}()
+		}
+	}
+
 	// Check if sandbox exists in this engine instance
 	sandbox, ok := e.sandboxes[id]
 	if !ok {
@@ -131,6 +187,23 @@ func (e *Engine) Stop(ctx context.Context, id string) error {
 func (e *Engine) Remove(ctx context.Context, id string) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+
+	// Setup tasks if task manager is available
+	if e.taskRepo != nil {
+		if err := e.taskRepo.AddTask(ctx, id, "remove", "remove_sandbox"); err != nil {
+			return fmt.Errorf("failed to add task: %w", err)
+		}
+
+		// Complete the task immediately since fake engine is instant
+		tsk, _ := e.taskRepo.NextTask(ctx, id, "remove")
+		if tsk != nil {
+			defer func() {
+				if err := e.taskRepo.CompleteTask(ctx, tsk.ID); err != nil {
+					e.logger.Errorf("Failed to complete task %s: %v", tsk.ID, err)
+				}
+			}()
+		}
+	}
 
 	// Check if sandbox exists in this engine instance
 	if _, ok := e.sandboxes[id]; !ok {
