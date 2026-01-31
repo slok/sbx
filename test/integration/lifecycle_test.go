@@ -16,7 +16,7 @@ import (
 	"github.com/slok/sbx/internal/storage/sqlite"
 )
 
-// TestMain runs before all tests and after all tests for cleanup
+// TestMain runs before all tests and after all tests for cleanup.
 func TestMain(m *testing.M) {
 	// Run tests
 	code := m.Run()
@@ -561,7 +561,7 @@ func TestCompleteLifecycle(t *testing.T) {
 	assert.Empty(t, output)
 }
 
-// Helper functions
+// Helper functions.
 
 func createSandbox(t *testing.T, dbPath, name string) string {
 	docker := newDockerHelper(t)
