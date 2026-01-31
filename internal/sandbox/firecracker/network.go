@@ -8,7 +8,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/nftables"
+	"github.com/google/nftables/expr"
 	"github.com/vishvananda/netlink"
+	"golang.org/x/sys/unix"
+)
+
+const (
+	// nftTableName is the name of the nftables table used by sbx.
+	nftTableName = "sbx"
 )
 
 // createTAP creates a TAP device for the VM using netlink.
@@ -125,69 +133,224 @@ func (e *Engine) getDefaultInterface() (string, error) {
 	return "", fmt.Errorf("no default route found")
 }
 
-// getIptablesCmd returns the iptables command to use.
-// Prefers iptables-legacy over iptables (nftables) because:
-// - iptables-legacy works better with CAP_NET_ADMIN capability
-// - iptables (nftables backend) often requires root even with capabilities
-func (e *Engine) getIptablesCmd() string {
-	// Check for iptables-legacy first
-	if path, err := exec.LookPath("iptables-legacy"); err == nil {
-		return path
+// getInterfaceIndex returns the interface index for the given interface name.
+func (e *Engine) getInterfaceIndex(ifaceName string) (uint32, error) {
+	link, err := netlink.LinkByName(ifaceName)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get interface %s: %w", ifaceName, err)
 	}
-	return "iptables"
+	return uint32(link.Attrs().Index), nil
 }
 
-// setupIPTables sets up NAT and forwarding rules for the VM.
-// Note: iptables still requires the iptables command as there's no pure Go library
-// that's as reliable. Prefers iptables-legacy which works with CAP_NET_ADMIN.
-func (e *Engine) setupIPTables(tapDevice, gateway, vmIP string) error {
+// setupNftables sets up NAT and forwarding rules for the VM using nftables.
+// This uses the google/nftables Go library which works with CAP_NET_ADMIN.
+func (e *Engine) setupNftables(tapDevice, gateway, vmIP string) error {
 	outInterface, err := e.getDefaultInterface()
 	if err != nil {
 		return fmt.Errorf("failed to get default interface: %w", err)
 	}
 
-	iptables := e.getIptablesCmd()
-	subnet := e.subnetFromGateway(gateway)
-
-	// NAT rule: masquerade outgoing traffic from VM subnet
-	if err := e.runCmd(iptables, "-t", "nat", "-A", "POSTROUTING", "-o", outInterface, "-s", subnet, "-j", "MASQUERADE"); err != nil {
-		return fmt.Errorf("failed to add NAT rule: %w", err)
+	// Get interface indices
+	outIfaceIdx, err := e.getInterfaceIndex(outInterface)
+	if err != nil {
+		return fmt.Errorf("failed to get output interface index: %w", err)
 	}
 
-	// Forward rule: allow traffic from TAP to outside
-	if err := e.runCmd(iptables, "-A", "FORWARD", "-i", tapDevice, "-o", outInterface, "-j", "ACCEPT"); err != nil {
-		return fmt.Errorf("failed to add forward rule (out): %w", err)
+	tapIfaceIdx, err := e.getInterfaceIndex(tapDevice)
+	if err != nil {
+		return fmt.Errorf("failed to get TAP interface index: %w", err)
 	}
 
-	// Forward rule: allow established/related traffic back to TAP
-	if err := e.runCmd(iptables, "-A", "FORWARD", "-i", outInterface, "-o", tapDevice, "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT"); err != nil {
-		return fmt.Errorf("failed to add forward rule (in): %w", err)
+	// Parse subnet
+	_, subnet, err := net.ParseCIDR(e.subnetFromGateway(gateway))
+	if err != nil {
+		return fmt.Errorf("failed to parse subnet: %w", err)
 	}
 
-	e.logger.Debugf("Set up iptables NAT for %s via %s (using %s)", tapDevice, outInterface, iptables)
+	// Connect to nftables
+	conn, err := nftables.New()
+	if err != nil {
+		return fmt.Errorf("failed to connect to nftables: %w", err)
+	}
+
+	// Create or get our table
+	table := &nftables.Table{
+		Family: nftables.TableFamilyIPv4,
+		Name:   nftTableName,
+	}
+	conn.AddTable(table)
+
+	// Create NAT chain for postrouting (masquerade)
+	natChain := &nftables.Chain{
+		Name:     "postrouting",
+		Table:    table,
+		Type:     nftables.ChainTypeNAT,
+		Hooknum:  nftables.ChainHookPostrouting,
+		Priority: nftables.ChainPriorityNATSource,
+	}
+	conn.AddChain(natChain)
+
+	// Create filter chain for forwarding
+	filterChain := &nftables.Chain{
+		Name:     "forward",
+		Table:    table,
+		Type:     nftables.ChainTypeFilter,
+		Hooknum:  nftables.ChainHookForward,
+		Priority: nftables.ChainPriorityFilter,
+	}
+	conn.AddChain(filterChain)
+
+	// Rule 1: Masquerade traffic from VM subnet going out through the default interface
+	// nft add rule ip sbx postrouting oifname "eno1" ip saddr 10.x.x.0/24 masquerade
+	conn.AddRule(&nftables.Rule{
+		Table: table,
+		Chain: natChain,
+		Exprs: []expr.Any{
+			// Match output interface
+			&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
+			&expr.Cmp{
+				Op:       expr.CmpOpEq,
+				Register: 1,
+				Data:     ifname(outInterface),
+			},
+			// Match source IP in subnet
+			&expr.Payload{
+				DestRegister: 1,
+				Base:         expr.PayloadBaseNetworkHeader,
+				Offset:       12, // Source IP offset in IPv4 header
+				Len:          4,
+			},
+			&expr.Bitwise{
+				SourceRegister: 1,
+				DestRegister:   1,
+				Len:            4,
+				Mask:           subnet.Mask,
+				Xor:            []byte{0, 0, 0, 0},
+			},
+			&expr.Cmp{
+				Op:       expr.CmpOpEq,
+				Register: 1,
+				Data:     subnet.IP.To4(),
+			},
+			// Masquerade
+			&expr.Masq{},
+		},
+	})
+
+	// Rule 2: Allow forwarding from TAP to outside
+	// nft add rule ip sbx forward iif "sbx-xxx" oif "eno1" accept
+	conn.AddRule(&nftables.Rule{
+		Table: table,
+		Chain: filterChain,
+		Exprs: []expr.Any{
+			// Match input interface (TAP)
+			&expr.Meta{Key: expr.MetaKeyIIF, Register: 1},
+			&expr.Cmp{
+				Op:       expr.CmpOpEq,
+				Register: 1,
+				Data:     binaryUint32(tapIfaceIdx),
+			},
+			// Match output interface (default)
+			&expr.Meta{Key: expr.MetaKeyOIF, Register: 1},
+			&expr.Cmp{
+				Op:       expr.CmpOpEq,
+				Register: 1,
+				Data:     binaryUint32(outIfaceIdx),
+			},
+			// Accept
+			&expr.Verdict{Kind: expr.VerdictAccept},
+		},
+	})
+
+	// Rule 3: Allow established/related traffic back to TAP
+	// nft add rule ip sbx forward iif "eno1" oif "sbx-xxx" ct state established,related accept
+	conn.AddRule(&nftables.Rule{
+		Table: table,
+		Chain: filterChain,
+		Exprs: []expr.Any{
+			// Match input interface (default)
+			&expr.Meta{Key: expr.MetaKeyIIF, Register: 1},
+			&expr.Cmp{
+				Op:       expr.CmpOpEq,
+				Register: 1,
+				Data:     binaryUint32(outIfaceIdx),
+			},
+			// Match output interface (TAP)
+			&expr.Meta{Key: expr.MetaKeyOIF, Register: 1},
+			&expr.Cmp{
+				Op:       expr.CmpOpEq,
+				Register: 1,
+				Data:     binaryUint32(tapIfaceIdx),
+			},
+			// Match connection state: established or related
+			&expr.Ct{Register: 1, SourceRegister: false, Key: expr.CtKeySTATE},
+			&expr.Bitwise{
+				SourceRegister: 1,
+				DestRegister:   1,
+				Len:            4,
+				Mask:           binaryUint32(expr.CtStateBitESTABLISHED | expr.CtStateBitRELATED),
+				Xor:            []byte{0, 0, 0, 0},
+			},
+			&expr.Cmp{
+				Op:       expr.CmpOpNeq,
+				Register: 1,
+				Data:     []byte{0, 0, 0, 0},
+			},
+			// Accept
+			&expr.Verdict{Kind: expr.VerdictAccept},
+		},
+	})
+
+	// Commit the changes
+	if err := conn.Flush(); err != nil {
+		return fmt.Errorf("failed to apply nftables rules: %w", err)
+	}
+
+	e.logger.Debugf("Set up nftables NAT for %s via %s", tapDevice, outInterface)
 	return nil
 }
 
-// cleanupIPTables removes NAT and forwarding rules for the VM.
-func (e *Engine) cleanupIPTables(tapDevice, gateway, vmIP string) error {
-	outInterface, err := e.getDefaultInterface()
+// cleanupNftables removes NAT and forwarding rules for the VM.
+// For simplicity, we delete the entire sbx table if no other VMs are using it.
+// In a production system, you'd want to track and remove individual rules.
+func (e *Engine) cleanupNftables(tapDevice, gateway, vmIP string) error {
+	conn, err := nftables.New()
 	if err != nil {
-		e.logger.Warningf("Could not determine default interface for cleanup: %v", err)
+		e.logger.Warningf("Failed to connect to nftables for cleanup: %v", err)
 		return nil
 	}
 
-	iptables := e.getIptablesCmd()
-	subnet := e.subnetFromGateway(gateway)
+	// Get all tables and find ours
+	tables, err := conn.ListTables()
+	if err != nil {
+		e.logger.Warningf("Failed to list nftables tables: %v", err)
+		return nil
+	}
 
-	// Remove NAT rule
-	_ = e.runCmd(iptables, "-t", "nat", "-D", "POSTROUTING", "-o", outInterface, "-s", subnet, "-j", "MASQUERADE")
+	for _, table := range tables {
+		if table.Name == nftTableName && table.Family == nftables.TableFamilyIPv4 {
+			// For now, delete the entire table
+			// TODO: In a multi-VM scenario, we should only delete specific rules
+			conn.DelTable(table)
+			if err := conn.Flush(); err != nil {
+				e.logger.Warningf("Failed to delete nftables table: %v", err)
+			} else {
+				e.logger.Debugf("Cleaned up nftables table %s", nftTableName)
+			}
+			break
+		}
+	}
 
-	// Remove forward rules
-	_ = e.runCmd(iptables, "-D", "FORWARD", "-i", tapDevice, "-o", outInterface, "-j", "ACCEPT")
-	_ = e.runCmd(iptables, "-D", "FORWARD", "-i", outInterface, "-o", tapDevice, "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT")
-
-	e.logger.Debugf("Cleaned up iptables rules for %s", tapDevice)
 	return nil
+}
+
+// Wrapper functions for backwards compatibility - now use nftables
+func (e *Engine) setupIPTables(tapDevice, gateway, vmIP string) error {
+	return e.setupNftables(tapDevice, gateway, vmIP)
+}
+
+func (e *Engine) cleanupIPTables(tapDevice, gateway, vmIP string) error {
+	return e.cleanupNftables(tapDevice, gateway, vmIP)
 }
 
 // configureVMNetwork configures networking inside the VM via SSH.
@@ -295,4 +458,18 @@ func (e *Engine) runCmd(name string, args ...string) error {
 		return fmt.Errorf("%s %v failed: %w, output: %s", name, args, err, string(output))
 	}
 	return nil
+}
+
+// Helper functions for nftables
+
+// ifname returns the interface name as a null-terminated byte slice for nftables.
+func ifname(name string) []byte {
+	b := make([]byte, unix.IFNAMSIZ)
+	copy(b, name)
+	return b
+}
+
+// binaryUint32 converts a uint32 to a 4-byte slice in native endian.
+func binaryUint32(v uint32) []byte {
+	return []byte{byte(v), byte(v >> 8), byte(v >> 16), byte(v >> 24)}
 }
