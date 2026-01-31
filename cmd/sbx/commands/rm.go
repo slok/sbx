@@ -8,7 +8,6 @@ import (
 
 	"github.com/slok/sbx/internal/app/remove"
 	"github.com/slok/sbx/internal/printer"
-	"github.com/slok/sbx/internal/sandbox/fake"
 	"github.com/slok/sbx/internal/storage/sqlite"
 )
 
@@ -45,10 +44,18 @@ func (c RemoveCommand) Run(ctx context.Context) error {
 		return fmt.Errorf("could not create repository: %w", err)
 	}
 
-	// Initialize engine (fake for now).
-	eng, err := fake.NewEngine(fake.EngineConfig{
-		Logger: logger,
-	})
+	// Get sandbox to determine which engine to use.
+	sandbox, err := repo.GetSandboxByName(ctx, c.nameOrID)
+	if err != nil {
+		// Try by ID if name lookup failed
+		sandbox, err = repo.GetSandbox(ctx, c.nameOrID)
+		if err != nil {
+			return fmt.Errorf("could not find sandbox: %w", err)
+		}
+	}
+
+	// Initialize engine based on sandbox configuration.
+	eng, err := newEngineFromConfig(sandbox.Config, logger)
 	if err != nil {
 		return fmt.Errorf("could not create engine: %w", err)
 	}
@@ -64,7 +71,7 @@ func (c RemoveCommand) Run(ctx context.Context) error {
 	}
 
 	// Execute remove.
-	sandbox, err := svc.Run(ctx, remove.Request{
+	sandbox, err = svc.Run(ctx, remove.Request{
 		NameOrID: c.nameOrID,
 		Force:    c.force,
 	})

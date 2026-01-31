@@ -5,9 +5,17 @@ A CLI tool for creating and managing microVM sandboxes.
 ## Features
 
 - Create sandboxes from YAML configuration
+- Multiple sandbox engines:
+  - **Docker**: Real containers for testing and development
+  - **Fake**: Simulated engine for unit testing
+  - Firecracker support planned for future releases
 - SQLite-based persistent storage
-- Fake engine for testing (real engine TBD)
-- Comprehensive test coverage
+- Comprehensive test coverage with integration tests
+
+## Requirements
+
+- Go 1.24+ (for building from source)
+- Docker (for Docker engine support)
 
 ## Installation
 
@@ -45,7 +53,9 @@ Example configuration (`sandbox.yaml`):
 
 ```yaml
 name: example-sandbox
-base: ubuntu:22.04
+engine:
+  docker:
+    image: ubuntu:22.04
 packages:
   - curl
   - git
@@ -58,6 +68,27 @@ resources:
   memory_mb: 2048
   disk_gb: 10
 ```
+
+**Engine Configuration:**
+
+Currently supported engines:
+
+- **Docker Engine**: Runs sandboxes as Docker containers
+  ```yaml
+  engine:
+    docker:
+      image: ubuntu:22.04  # Any Docker image
+  ```
+
+- **Firecracker Engine** (planned for future release):
+  ```yaml
+  engine:
+    firecracker:
+      kernel_image: /path/to/vmlinux
+      root_fs: /path/to/rootfs.ext4
+  ```
+
+Only one engine can be specified per sandbox configuration.
 
 Override the sandbox name:
 
@@ -103,13 +134,16 @@ sbx status example-sandbox
 
 Example output:
 ```
-ID:         01JQYXZ2ABCDEFGH1234567890
 Name:       example-sandbox
+ID:         01JQYXZ2ABCDEFGH1234567890
 Status:     running
-Base:       ubuntu:22.04
-Resources:  vcpus=2 memory=2048MB disk=10GB
-Created:    2026-01-30T10:30:45Z
-Updated:    2026-01-30T12:15:30Z
+Engine:     docker
+Image:      ubuntu:22.04
+VCPUs:      2
+Memory:     2048 MB
+Disk:       10 GB
+Created:    2026-01-30 10:30:45 UTC
+Started:    2026-01-30 10:30:47 UTC
 ```
 
 You can also use the sandbox ID:
@@ -211,6 +245,7 @@ sbx list
 ### Prerequisites
 
 - Go 1.24+
+- Docker (for integration tests)
 - make
 - mockery (for generating mocks)
 
@@ -318,6 +353,7 @@ The project follows a clean architecture pattern:
 - `github.com/oklog/ulid/v2` - ULID generation
 - `modernc.org/sqlite` - Pure Go SQLite (no CGO)
 - `github.com/golang-migrate/migrate/v4` - Database migrations
+- `github.com/docker/docker` - Docker SDK for engine support
 - `github.com/sirupsen/logrus` - Structured logging
 - `github.com/stretchr/testify` - Testing utilities
 

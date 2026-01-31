@@ -149,7 +149,8 @@ func TestStatusCommand(t *testing.T) {
 				"Name:       test-sandbox",
 				"ID:",
 				"Status:     running",
-				"Base:       ubuntu:22.04",
+				"Engine:     docker",
+				"Image:      ubuntu:22.04",
 				"VCPUs:      2",
 				"Memory:     2048 MB",
 				"Disk:       10 GB",
@@ -180,7 +181,11 @@ func TestStatusCommand(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, "json-sandbox", sandbox["name"])
 				assert.Equal(t, "running", sandbox["status"])
-				assert.Equal(t, "ubuntu:22.04", sandbox["base"])
+				// Check engine info
+				engine, ok := sandbox["engine"].(map[string]interface{})
+				require.True(t, ok, "engine should be a map")
+				assert.Equal(t, "docker", engine["type"])
+				assert.Equal(t, "ubuntu:22.04", engine["image"])
 			},
 		},
 		"Nonexistent sandbox fails": {
