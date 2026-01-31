@@ -82,9 +82,17 @@ func (e *Engine) patchRootFSSSH(vmDir string) error {
 	// Use debugfs to create .ssh directory and write authorized_keys
 	// Commands:
 	// 1. mkdir /root/.ssh (if not exists)
-	// 2. write <tmpfile> /root/.ssh/authorized_keys
+	// 2. Set .ssh directory permissions to 700 (octal 0700 = 448 decimal)
+	// 3. write <tmpfile> /root/.ssh/authorized_keys
+	// 4. Set authorized_keys permissions to 600 (octal 0600 = 384 decimal)
+	//
+	// Note: debugfs set_inode_field uses octal values directly
+	// mode for directory with 700: 040700 (directory type + rwx------)
+	// mode for file with 600: 0100600 (regular file type + rw-------)
 	commands := fmt.Sprintf(`mkdir /root/.ssh
+set_inode_field /root/.ssh mode 040700
 write %s /root/.ssh/authorized_keys
+set_inode_field /root/.ssh/authorized_keys mode 0100600
 `, tmpPath)
 
 	cmd := exec.Command("debugfs", "-w", rootfsPath)
