@@ -21,7 +21,7 @@ func TestEngineCreateStartStopRemove(t *testing.T) {
 		"Creating a sandbox should work": {
 			actions: func(ctx context.Context, t *testing.T, eng *fake.Engine) error {
 				cfg := model.SandboxConfig{
-					Name: "test",
+					Name:         "test",
 					DockerEngine: &model.DockerEngineConfig{Image: "ubuntu-22.04"},
 					Resources: model.Resources{
 						VCPUs:    2,
@@ -45,9 +45,9 @@ func TestEngineCreateStartStopRemove(t *testing.T) {
 		"Getting status of created sandbox should work": {
 			actions: func(ctx context.Context, t *testing.T, eng *fake.Engine) error {
 				cfg := model.SandboxConfig{
-					Name:      "test",
+					Name:         "test",
 					DockerEngine: &model.DockerEngineConfig{Image: "ubuntu-22.04"},
-					Resources: model.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
+					Resources:    model.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
 				}
 
 				created, err := eng.Create(ctx, cfg)
@@ -73,9 +73,9 @@ func TestEngineCreateStartStopRemove(t *testing.T) {
 		"Full lifecycle (create, stop, start, remove) should work": {
 			actions: func(ctx context.Context, t *testing.T, eng *fake.Engine) error {
 				cfg := model.SandboxConfig{
-					Name:      "test",
+					Name:         "test",
 					DockerEngine: &model.DockerEngineConfig{Image: "ubuntu-22.04"},
-					Resources: model.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
+					Resources:    model.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
 				}
 
 				// Create
@@ -116,9 +116,9 @@ func TestEngineCreateStartStopRemove(t *testing.T) {
 		"Starting an already running sandbox should be idempotent": {
 			actions: func(ctx context.Context, t *testing.T, eng *fake.Engine) error {
 				cfg := model.SandboxConfig{
-					Name:      "test",
+					Name:         "test",
 					DockerEngine: &model.DockerEngineConfig{Image: "ubuntu-22.04"},
-					Resources: model.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
+					Resources:    model.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
 				}
 
 				created, err := eng.Create(ctx, cfg)
@@ -139,9 +139,9 @@ func TestEngineCreateStartStopRemove(t *testing.T) {
 		"Stopping an already stopped sandbox should be idempotent": {
 			actions: func(ctx context.Context, t *testing.T, eng *fake.Engine) error {
 				cfg := model.SandboxConfig{
-					Name:      "test",
+					Name:         "test",
 					DockerEngine: &model.DockerEngineConfig{Image: "ubuntu-22.04"},
-					Resources: model.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
+					Resources:    model.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
 				}
 
 				created, err := eng.Create(ctx, cfg)

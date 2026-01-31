@@ -80,7 +80,7 @@ func TestServiceCreate(t *testing.T) {
 	}{
 		"Successful creation": {
 			config: model.SandboxConfig{
-				Name: "test-sandbox",
+				Name:         "test-sandbox",
 				DockerEngine: &model.DockerEngineConfig{Image: "ubuntu:22.04"},
 				Resources: model.Resources{
 					VCPUs:    2,
@@ -99,7 +99,7 @@ func TestServiceCreate(t *testing.T) {
 					Name:   "test-sandbox",
 					Status: model.SandboxStatusRunning,
 					Config: model.SandboxConfig{
-						Name: "test-sandbox",
+						Name:         "test-sandbox",
 						DockerEngine: &model.DockerEngineConfig{Image: "ubuntu:22.04"},
 						Resources: model.Resources{
 							VCPUs:    2,
@@ -125,7 +125,7 @@ func TestServiceCreate(t *testing.T) {
 		},
 		"Name conflict returns error": {
 			config: model.SandboxConfig{
-				Name: "existing-sandbox",
+				Name:         "existing-sandbox",
 				DockerEngine: &model.DockerEngineConfig{Image: "ubuntu:22.04"},
 				Resources: model.Resources{
 					VCPUs:    2,
@@ -147,7 +147,7 @@ func TestServiceCreate(t *testing.T) {
 		},
 		"Missing name in config returns validation error": {
 			config: model.SandboxConfig{
-				Name: "", // Invalid - empty name
+				Name:         "", // Invalid - empty name
 				DockerEngine: &model.DockerEngineConfig{Image: "ubuntu:22.04"},
 				Resources: model.Resources{
 					VCPUs:    2,
@@ -163,7 +163,7 @@ func TestServiceCreate(t *testing.T) {
 		},
 		"Missing image in config returns validation error": {
 			config: model.SandboxConfig{
-				Name: "test",
+				Name:         "test",
 				DockerEngine: &model.DockerEngineConfig{Image: ""}, // Invalid - empty image
 				Resources: model.Resources{
 					VCPUs:    2,
@@ -179,7 +179,7 @@ func TestServiceCreate(t *testing.T) {
 		},
 		"Invalid resource values return validation error": {
 			config: model.SandboxConfig{
-				Name: "test",
+				Name:         "test",
 				DockerEngine: &model.DockerEngineConfig{Image: "ubuntu:22.04"},
 				Resources: model.Resources{
 					VCPUs:    0, // Invalid - zero CPUs
@@ -195,7 +195,7 @@ func TestServiceCreate(t *testing.T) {
 		},
 		"Engine error returns error": {
 			config: model.SandboxConfig{
-				Name: "test-sandbox",
+				Name:         "test-sandbox",
 				DockerEngine: &model.DockerEngineConfig{Image: "ubuntu:22.04"},
 				Resources: model.Resources{
 					VCPUs:    2,
@@ -216,7 +216,7 @@ func TestServiceCreate(t *testing.T) {
 		},
 		"Repository save error returns error": {
 			config: model.SandboxConfig{
-				Name: "test-sandbox",
+				Name:         "test-sandbox",
 				DockerEngine: &model.DockerEngineConfig{Image: "ubuntu:22.04"},
 				Resources: model.Resources{
 					VCPUs:    2,
@@ -245,7 +245,7 @@ func TestServiceCreate(t *testing.T) {
 		},
 		"Repository check error returns error": {
 			config: model.SandboxConfig{
-				Name: "test-sandbox",
+				Name:         "test-sandbox",
 				DockerEngine: &model.DockerEngineConfig{Image: "ubuntu:22.04"},
 				Resources: model.Resources{
 					VCPUs:    2,

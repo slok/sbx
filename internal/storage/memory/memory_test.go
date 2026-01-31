@@ -29,7 +29,7 @@ func TestRepositoryCRUD(t *testing.T) {
 					Status:    model.SandboxStatusRunning,
 					CreatedAt: now,
 					Config: model.SandboxConfig{
-						Name: "test",
+						Name:         "test",
 						DockerEngine: &model.DockerEngineConfig{Image: "ubuntu-22.04"},
 						Resources: model.Resources{
 							VCPUs:    2,
