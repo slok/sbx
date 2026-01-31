@@ -17,7 +17,7 @@ import (
 
 	"github.com/slok/sbx/internal/log"
 	"github.com/slok/sbx/internal/model"
-	"github.com/slok/sbx/internal/task"
+	"github.com/slok/sbx/internal/storage"
 )
 
 // DockerClient is the interface for Docker operations that we use.
@@ -33,9 +33,9 @@ type DockerClient interface {
 
 // EngineConfig is the configuration for the Docker engine.
 type EngineConfig struct {
-	Client  DockerClient
-	TaskMgr task.Manager
-	Logger  log.Logger
+	Client   DockerClient
+	TaskRepo storage.TaskRepository
+	Logger   log.Logger
 }
 
 func (c *EngineConfig) defaults() error {
@@ -56,9 +56,9 @@ func (c *EngineConfig) defaults() error {
 
 // Engine is the Docker implementation of the sandbox.Engine interface.
 type Engine struct {
-	client  DockerClient
-	taskMgr task.Manager
-	logger  log.Logger
+	client   DockerClient
+	taskRepo storage.TaskRepository
+	logger   log.Logger
 }
 
 // NewEngine creates a new Docker engine.
@@ -68,9 +68,9 @@ func NewEngine(cfg EngineConfig) (*Engine, error) {
 	}
 
 	return &Engine{
-		client:  cfg.Client,
-		taskMgr: cfg.TaskMgr,
-		logger:  cfg.Logger,
+		client:   cfg.Client,
+		taskRepo: cfg.TaskRepo,
+		logger:   cfg.Logger,
 	}, nil
 }
 
@@ -86,9 +86,9 @@ func (e *Engine) Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sa
 	containerName := fmt.Sprintf("sbx-%s", strings.ToLower(id))
 
 	// Setup tasks if task manager is available
-	if e.taskMgr != nil {
+	if e.taskRepo != nil {
 		taskNames := []string{"pull_image", "create_container", "start_container"}
-		if err := e.taskMgr.AddTasks(ctx, id, "create", taskNames); err != nil {
+		if err := e.taskRepo.AddTasks(ctx, id, "create", taskNames); err != nil {
 			return nil, fmt.Errorf("failed to add tasks: %w", err)
 		}
 	}
@@ -189,12 +189,12 @@ cleanup:
 // executeTask executes a task function and tracks its completion.
 func (e *Engine) executeTask(ctx context.Context, sandboxID, operation, taskName string, fn func() error) error {
 	// If no task manager, just execute the function
-	if e.taskMgr == nil {
+	if e.taskRepo == nil {
 		return fn()
 	}
 
 	// Get the next task - should be the one with this name
-	tsk, err := e.taskMgr.NextTask(ctx, sandboxID, operation)
+	tsk, err := e.taskRepo.NextTask(ctx, sandboxID, operation)
 	if err != nil {
 		return fmt.Errorf("failed to get next task: %w", err)
 	}
@@ -209,14 +209,14 @@ func (e *Engine) executeTask(ctx context.Context, sandboxID, operation, taskName
 	err = fn()
 	if err != nil {
 		// Mark task as failed
-		if failErr := e.taskMgr.FailTask(ctx, tsk.ID, err); failErr != nil {
+		if failErr := e.taskRepo.FailTask(ctx, tsk.ID, err); failErr != nil {
 			e.logger.Errorf("Failed to mark task as failed: %v", failErr)
 		}
 		return err
 	}
 
 	// Mark task as completed
-	if err := e.taskMgr.CompleteTask(ctx, tsk.ID); err != nil {
+	if err := e.taskRepo.CompleteTask(ctx, tsk.ID); err != nil {
 		return fmt.Errorf("failed to mark task as completed: %w", err)
 	}
 
@@ -228,8 +228,8 @@ func (e *Engine) Start(ctx context.Context, id string) error {
 	containerName := fmt.Sprintf("sbx-%s", strings.ToLower(id))
 
 	// Setup tasks if task manager is available
-	if e.taskMgr != nil {
-		if err := e.taskMgr.AddTask(ctx, id, "start", "start_container"); err != nil {
+	if e.taskRepo != nil {
+		if err := e.taskRepo.AddTask(ctx, id, "start", "start_container"); err != nil {
 			return fmt.Errorf("failed to add task: %w", err)
 		}
 	}
@@ -259,8 +259,8 @@ func (e *Engine) Stop(ctx context.Context, id string) error {
 	containerName := fmt.Sprintf("sbx-%s", strings.ToLower(id))
 
 	// Setup tasks if task manager is available
-	if e.taskMgr != nil {
-		if err := e.taskMgr.AddTask(ctx, id, "stop", "stop_container"); err != nil {
+	if e.taskRepo != nil {
+		if err := e.taskRepo.AddTask(ctx, id, "stop", "stop_container"); err != nil {
 			return fmt.Errorf("failed to add task: %w", err)
 		}
 	}
@@ -291,8 +291,8 @@ func (e *Engine) Remove(ctx context.Context, id string) error {
 	containerName := fmt.Sprintf("sbx-%s", strings.ToLower(id))
 
 	// Setup tasks if task manager is available
-	if e.taskMgr != nil {
-		if err := e.taskMgr.AddTask(ctx, id, "remove", "remove_container"); err != nil {
+	if e.taskRepo != nil {
+		if err := e.taskRepo.AddTask(ctx, id, "remove", "remove_container"); err != nil {
 			return fmt.Errorf("failed to add task: %w", err)
 		}
 	}

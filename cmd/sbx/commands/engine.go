@@ -8,15 +8,15 @@ import (
 	"github.com/slok/sbx/internal/sandbox"
 	"github.com/slok/sbx/internal/sandbox/docker"
 	"github.com/slok/sbx/internal/sandbox/fake"
-	"github.com/slok/sbx/internal/task"
+	"github.com/slok/sbx/internal/storage"
 )
 
 // newEngineFromConfig creates an engine based on the sandbox configuration.
-func newEngineFromConfig(cfg model.SandboxConfig, taskMgr task.Manager, logger log.Logger) (sandbox.Engine, error) {
+func newEngineFromConfig(cfg model.SandboxConfig, taskRepo storage.TaskRepository, logger log.Logger) (sandbox.Engine, error) {
 	if cfg.DockerEngine != nil {
 		return docker.NewEngine(docker.EngineConfig{
-			TaskMgr: taskMgr,
-			Logger:  logger,
+			TaskRepo: taskRepo,
+			Logger:   logger,
 		})
 	}
 
@@ -26,7 +26,7 @@ func newEngineFromConfig(cfg model.SandboxConfig, taskMgr task.Manager, logger l
 
 	// Fallback to fake engine (for backward compatibility or testing)
 	return fake.NewEngine(fake.EngineConfig{
-		TaskMgr: taskMgr,
-		Logger:  logger,
+		TaskRepo: taskRepo,
+		Logger:   logger,
 	})
 }

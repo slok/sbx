@@ -13,9 +13,10 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/slok/sbx/internal/log"
+	"github.com/slok/sbx/internal/model"
+	"github.com/slok/sbx/internal/storage"
+	"github.com/slok/sbx/internal/storage/sqlite"
 	"github.com/slok/sbx/internal/storage/sqlite/migrations"
-	"github.com/slok/sbx/internal/task"
-	tasksqlite "github.com/slok/sbx/internal/task/sqlite"
 )
 
 func getTestDB(t *testing.T) *sql.DB {
@@ -61,7 +62,7 @@ func TestAddTask(t *testing.T) {
 			require := require.New(t)
 
 			db := getTestDB(t)
-			mgr, err := tasksqlite.NewManager(tasksqlite.ManagerConfig{DB: db, Logger: log.Noop})
+			mgr, err := sqlite.NewTaskRepository(sqlite.TaskRepositoryConfig{DB: db, Logger: log.Noop})
 			require.NoError(err)
 
 			err = mgr.AddTask(context.Background(), test.sandboxID, test.operation, test.name)
@@ -79,7 +80,7 @@ func TestAddTask(t *testing.T) {
 				assert.Equal(test.operation, tsk.Operation)
 				assert.Equal(test.name, tsk.Name)
 				assert.Equal(1, tsk.Sequence)
-				assert.Equal(task.StatusPending, tsk.Status)
+				assert.Equal(model.TaskStatusPending, tsk.Status)
 			}
 		})
 	}
@@ -120,7 +121,7 @@ func TestAddTasks(t *testing.T) {
 			require := require.New(t)
 
 			db := getTestDB(t)
-			mgr, err := tasksqlite.NewManager(tasksqlite.ManagerConfig{DB: db, Logger: log.Noop})
+			mgr, err := sqlite.NewTaskRepository(sqlite.TaskRepositoryConfig{DB: db, Logger: log.Noop})
 			require.NoError(err)
 
 			// For the "continue sequence" test, add initial tasks
@@ -153,7 +154,7 @@ func TestAddTasks(t *testing.T) {
 
 func TestNextTask(t *testing.T) {
 	tests := map[string]struct {
-		setup     func(mgr task.Manager)
+		setup     func(mgr storage.TaskRepository)
 		sandboxID string
 		operation string
 		expName   string
@@ -161,7 +162,7 @@ func TestNextTask(t *testing.T) {
 		expErr    bool
 	}{
 		"NextTask should return tasks in sequence order": {
-			setup: func(mgr task.Manager) {
+			setup: func(mgr storage.TaskRepository) {
 				err := mgr.AddTasks(context.Background(), "sandbox-1", "create", []string{"task1", "task2", "task3"})
 				if err != nil {
 					panic(err)
@@ -173,7 +174,7 @@ func TestNextTask(t *testing.T) {
 		},
 
 		"NextTask should return nil when no pending tasks": {
-			setup: func(mgr task.Manager) {
+			setup: func(mgr storage.TaskRepository) {
 				_ = mgr.AddTask(context.Background(), "sandbox-1", "create", "task1")
 				tsk, _ := mgr.NextTask(context.Background(), "sandbox-1", "create")
 				_ = mgr.CompleteTask(context.Background(), tsk.ID)
@@ -184,7 +185,7 @@ func TestNextTask(t *testing.T) {
 		},
 
 		"NextTask should skip failed tasks and return next pending": {
-			setup: func(mgr task.Manager) {
+			setup: func(mgr storage.TaskRepository) {
 				_ = mgr.AddTasks(context.Background(), "sandbox-1", "create", []string{"task1", "task2", "task3"})
 				tsk, _ := mgr.NextTask(context.Background(), "sandbox-1", "create")
 				_ = mgr.FailTask(context.Background(), tsk.ID, fmt.Errorf("test error"))
@@ -195,7 +196,7 @@ func TestNextTask(t *testing.T) {
 		},
 
 		"NextTask for non-existent operation should return nil": {
-			setup:     func(mgr task.Manager) {},
+			setup:     func(mgr storage.TaskRepository) {},
 			sandboxID: "sandbox-1",
 			operation: "nonexistent",
 			expNil:    true,
@@ -208,7 +209,7 @@ func TestNextTask(t *testing.T) {
 			require := require.New(t)
 
 			db := getTestDB(t)
-			mgr, err := tasksqlite.NewManager(tasksqlite.ManagerConfig{DB: db, Logger: log.Noop})
+			mgr, err := sqlite.NewTaskRepository(sqlite.TaskRepositoryConfig{DB: db, Logger: log.Noop})
 			require.NoError(err)
 
 			test.setup(mgr)
@@ -224,7 +225,7 @@ func TestNextTask(t *testing.T) {
 				} else {
 					require.NotNil(tsk)
 					assert.Equal(test.expName, tsk.Name)
-					assert.Equal(task.StatusPending, tsk.Status)
+					assert.Equal(model.TaskStatusPending, tsk.Status)
 				}
 			}
 		})
@@ -233,11 +234,11 @@ func TestNextTask(t *testing.T) {
 
 func TestCompleteTask(t *testing.T) {
 	tests := map[string]struct {
-		setup  func(mgr task.Manager) string
+		setup  func(mgr storage.TaskRepository) string
 		expErr bool
 	}{
 		"Completing a pending task should update status": {
-			setup: func(mgr task.Manager) string {
+			setup: func(mgr storage.TaskRepository) string {
 				_ = mgr.AddTask(context.Background(), "sandbox-1", "create", "task1")
 				tsk, _ := mgr.NextTask(context.Background(), "sandbox-1", "create")
 				return tsk.ID
@@ -245,7 +246,7 @@ func TestCompleteTask(t *testing.T) {
 		},
 
 		"Completing a non-existent task should fail": {
-			setup: func(mgr task.Manager) string {
+			setup: func(mgr storage.TaskRepository) string {
 				return "non-existent-id"
 			},
 			expErr: true,
@@ -258,7 +259,7 @@ func TestCompleteTask(t *testing.T) {
 			require := require.New(t)
 
 			db := getTestDB(t)
-			mgr, err := tasksqlite.NewManager(tasksqlite.ManagerConfig{DB: db, Logger: log.Noop})
+			mgr, err := sqlite.NewTaskRepository(sqlite.TaskRepositoryConfig{DB: db, Logger: log.Noop})
 			require.NoError(err)
 
 			taskID := test.setup(mgr)
@@ -276,13 +277,13 @@ func TestCompleteTask(t *testing.T) {
 
 func TestFailTask(t *testing.T) {
 	tests := map[string]struct {
-		setup    func(mgr task.Manager) string
+		setup    func(mgr storage.TaskRepository) string
 		taskErr  error
 		expErr   bool
 		expErrIn string
 	}{
 		"Failing a pending task should update status and error": {
-			setup: func(mgr task.Manager) string {
+			setup: func(mgr storage.TaskRepository) string {
 				_ = mgr.AddTask(context.Background(), "sandbox-1", "create", "task1")
 				tsk, _ := mgr.NextTask(context.Background(), "sandbox-1", "create")
 				return tsk.ID
@@ -292,7 +293,7 @@ func TestFailTask(t *testing.T) {
 		},
 
 		"Failing a task with nil error should work": {
-			setup: func(mgr task.Manager) string {
+			setup: func(mgr storage.TaskRepository) string {
 				_ = mgr.AddTask(context.Background(), "sandbox-1", "create", "task1")
 				tsk, _ := mgr.NextTask(context.Background(), "sandbox-1", "create")
 				return tsk.ID
@@ -302,7 +303,7 @@ func TestFailTask(t *testing.T) {
 		},
 
 		"Failing a non-existent task should fail": {
-			setup: func(mgr task.Manager) string {
+			setup: func(mgr storage.TaskRepository) string {
 				return "non-existent-id"
 			},
 			taskErr: fmt.Errorf("test error"),
@@ -316,7 +317,7 @@ func TestFailTask(t *testing.T) {
 			require := require.New(t)
 
 			db := getTestDB(t)
-			mgr, err := tasksqlite.NewManager(tasksqlite.ManagerConfig{DB: db, Logger: log.Noop})
+			mgr, err := sqlite.NewTaskRepository(sqlite.TaskRepositoryConfig{DB: db, Logger: log.Noop})
 			require.NoError(err)
 
 			taskID := test.setup(mgr)
@@ -341,7 +342,7 @@ func TestFailTask(t *testing.T) {
 
 func TestProgress(t *testing.T) {
 	tests := map[string]struct {
-		setup     func(mgr task.Manager)
+		setup     func(mgr storage.TaskRepository)
 		sandboxID string
 		operation string
 		expDone   int
@@ -349,7 +350,7 @@ func TestProgress(t *testing.T) {
 		expErr    bool
 	}{
 		"Progress should count done and total tasks": {
-			setup: func(mgr task.Manager) {
+			setup: func(mgr storage.TaskRepository) {
 				_ = mgr.AddTasks(context.Background(), "sandbox-1", "create", []string{"task1", "task2", "task3"})
 				tsk1, _ := mgr.NextTask(context.Background(), "sandbox-1", "create")
 				_ = mgr.CompleteTask(context.Background(), tsk1.ID)
@@ -361,7 +362,7 @@ func TestProgress(t *testing.T) {
 		},
 
 		"Progress for operation with no tasks should return zero": {
-			setup:     func(mgr task.Manager) {},
+			setup:     func(mgr storage.TaskRepository) {},
 			sandboxID: "sandbox-1",
 			operation: "create",
 			expDone:   0,
@@ -369,7 +370,7 @@ func TestProgress(t *testing.T) {
 		},
 
 		"Progress should count all done tasks": {
-			setup: func(mgr task.Manager) {
+			setup: func(mgr storage.TaskRepository) {
 				_ = mgr.AddTasks(context.Background(), "sandbox-1", "create", []string{"task1", "task2", "task3"})
 				tsk1, _ := mgr.NextTask(context.Background(), "sandbox-1", "create")
 				_ = mgr.CompleteTask(context.Background(), tsk1.ID)
@@ -391,7 +392,7 @@ func TestProgress(t *testing.T) {
 			require := require.New(t)
 
 			db := getTestDB(t)
-			mgr, err := tasksqlite.NewManager(tasksqlite.ManagerConfig{DB: db, Logger: log.Noop})
+			mgr, err := sqlite.NewTaskRepository(sqlite.TaskRepositoryConfig{DB: db, Logger: log.Noop})
 			require.NoError(err)
 
 			test.setup(mgr)
@@ -412,14 +413,14 @@ func TestProgress(t *testing.T) {
 
 func TestHasPendingOperation(t *testing.T) {
 	tests := map[string]struct {
-		setup      func(mgr task.Manager)
+		setup      func(mgr storage.TaskRepository)
 		sandboxID  string
 		expOp      string
 		expPending bool
 		expErr     bool
 	}{
 		"Should detect pending operation": {
-			setup: func(mgr task.Manager) {
+			setup: func(mgr storage.TaskRepository) {
 				_ = mgr.AddTask(context.Background(), "sandbox-1", "create", "task1")
 			},
 			sandboxID:  "sandbox-1",
@@ -428,7 +429,7 @@ func TestHasPendingOperation(t *testing.T) {
 		},
 
 		"Should return false when no pending operations": {
-			setup: func(mgr task.Manager) {
+			setup: func(mgr storage.TaskRepository) {
 				_ = mgr.AddTask(context.Background(), "sandbox-1", "create", "task1")
 				tsk, _ := mgr.NextTask(context.Background(), "sandbox-1", "create")
 				_ = mgr.CompleteTask(context.Background(), tsk.ID)
@@ -438,13 +439,13 @@ func TestHasPendingOperation(t *testing.T) {
 		},
 
 		"Should return false for non-existent sandbox": {
-			setup:      func(mgr task.Manager) {},
+			setup:      func(mgr storage.TaskRepository) {},
 			sandboxID:  "non-existent",
 			expPending: false,
 		},
 
 		"Should return first pending operation when multiple exist": {
-			setup: func(mgr task.Manager) {
+			setup: func(mgr storage.TaskRepository) {
 				_ = mgr.AddTask(context.Background(), "sandbox-1", "create", "task1")
 				_ = mgr.AddTask(context.Background(), "sandbox-1", "start", "task2")
 			},
@@ -460,7 +461,7 @@ func TestHasPendingOperation(t *testing.T) {
 			require := require.New(t)
 
 			db := getTestDB(t)
-			mgr, err := tasksqlite.NewManager(tasksqlite.ManagerConfig{DB: db, Logger: log.Noop})
+			mgr, err := sqlite.NewTaskRepository(sqlite.TaskRepositoryConfig{DB: db, Logger: log.Noop})
 			require.NoError(err)
 
 			test.setup(mgr)
@@ -482,13 +483,13 @@ func TestHasPendingOperation(t *testing.T) {
 
 func TestClearOperation(t *testing.T) {
 	tests := map[string]struct {
-		setup     func(mgr task.Manager)
+		setup     func(mgr storage.TaskRepository)
 		sandboxID string
 		operation string
 		expErr    bool
 	}{
 		"Clearing operation should delete all tasks": {
-			setup: func(mgr task.Manager) {
+			setup: func(mgr storage.TaskRepository) {
 				_ = mgr.AddTasks(context.Background(), "sandbox-1", "create", []string{"task1", "task2", "task3"})
 			},
 			sandboxID: "sandbox-1",
@@ -496,13 +497,13 @@ func TestClearOperation(t *testing.T) {
 		},
 
 		"Clearing non-existent operation should not fail": {
-			setup:     func(mgr task.Manager) {},
+			setup:     func(mgr storage.TaskRepository) {},
 			sandboxID: "sandbox-1",
 			operation: "create",
 		},
 
 		"Clearing should only affect specified operation": {
-			setup: func(mgr task.Manager) {
+			setup: func(mgr storage.TaskRepository) {
 				_ = mgr.AddTask(context.Background(), "sandbox-1", "create", "task1")
 				_ = mgr.AddTask(context.Background(), "sandbox-1", "start", "task2")
 			},
@@ -517,7 +518,7 @@ func TestClearOperation(t *testing.T) {
 			require := require.New(t)
 
 			db := getTestDB(t)
-			mgr, err := tasksqlite.NewManager(tasksqlite.ManagerConfig{DB: db, Logger: log.Noop})
+			mgr, err := sqlite.NewTaskRepository(sqlite.TaskRepositoryConfig{DB: db, Logger: log.Noop})
 			require.NoError(err)
 
 			test.setup(mgr)

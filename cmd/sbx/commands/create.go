@@ -14,7 +14,6 @@ import (
 	"github.com/slok/sbx/internal/sandbox/fake"
 	"github.com/slok/sbx/internal/storage/io"
 	"github.com/slok/sbx/internal/storage/sqlite"
-	tasksqlite "github.com/slok/sbx/internal/task/sqlite"
 )
 
 type CreateCommand struct {
@@ -74,29 +73,29 @@ func (c CreateCommand) Run(ctx context.Context) error {
 		return fmt.Errorf("could not create repository: %w", err)
 	}
 
-	// Initialize task manager with the same database connection.
-	taskMgr, err := tasksqlite.NewManager(tasksqlite.ManagerConfig{
+	// Initialize task repository with the same database connection.
+	taskRepo, err := sqlite.NewTaskRepository(sqlite.TaskRepositoryConfig{
 		DB:     repo.DB(),
 		Logger: logger,
 	})
 	if err != nil {
-		return fmt.Errorf("could not create task manager: %w", err)
+		return fmt.Errorf("could not create task repository: %w", err)
 	}
 
 	// Initialize engine based on config.
 	var eng sandbox.Engine
 	if cfg.DockerEngine != nil {
 		eng, err = docker.NewEngine(docker.EngineConfig{
-			TaskMgr: taskMgr,
-			Logger:  logger,
+			TaskRepo: taskRepo,
+			Logger:   logger,
 		})
 	} else if cfg.FirecrackerEngine != nil {
 		return fmt.Errorf("firecracker engine not yet implemented")
 	} else {
 		// Fallback to fake engine for testing
 		eng, err = fake.NewEngine(fake.EngineConfig{
-			TaskMgr: taskMgr,
-			Logger:  logger,
+			TaskRepo: taskRepo,
+			Logger:   logger,
 		})
 	}
 	if err != nil {

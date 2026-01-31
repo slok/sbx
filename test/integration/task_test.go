@@ -12,9 +12,8 @@ import (
 	"github.com/slok/sbx/internal/log"
 	"github.com/slok/sbx/internal/model"
 	"github.com/slok/sbx/internal/sandbox/fake"
+	"github.com/slok/sbx/internal/storage"
 	"github.com/slok/sbx/internal/storage/sqlite"
-	"github.com/slok/sbx/internal/task"
-	tasksqlite "github.com/slok/sbx/internal/task/sqlite"
 )
 
 func TestTaskTracking(t *testing.T) {
@@ -44,8 +43,8 @@ func TestTaskTracking(t *testing.T) {
 			})
 			require.NoError(err)
 
-			// Initialize task manager
-			taskMgr, err := tasksqlite.NewManager(tasksqlite.ManagerConfig{
+			// Initialize task repository
+			taskRepo, err := sqlite.NewTaskRepository(sqlite.TaskRepositoryConfig{
 				DB:     repo.DB(),
 				Logger: log.Noop,
 			})
@@ -53,8 +52,8 @@ func TestTaskTracking(t *testing.T) {
 
 			// Initialize fake engine with task tracking
 			eng, err := fake.NewEngine(fake.EngineConfig{
-				TaskMgr: taskMgr,
-				Logger:  log.Noop,
+				TaskRepo: taskRepo,
+				Logger:   log.Noop,
 			})
 			require.NoError(err)
 
@@ -113,12 +112,12 @@ func TestTaskTracking(t *testing.T) {
 			for i, expName := range test.expTaskNames {
 				if i < len(tasks) {
 					assert.Equal(expName, tasks[i].Name)
-					assert.Equal(string(task.StatusDone), tasks[i].Status)
+					assert.Equal(string(model.TaskStatusDone), tasks[i].Status)
 				}
 			}
 
 			// Verify progress
-			progress, err := taskMgr.Progress(context.Background(), sandbox.ID, test.operation)
+			progress, err := taskRepo.Progress(context.Background(), sandbox.ID, test.operation)
 			require.NoError(err)
 			assert.Equal(len(test.expTaskNames), progress.Total)
 			assert.Equal(len(test.expTaskNames), progress.Done)
@@ -128,13 +127,13 @@ func TestTaskTracking(t *testing.T) {
 
 func TestTaskPendingOperation(t *testing.T) {
 	tests := map[string]struct {
-		setupTasks func(taskMgr task.Manager, sandboxID string)
+		setupTasks func(taskRepo storage.TaskRepository, sandboxID string)
 		expOp      string
 		expPending bool
 	}{
 		"Should detect pending create operation": {
-			setupTasks: func(taskMgr task.Manager, sandboxID string) {
-				err := taskMgr.AddTask(context.Background(), sandboxID, "create", "test_task")
+			setupTasks: func(taskRepo storage.TaskRepository, sandboxID string) {
+				err := taskRepo.AddTask(context.Background(), sandboxID, "create", "test_task")
 				if err != nil {
 					panic(err)
 				}
@@ -144,17 +143,17 @@ func TestTaskPendingOperation(t *testing.T) {
 		},
 
 		"Should return false when all tasks completed": {
-			setupTasks: func(taskMgr task.Manager, sandboxID string) {
-				err := taskMgr.AddTask(context.Background(), sandboxID, "create", "test_task")
+			setupTasks: func(taskRepo storage.TaskRepository, sandboxID string) {
+				err := taskRepo.AddTask(context.Background(), sandboxID, "create", "test_task")
 				if err != nil {
 					panic(err)
 				}
-				tsk, err := taskMgr.NextTask(context.Background(), sandboxID, "create")
+				tsk, err := taskRepo.NextTask(context.Background(), sandboxID, "create")
 				if err != nil {
 					panic(err)
 				}
 				if tsk != nil {
-					err = taskMgr.CompleteTask(context.Background(), tsk.ID)
+					err = taskRepo.CompleteTask(context.Background(), tsk.ID)
 					if err != nil {
 						panic(err)
 					}
@@ -181,7 +180,7 @@ func TestTaskPendingOperation(t *testing.T) {
 			require.NoError(err)
 
 			// Initialize task manager with the same DB
-			taskMgr, err := tasksqlite.NewManager(tasksqlite.ManagerConfig{
+			taskRepo, err := sqlite.NewTaskRepository(sqlite.TaskRepositoryConfig{
 				DB:     repo.DB(),
 				Logger: log.Noop,
 			})
@@ -209,10 +208,10 @@ func TestTaskPendingOperation(t *testing.T) {
 			require.NoError(err)
 
 			// Setup tasks
-			test.setupTasks(taskMgr, sandboxID)
+			test.setupTasks(taskRepo, sandboxID)
 
 			// Check for pending operation
-			op, hasPending, err := taskMgr.HasPendingOperation(context.Background(), sandboxID)
+			op, hasPending, err := taskRepo.HasPendingOperation(context.Background(), sandboxID)
 			require.NoError(err)
 
 			assert.Equal(test.expPending, hasPending)
@@ -239,7 +238,7 @@ func TestTaskClearOperation(t *testing.T) {
 	require.NoError(err)
 
 	// Initialize task manager
-	taskMgr, err := tasksqlite.NewManager(tasksqlite.ManagerConfig{
+	taskRepo, err := sqlite.NewTaskRepository(sqlite.TaskRepositoryConfig{
 		DB:     repo.DB(),
 		Logger: log.Noop,
 	})
@@ -247,15 +246,15 @@ func TestTaskClearOperation(t *testing.T) {
 
 	// Add tasks
 	sandboxID := "test-sandbox-123"
-	err = taskMgr.AddTasks(context.Background(), sandboxID, "create", []string{"task1", "task2", "task3"})
+	err = taskRepo.AddTasks(context.Background(), sandboxID, "create", []string{"task1", "task2", "task3"})
 	require.NoError(err)
 
 	// Clear operation
-	err = taskMgr.ClearOperation(context.Background(), sandboxID, "create")
+	err = taskRepo.ClearOperation(context.Background(), sandboxID, "create")
 	require.NoError(err)
 
 	// Verify tasks are gone
-	tsk, err := taskMgr.NextTask(context.Background(), sandboxID, "create")
+	tsk, err := taskRepo.NextTask(context.Background(), sandboxID, "create")
 	require.NoError(err)
 	assert.Nil(tsk)
 }

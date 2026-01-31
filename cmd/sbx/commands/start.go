@@ -9,7 +9,6 @@ import (
 	"github.com/slok/sbx/internal/app/start"
 	"github.com/slok/sbx/internal/printer"
 	"github.com/slok/sbx/internal/storage/sqlite"
-	tasksqlite "github.com/slok/sbx/internal/task/sqlite"
 )
 
 type StartCommand struct {
@@ -44,7 +43,7 @@ func (c StartCommand) Run(ctx context.Context) error {
 	}
 
 	// Initialize task manager with the same database connection.
-	taskMgr, err := tasksqlite.NewManager(tasksqlite.ManagerConfig{
+	taskRepo, err := sqlite.NewTaskRepository(sqlite.TaskRepositoryConfig{
 		DB:     repo.DB(),
 		Logger: logger,
 	})
@@ -63,7 +62,7 @@ func (c StartCommand) Run(ctx context.Context) error {
 	}
 
 	// Initialize engine based on sandbox configuration.
-	eng, err := newEngineFromConfig(sandbox.Config, taskMgr, logger)
+	eng, err := newEngineFromConfig(sandbox.Config, taskRepo, logger)
 	if err != nil {
 		return fmt.Errorf("could not create engine: %w", err)
 	}
