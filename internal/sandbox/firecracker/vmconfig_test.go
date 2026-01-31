@@ -321,7 +321,7 @@ func TestMockFirecrackerAPI_configureVM(t *testing.T) {
 
 	// Create dummy rootfs file
 	rootfsPath := filepath.Join(tmpDir, "rootfs.ext4")
-	os.WriteFile(rootfsPath, []byte("dummy"), 0644)
+	_ = os.WriteFile(rootfsPath, []byte("dummy"), 0644)
 
 	resources := model.Resources{
 		VCPUs:    2,
