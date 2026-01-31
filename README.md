@@ -40,6 +40,8 @@ make build
 - `sbx start` - Start a stopped sandbox
 - `sbx stop` - Stop a running sandbox
 - `sbx rm` - Remove a sandbox
+- `sbx exec` - Execute a command in a running sandbox
+- `sbx shell` - Open an interactive shell in a running sandbox
 
 ### Create a Sandbox
 
@@ -192,9 +194,95 @@ Force remove a running sandbox (stops it first):
 sbx rm example-sandbox --force
 ```
 
+### Execute Commands
+
+Execute commands inside a running sandbox:
+
+```bash
+# Simple command execution
+sbx exec example-sandbox -- ls -la
+
+# Build a project inside sandbox
+sbx exec example-sandbox -- go build ./...
+
+# Run with working directory
+sbx exec example-sandbox --workdir /app -- npm install
+
+# With environment variables
+sbx exec example-sandbox --env FOO=bar -- echo $FOO
+
+# Multiple environment variables
+sbx exec example-sandbox --env FOO=hello --env BAR=world -- env
+```
+
+**Exit Codes:**
+
+The `exec` command propagates the exit code of the executed command. This makes it suitable for use in scripts:
+
+```bash
+# This will exit with code 1 if the command fails
+sbx exec example-sandbox -- go test ./...
+if [ $? -ne 0 ]; then
+    echo "Tests failed!"
+fi
+```
+
+**Stream Handling:**
+
+Both stdout and stderr from the executed command are streamed in real-time to your terminal. You can also pipe input to the command:
+
+```bash
+# Pipe stdin to command
+echo "Hello World" | sbx exec example-sandbox -- cat
+```
+
+### Interactive Shell
+
+Open an interactive shell in a running sandbox:
+
+```bash
+# Open shell (uses /bin/sh)
+sbx shell example-sandbox
+```
+
+The shell command is a convenience wrapper around `exec` that:
+- Automatically runs `/bin/sh`
+- Allocates a pseudo-TTY for interactive use
+- Connects your terminal's stdin/stdout/stderr
+
+**Note:** The sandbox must be in `running` status to execute commands or open a shell. If the sandbox is stopped, start it first with `sbx start`.
+
 ### Complete Lifecycle Example
 
-Here's a complete workflow showing sandbox lifecycle:
+Here's a complete workflow showing sandbox lifecycle with exec:
+
+```bash
+# Create a new sandbox
+sbx create -f sandbox.yaml
+# Output: Created sandbox: example-sandbox (01JQYXZ2ABCDEFGH1234567890)
+
+# Execute a command immediately
+sbx exec example-sandbox -- echo "Hello from sandbox"
+# Output: Hello from sandbox
+
+# Install tools in the sandbox
+sbx exec example-sandbox -- apt-get update
+sbx exec example-sandbox -- apt-get install -y python3
+
+# Run a build command
+sbx exec example-sandbox --workdir /app -- make build
+
+# Open interactive shell for manual work
+sbx shell example-sandbox
+
+# Stop and cleanup when done
+sbx stop example-sandbox
+sbx rm example-sandbox
+```
+
+### Previous Workflow Example
+
+Original sandbox lifecycle without exec:
 
 ```bash
 # Create a new sandbox
