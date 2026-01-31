@@ -9,6 +9,7 @@ import (
 	"github.com/slok/sbx/internal/app/stop"
 	"github.com/slok/sbx/internal/printer"
 	"github.com/slok/sbx/internal/storage/sqlite"
+	tasksqlite "github.com/slok/sbx/internal/task/sqlite"
 )
 
 type StopCommand struct {
@@ -42,6 +43,15 @@ func (c StopCommand) Run(ctx context.Context) error {
 		return fmt.Errorf("could not create repository: %w", err)
 	}
 
+	// Initialize task manager with the same database connection.
+	taskMgr, err := tasksqlite.NewManager(tasksqlite.ManagerConfig{
+		DB:     repo.DB(),
+		Logger: logger,
+	})
+	if err != nil {
+		return fmt.Errorf("could not create task manager: %w", err)
+	}
+
 	// Get sandbox to determine which engine to use.
 	sandbox, err := repo.GetSandboxByName(ctx, c.nameOrID)
 	if err != nil {
@@ -53,7 +63,7 @@ func (c StopCommand) Run(ctx context.Context) error {
 	}
 
 	// Initialize engine based on sandbox configuration.
-	eng, err := newEngineFromConfig(sandbox.Config, logger)
+	eng, err := newEngineFromConfig(sandbox.Config, taskMgr, logger)
 	if err != nil {
 		return fmt.Errorf("could not create engine: %w", err)
 	}

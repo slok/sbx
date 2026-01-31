@@ -73,7 +73,7 @@ func (s *Service) Create(ctx context.Context, opts CreateOptions) (*model.Sandbo
 		return nil, fmt.Errorf("could not check name uniqueness: %w", err)
 	}
 
-	// 3. Create via engine
+	// 3. Create via engine (engine will generate ID and manage tasks)
 	sandbox, err := s.engine.Create(ctx, opts.Config)
 	if err != nil {
 		return nil, fmt.Errorf("could not create sandbox: %w", err)
