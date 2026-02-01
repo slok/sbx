@@ -74,7 +74,7 @@ func (c ExecCommand) Run(ctx context.Context) error {
 	}
 
 	// Initialize engine based on sandbox configuration.
-	eng, err := newEngineFromConfig(sandbox.Config, taskRepo, logger)
+	eng, err := newEngineFromConfig(sandbox.Config, repo, taskRepo, logger)
 	if err != nil {
 		return fmt.Errorf("could not create engine: %w", err)
 	}

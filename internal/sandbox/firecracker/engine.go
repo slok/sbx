@@ -35,6 +35,8 @@ type EngineConfig struct {
 	// FirecrackerBinary is the path to the firecracker binary.
 	// If empty, it will be looked up in PATH and ./bin.
 	FirecrackerBinary string
+	// Repository is the sandbox storage repository (required for Start to read sandbox config).
+	Repository storage.Repository
 	// TaskRepo is the repository for task tracking.
 	TaskRepo storage.TaskRepository
 	// Logger for logging.
@@ -60,6 +62,7 @@ func (c *EngineConfig) defaults() error {
 type Engine struct {
 	dataDir           string
 	firecrackerBinary string
+	repo              storage.Repository
 	taskRepo          storage.TaskRepository
 	sshKeyManager     *ssh.KeyManager
 	logger            log.Logger
@@ -78,6 +81,7 @@ func NewEngine(cfg EngineConfig) (*Engine, error) {
 	return &Engine{
 		dataDir:           cfg.DataDir,
 		firecrackerBinary: cfg.FirecrackerBinary,
+		repo:              cfg.Repository,
 		taskRepo:          cfg.TaskRepo,
 		sshKeyManager:     sshKeyManager,
 		logger:            cfg.Logger,
