@@ -3,7 +3,6 @@ package commands
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/alecthomas/kingpin/v2"
 
@@ -103,14 +102,4 @@ func (c CpCommand) Run(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-// parsePathForSandbox extracts sandbox reference from a path with colon syntax.
-// Returns empty string if path doesn't have sandbox reference.
-func parsePathForSandbox(path string) string {
-	if !strings.Contains(path, ":") {
-		return ""
-	}
-	parts := strings.SplitN(path, ":", 2)
-	return parts[0]
 }

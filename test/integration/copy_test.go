@@ -45,7 +45,7 @@ func TestCopyCommand(t *testing.T) {
 			validateResult: func(t *testing.T, tmpDir string) {
 				// Verify file exists in container by running exec.
 				dbPath := filepath.Join(tmpDir, "test.db")
-				cmd := exec.Command("./sbx-test", "exec", "copy-test-sandbox", "--", "cat", "/tmp/test-file.txt", "--db-path", dbPath, "--no-log")
+				cmd := exec.Command("./sbx-test", "exec", "copy-test-sandbox", "--db-path", dbPath, "--no-log", "--", "cat", "/tmp/test-file.txt")
 				var stdout bytes.Buffer
 				cmd.Stdout = &stdout
 				err := cmd.Run()
@@ -76,7 +76,7 @@ func TestCopyCommand(t *testing.T) {
 			validateResult: func(t *testing.T, tmpDir string) {
 				// Verify files exist in container.
 				dbPath := filepath.Join(tmpDir, "test.db")
-				cmd := exec.Command("./sbx-test", "exec", "copy-test-sandbox", "--", "cat", "/tmp/test-dir/file1.txt", "--db-path", dbPath, "--no-log")
+				cmd := exec.Command("./sbx-test", "exec", "copy-test-sandbox", "--db-path", dbPath, "--no-log", "--", "cat", "/tmp/test-dir/file1.txt")
 				var stdout bytes.Buffer
 				cmd.Stdout = &stdout
 				err := cmd.Run()
@@ -90,7 +90,7 @@ func TestCopyCommand(t *testing.T) {
 			setupFiles: func(t *testing.T, tmpDir string) (string, string) {
 				// Create a file in the container first.
 				dbPath := filepath.Join(tmpDir, "test.db")
-				cmd := exec.Command("./sbx-test", "exec", "copy-test-sandbox", "--", "sh", "-c", "echo -n 'hello from container' > /tmp/remote-file.txt", "--db-path", dbPath, "--no-log")
+				cmd := exec.Command("./sbx-test", "exec", "copy-test-sandbox", "--db-path", dbPath, "--no-log", "--", "sh", "-c", "echo -n 'hello from container' > /tmp/remote-file.txt")
 				err := cmd.Run()
 				require.NoError(t, err)
 
