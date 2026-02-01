@@ -517,3 +517,60 @@ func (e *Engine) Exec(ctx context.Context, id string, command []string, opts mod
 		ExitCode: exitCode,
 	}, nil
 }
+
+// CopyTo copies a file or directory from the local host to the Docker container.
+func (e *Engine) CopyTo(ctx context.Context, id string, srcLocal string, dstRemote string) error {
+	containerName := fmt.Sprintf("sbx-%s", strings.ToLower(id))
+
+	// Build docker cp command: docker cp <src> <container>:<dst>
+	dst := fmt.Sprintf("%s:%s", containerName, dstRemote)
+	cmd := exec.CommandContext(ctx, "docker", "cp", srcLocal, dst)
+
+	e.logger.Debugf("Copying to container %s: docker cp %s %s", containerName, srcLocal, dst)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// Check for common error cases
+		errStr := string(output)
+		if strings.Contains(errStr, "No such container") {
+			return fmt.Errorf("container %s: %w", containerName, model.ErrNotFound)
+		}
+		if strings.Contains(errStr, "is not running") {
+			return fmt.Errorf("container %s is not running: %w", containerName, model.ErrNotValid)
+		}
+		return fmt.Errorf("failed to copy to container: %s: %w", errStr, err)
+	}
+
+	e.logger.Infof("Copied %s to %s:%s", srcLocal, containerName, dstRemote)
+	return nil
+}
+
+// CopyFrom copies a file or directory from the Docker container to the local host.
+func (e *Engine) CopyFrom(ctx context.Context, id string, srcRemote string, dstLocal string) error {
+	containerName := fmt.Sprintf("sbx-%s", strings.ToLower(id))
+
+	// Build docker cp command: docker cp <container>:<src> <dst>
+	src := fmt.Sprintf("%s:%s", containerName, srcRemote)
+	cmd := exec.CommandContext(ctx, "docker", "cp", src, dstLocal)
+
+	e.logger.Debugf("Copying from container %s: docker cp %s %s", containerName, src, dstLocal)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// Check for common error cases
+		errStr := string(output)
+		if strings.Contains(errStr, "No such container") {
+			return fmt.Errorf("container %s: %w", containerName, model.ErrNotFound)
+		}
+		if strings.Contains(errStr, "is not running") {
+			return fmt.Errorf("container %s is not running: %w", containerName, model.ErrNotValid)
+		}
+		if strings.Contains(errStr, "no such file or directory") || strings.Contains(errStr, "Could not find") {
+			return fmt.Errorf("source path '%s' does not exist in container: %w", srcRemote, model.ErrNotFound)
+		}
+		return fmt.Errorf("failed to copy from container: %s: %w", errStr, err)
+	}
+
+	e.logger.Infof("Copied %s:%s to %s", containerName, srcRemote, dstLocal)
+	return nil
+}
