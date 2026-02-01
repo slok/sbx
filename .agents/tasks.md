@@ -152,7 +152,7 @@ When stopping, provide:
   - Created sbx shell CLI command as convenience wrapper for interactive shells (/bin/sh with TTY)
   - 12 unit tests with 100% coverage + integration tests
 
-- **Task 0006**: Firecracker Engine (PR #10) - Opened on 2026-01-31
+- **Task 0006**: Firecracker Engine (PR #10) - Merged on 2026-01-31
   - Implemented Firecracker microVM engine for secure sandboxes with ~125ms boot time
   - Added Check() method to Engine interface for preflight checks
   - Full lifecycle operations: create, start, stop, remove, exec via SSH
@@ -163,3 +163,12 @@ When stopping, provide:
   - Doctor CLI command (sbx doctor) for engine health checks
   - 40+ unit tests covering all components
   - Requirements: KVM access, root/CAP_NET_ADMIN for TAP/iptables
+
+- **Task 0007**: Firecracker Restart Support (PR #11) - Merged on 2026-02-01
+  - Implemented `sbx start` for stopped Firecracker sandboxes by respawning VM process
+  - Added Repository to Firecracker EngineConfig for reading sandbox config on start
+  - Transparent restart: preserves rootfs (disk state), IP address, sandbox ID
+  - Auto-recreates TAP device and iptables rules if missing (e.g., after system reboot)
+  - Network configuration applied on start (IP, route, DNS via SSH)
+  - 5 unit tests with table-driven pattern covering error cases
+  - New process PID updated in repository after successful start
