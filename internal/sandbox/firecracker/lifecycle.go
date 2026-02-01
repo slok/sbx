@@ -66,7 +66,7 @@ func (e *Engine) Start(ctx context.Context, id string) error {
 			"spawn_firecracker",
 			"configure_vm",
 			"boot_vm",
-			"wait_ssh",
+			"configure_network",
 		}
 		if err := e.taskRepo.AddTasks(ctx, id, "start", taskNames); err != nil {
 			return fmt.Errorf("failed to add tasks: %w", err)
@@ -115,11 +115,11 @@ func (e *Engine) Start(ctx context.Context, id string) error {
 		goto cleanup
 	}
 
-	// Task 5: Wait for SSH to be available
-	if err := e.executeTask(ctx, id, "start", "wait_ssh", func() error {
-		e.logger.Infof("[5/5] Waiting for SSH to become available")
-		sshKeyPath := e.sshKeyManager.PrivateKeyPath()
-		return e.waitForSSH(ctx, vmIP, sshKeyPath)
+	// Task 5: Configure network inside VM via SSH
+	// This is needed because network config is not persisted to disk
+	if err := e.executeTask(ctx, id, "start", "configure_network", func() error {
+		e.logger.Infof("[5/5] Configuring network inside VM")
+		return e.configureVMNetwork(ctx, vmIP, gateway)
 	}); err != nil {
 		startErr = err
 		goto cleanup
