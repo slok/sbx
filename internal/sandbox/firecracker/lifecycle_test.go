@@ -129,171 +129,168 @@ func TestEngine_Status_WithPID(t *testing.T) {
 	}
 }
 
-func TestEngine_Start_NoRepository(t *testing.T) {
-	tmpDir := t.TempDir()
-	e, err := NewEngine(EngineConfig{
-		DataDir: tmpDir,
-		Logger:  log.Noop,
-	})
-	if err != nil {
-		t.Fatalf("failed to create engine: %v", err)
-	}
-
-	// Create VM directory and rootfs to pass initial checks
-	sandboxID := "test-sandbox"
-	vmDir := e.VMDir(sandboxID)
-	if err := os.MkdirAll(vmDir, 0755); err != nil {
-		t.Fatalf("failed to create vm dir: %v", err)
-	}
-	rootfsPath := e.RootFSPath(vmDir)
-	if err := os.WriteFile(rootfsPath, []byte("dummy"), 0644); err != nil {
-		t.Fatalf("failed to create rootfs: %v", err)
-	}
-
-	err = e.Start(context.Background(), sandboxID)
-	if err == nil {
-		t.Error("Start should return error when repository not configured")
-	}
-	if !strings.Contains(err.Error(), "repository not configured") {
-		t.Errorf("Expected 'repository not configured' error, got: %v", err)
-	}
-}
-
-func TestEngine_Start_VMDirNotFound(t *testing.T) {
-	tmpDir := t.TempDir()
-	e, err := NewEngine(EngineConfig{
-		DataDir: tmpDir,
-		Logger:  log.Noop,
-	})
-	if err != nil {
-		t.Fatalf("failed to create engine: %v", err)
-	}
-
-	err = e.Start(context.Background(), "nonexistent-sandbox")
-	if err == nil {
-		t.Error("Start should return error for non-existent sandbox")
-	}
-	if !errors.Is(err, model.ErrNotFound) {
-		t.Errorf("Expected ErrNotFound, got: %v", err)
-	}
-}
-
-func TestEngine_Start_RootfsMissing(t *testing.T) {
-	tmpDir := t.TempDir()
-	e, err := NewEngine(EngineConfig{
-		DataDir: tmpDir,
-		Logger:  log.Noop,
-	})
-	if err != nil {
-		t.Fatalf("failed to create engine: %v", err)
-	}
-
-	// Create VM directory without rootfs
-	sandboxID := "test-sandbox"
-	vmDir := e.VMDir(sandboxID)
-	if err := os.MkdirAll(vmDir, 0755); err != nil {
-		t.Fatalf("failed to create vm dir: %v", err)
-	}
-
-	err = e.Start(context.Background(), sandboxID)
-	if err == nil {
-		t.Error("Start should return error when rootfs is missing")
-	}
-	if !strings.Contains(err.Error(), "rootfs not found") {
-		t.Errorf("Expected 'rootfs not found' error, got: %v", err)
-	}
-}
-
-func TestEngine_Start_NotFirecrackerSandbox(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// Create mock repository
-	mockRepo := &storagemock.MockRepository{}
-	mockRepo.On("GetSandbox", mock.Anything, "test-sandbox").Return(&model.Sandbox{
-		ID:   "test-sandbox",
-		Name: "test",
-		Config: model.SandboxConfig{
-			Name: "test",
-			DockerEngine: &model.DockerEngineConfig{
-				Image: "ubuntu:22.04",
+func TestEngine_Start(t *testing.T) {
+	tests := map[string]struct {
+		setup          func(t *testing.T, e *Engine) (sandboxID string)
+		mockRepo       func() *storagemock.MockRepository
+		expErr         bool
+		expErrContains string
+		expErrIs       error
+	}{
+		"VM directory not found should return ErrNotFound.": {
+			setup: func(t *testing.T, e *Engine) string {
+				// Don't create any directory
+				return "nonexistent-sandbox"
 			},
-			Resources: model.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 1},
+			expErr:   true,
+			expErrIs: model.ErrNotFound,
 		},
-	}, nil)
 
-	e, err := NewEngine(EngineConfig{
-		DataDir:    tmpDir,
-		Repository: mockRepo,
-		Logger:     log.Noop,
-	})
-	if err != nil {
-		t.Fatalf("failed to create engine: %v", err)
-	}
-
-	// Create VM directory and rootfs
-	sandboxID := "test-sandbox"
-	vmDir := e.VMDir(sandboxID)
-	if err := os.MkdirAll(vmDir, 0755); err != nil {
-		t.Fatalf("failed to create vm dir: %v", err)
-	}
-	rootfsPath := e.RootFSPath(vmDir)
-	if err := os.WriteFile(rootfsPath, []byte("dummy"), 0644); err != nil {
-		t.Fatalf("failed to create rootfs: %v", err)
-	}
-
-	err = e.Start(context.Background(), sandboxID)
-	if err == nil {
-		t.Error("Start should return error for non-firecracker sandbox")
-	}
-	if !strings.Contains(err.Error(), "not a firecracker sandbox") {
-		t.Errorf("Expected 'not a firecracker sandbox' error, got: %v", err)
-	}
-}
-
-func TestEngine_Start_KernelMissing(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// Create mock repository
-	mockRepo := &storagemock.MockRepository{}
-	mockRepo.On("GetSandbox", mock.Anything, "test-sandbox").Return(&model.Sandbox{
-		ID:   "test-sandbox",
-		Name: "test",
-		Config: model.SandboxConfig{
-			Name: "test",
-			FirecrackerEngine: &model.FirecrackerEngineConfig{
-				KernelImage: "/nonexistent/kernel",
-				RootFS:      "/nonexistent/rootfs",
+		"Rootfs missing should return error.": {
+			setup: func(t *testing.T, e *Engine) string {
+				sandboxID := "test-sandbox"
+				vmDir := e.VMDir(sandboxID)
+				if err := os.MkdirAll(vmDir, 0755); err != nil {
+					t.Fatalf("failed to create vm dir: %v", err)
+				}
+				// Don't create rootfs
+				return sandboxID
 			},
-			Resources: model.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 1},
+			expErr:         true,
+			expErrContains: "rootfs not found",
 		},
-	}, nil)
 
-	e, err := NewEngine(EngineConfig{
-		DataDir:    tmpDir,
-		Repository: mockRepo,
-		Logger:     log.Noop,
-	})
-	if err != nil {
-		t.Fatalf("failed to create engine: %v", err)
+		"No repository configured should return error.": {
+			setup: func(t *testing.T, e *Engine) string {
+				sandboxID := "test-sandbox"
+				vmDir := e.VMDir(sandboxID)
+				if err := os.MkdirAll(vmDir, 0755); err != nil {
+					t.Fatalf("failed to create vm dir: %v", err)
+				}
+				rootfsPath := e.RootFSPath(vmDir)
+				if err := os.WriteFile(rootfsPath, []byte("dummy"), 0644); err != nil {
+					t.Fatalf("failed to create rootfs: %v", err)
+				}
+				return sandboxID
+			},
+			expErr:         true,
+			expErrContains: "repository not configured",
+		},
+
+		"Non-firecracker sandbox should return error.": {
+			setup: func(t *testing.T, e *Engine) string {
+				sandboxID := "test-sandbox"
+				vmDir := e.VMDir(sandboxID)
+				if err := os.MkdirAll(vmDir, 0755); err != nil {
+					t.Fatalf("failed to create vm dir: %v", err)
+				}
+				rootfsPath := e.RootFSPath(vmDir)
+				if err := os.WriteFile(rootfsPath, []byte("dummy"), 0644); err != nil {
+					t.Fatalf("failed to create rootfs: %v", err)
+				}
+				return sandboxID
+			},
+			mockRepo: func() *storagemock.MockRepository {
+				m := &storagemock.MockRepository{}
+				m.On("GetSandbox", mock.Anything, "test-sandbox").Return(&model.Sandbox{
+					ID:   "test-sandbox",
+					Name: "test",
+					Config: model.SandboxConfig{
+						Name: "test",
+						DockerEngine: &model.DockerEngineConfig{
+							Image: "ubuntu:22.04",
+						},
+						Resources: model.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 1},
+					},
+				}, nil)
+				return m
+			},
+			expErr:         true,
+			expErrContains: "not a firecracker sandbox",
+		},
+
+		"Kernel image missing should return error.": {
+			setup: func(t *testing.T, e *Engine) string {
+				sandboxID := "test-sandbox"
+				vmDir := e.VMDir(sandboxID)
+				if err := os.MkdirAll(vmDir, 0755); err != nil {
+					t.Fatalf("failed to create vm dir: %v", err)
+				}
+				rootfsPath := e.RootFSPath(vmDir)
+				if err := os.WriteFile(rootfsPath, []byte("dummy"), 0644); err != nil {
+					t.Fatalf("failed to create rootfs: %v", err)
+				}
+				return sandboxID
+			},
+			mockRepo: func() *storagemock.MockRepository {
+				m := &storagemock.MockRepository{}
+				m.On("GetSandbox", mock.Anything, "test-sandbox").Return(&model.Sandbox{
+					ID:   "test-sandbox",
+					Name: "test",
+					Config: model.SandboxConfig{
+						Name: "test",
+						FirecrackerEngine: &model.FirecrackerEngineConfig{
+							KernelImage: "/nonexistent/kernel",
+							RootFS:      "/nonexistent/rootfs",
+						},
+						Resources: model.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 1},
+					},
+				}, nil)
+				return m
+			},
+			expErr:         true,
+			expErrContains: "kernel image not found",
+		},
 	}
 
-	// Create VM directory and rootfs
-	sandboxID := "test-sandbox"
-	vmDir := e.VMDir(sandboxID)
-	if err := os.MkdirAll(vmDir, 0755); err != nil {
-		t.Fatalf("failed to create vm dir: %v", err)
-	}
-	rootfsPath := e.RootFSPath(vmDir)
-	if err := os.WriteFile(rootfsPath, []byte("dummy"), 0644); err != nil {
-		t.Fatalf("failed to create rootfs: %v", err)
-	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			tmpDir := t.TempDir()
 
-	err = e.Start(context.Background(), sandboxID)
-	if err == nil {
-		t.Error("Start should return error for missing kernel")
-	}
-	if !strings.Contains(err.Error(), "kernel image not found") {
-		t.Errorf("Expected 'kernel image not found' error, got: %v", err)
+			var repo *storagemock.MockRepository
+			if test.mockRepo != nil {
+				repo = test.mockRepo()
+			}
+
+			cfg := EngineConfig{
+				DataDir: tmpDir,
+				Logger:  log.Noop,
+			}
+			// Only set Repository if we have a mock - otherwise leave as nil interface
+			if repo != nil {
+				cfg.Repository = repo
+			}
+
+			e, err := NewEngine(cfg)
+			if err != nil {
+				t.Fatalf("failed to create engine: %v", err)
+			}
+
+			sandboxID := test.setup(t, e)
+
+			err = e.Start(context.Background(), sandboxID)
+
+			if test.expErr {
+				if err == nil {
+					t.Error("expected error but got nil")
+					return
+				}
+				if test.expErrIs != nil && !errors.Is(err, test.expErrIs) {
+					t.Errorf("expected error to be %v, got: %v", test.expErrIs, err)
+				}
+				if test.expErrContains != "" && !strings.Contains(err.Error(), test.expErrContains) {
+					t.Errorf("expected error to contain %q, got: %v", test.expErrContains, err)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+			}
+
+			if repo != nil {
+				repo.AssertExpectations(t)
+			}
+		})
 	}
 }
 
