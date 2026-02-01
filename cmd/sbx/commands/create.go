@@ -12,6 +12,7 @@ import (
 	"github.com/slok/sbx/internal/sandbox"
 	"github.com/slok/sbx/internal/sandbox/docker"
 	"github.com/slok/sbx/internal/sandbox/fake"
+	"github.com/slok/sbx/internal/sandbox/firecracker"
 	"github.com/slok/sbx/internal/storage/io"
 	"github.com/slok/sbx/internal/storage/sqlite"
 )
@@ -90,7 +91,10 @@ func (c CreateCommand) Run(ctx context.Context) error {
 			Logger:   logger,
 		})
 	} else if cfg.FirecrackerEngine != nil {
-		return fmt.Errorf("firecracker engine not yet implemented")
+		eng, err = firecracker.NewEngine(firecracker.EngineConfig{
+			TaskRepo: taskRepo,
+			Logger:   logger,
+		})
 	} else {
 		// Fallback to fake engine for testing
 		eng, err = fake.NewEngine(fake.EngineConfig{

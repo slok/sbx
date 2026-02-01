@@ -30,6 +30,12 @@ type Sandbox struct {
 	StartedAt   *time.Time
 	StoppedAt   *time.Time
 	Error       string
+
+	// Firecracker-specific fields
+	PID        int    // Firecracker process ID
+	SocketPath string // API socket path (e.g., ~/.sbx/vms/<id>/firecracker.sock)
+	TapDevice  string // TAP device name (e.g., sbx-a3f2)
+	InternalIP string // VM's IP address (e.g., 10.163.242.2)
 }
 
 // SandboxConfig is the configuration for creating a sandbox.

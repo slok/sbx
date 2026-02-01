@@ -8,9 +8,14 @@ import (
 
 // Engine is the interface for sandbox lifecycle management.
 type Engine interface {
+	// Check performs preflight checks and returns the results.
+	// Checks verify that the engine has all required dependencies and permissions.
+	Check(ctx context.Context) []model.CheckResult
+
 	Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sandbox, error)
 	Start(ctx context.Context, id string) error
 	Stop(ctx context.Context, id string) error
 	Remove(ctx context.Context, id string) error
 	Status(ctx context.Context, id string) (*model.Sandbox, error)
+	Exec(ctx context.Context, id string, command []string, opts model.ExecOpts) (*model.ExecResult, error)
 }

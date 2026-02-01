@@ -108,8 +108,8 @@ func (r *Repository) CreateSandbox(ctx context.Context, s model.Sandbox) error {
 	}
 
 	query := `
-		INSERT INTO sandboxes (id, name, status, config_json, container_id, created_at, started_at, stopped_at, error)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO sandboxes (id, name, status, config_json, container_id, created_at, started_at, stopped_at, error, pid, socket_path, tap_device, internal_ip)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err = r.db.ExecContext(ctx, query,
@@ -122,6 +122,10 @@ func (r *Repository) CreateSandbox(ctx context.Context, s model.Sandbox) error {
 		startedAt,
 		stoppedAt,
 		s.Error,
+		s.PID,
+		s.SocketPath,
+		s.TapDevice,
+		s.InternalIP,
 	)
 	if err != nil {
 		// Check for unique constraint violation
@@ -139,7 +143,7 @@ func (r *Repository) CreateSandbox(ctx context.Context, s model.Sandbox) error {
 // GetSandbox retrieves a sandbox by ID.
 func (r *Repository) GetSandbox(ctx context.Context, id string) (*model.Sandbox, error) {
 	query := `
-		SELECT id, name, status, config_json, container_id, created_at, started_at, stopped_at, error
+		SELECT id, name, status, config_json, container_id, created_at, started_at, stopped_at, error, pid, socket_path, tap_device, internal_ip
 		FROM sandboxes
 		WHERE id = ?
 	`
@@ -147,6 +151,8 @@ func (r *Repository) GetSandbox(ctx context.Context, id string) (*model.Sandbox,
 	var sandbox model.Sandbox
 	var configJSON string
 	var createdAt, startedAt, stoppedAt sql.NullInt64
+	var pid sql.NullInt64
+	var socketPath, tapDevice, internalIP sql.NullString
 
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&sandbox.ID,
@@ -158,6 +164,10 @@ func (r *Repository) GetSandbox(ctx context.Context, id string) (*model.Sandbox,
 		&startedAt,
 		&stoppedAt,
 		&sandbox.Error,
+		&pid,
+		&socketPath,
+		&tapDevice,
+		&internalIP,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -176,13 +186,27 @@ func (r *Repository) GetSandbox(ctx context.Context, id string) (*model.Sandbox,
 		return nil, err
 	}
 
+	// Set Firecracker fields
+	if pid.Valid {
+		sandbox.PID = int(pid.Int64)
+	}
+	if socketPath.Valid {
+		sandbox.SocketPath = socketPath.String
+	}
+	if tapDevice.Valid {
+		sandbox.TapDevice = tapDevice.String
+	}
+	if internalIP.Valid {
+		sandbox.InternalIP = internalIP.String
+	}
+
 	return &sandbox, nil
 }
 
 // GetSandboxByName retrieves a sandbox by name.
 func (r *Repository) GetSandboxByName(ctx context.Context, name string) (*model.Sandbox, error) {
 	query := `
-		SELECT id, name, status, config_json, container_id, created_at, started_at, stopped_at, error
+		SELECT id, name, status, config_json, container_id, created_at, started_at, stopped_at, error, pid, socket_path, tap_device, internal_ip
 		FROM sandboxes
 		WHERE name = ?
 	`
@@ -190,6 +214,8 @@ func (r *Repository) GetSandboxByName(ctx context.Context, name string) (*model.
 	var sandbox model.Sandbox
 	var configJSON string
 	var createdAt, startedAt, stoppedAt sql.NullInt64
+	var pid sql.NullInt64
+	var socketPath, tapDevice, internalIP sql.NullString
 
 	err := r.db.QueryRowContext(ctx, query, name).Scan(
 		&sandbox.ID,
@@ -201,6 +227,10 @@ func (r *Repository) GetSandboxByName(ctx context.Context, name string) (*model.
 		&startedAt,
 		&stoppedAt,
 		&sandbox.Error,
+		&pid,
+		&socketPath,
+		&tapDevice,
+		&internalIP,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -219,13 +249,27 @@ func (r *Repository) GetSandboxByName(ctx context.Context, name string) (*model.
 		return nil, err
 	}
 
+	// Set Firecracker fields
+	if pid.Valid {
+		sandbox.PID = int(pid.Int64)
+	}
+	if socketPath.Valid {
+		sandbox.SocketPath = socketPath.String
+	}
+	if tapDevice.Valid {
+		sandbox.TapDevice = tapDevice.String
+	}
+	if internalIP.Valid {
+		sandbox.InternalIP = internalIP.String
+	}
+
 	return &sandbox, nil
 }
 
 // ListSandboxes returns all sandboxes.
 func (r *Repository) ListSandboxes(ctx context.Context) ([]model.Sandbox, error) {
 	query := `
-		SELECT id, name, status, config_json, container_id, created_at, started_at, stopped_at, error
+		SELECT id, name, status, config_json, container_id, created_at, started_at, stopped_at, error, pid, socket_path, tap_device, internal_ip
 		FROM sandboxes
 		ORDER BY created_at DESC
 	`
@@ -241,6 +285,8 @@ func (r *Repository) ListSandboxes(ctx context.Context) ([]model.Sandbox, error)
 		var sandbox model.Sandbox
 		var configJSON string
 		var createdAt, startedAt, stoppedAt sql.NullInt64
+		var pid sql.NullInt64
+		var socketPath, tapDevice, internalIP sql.NullString
 
 		err := rows.Scan(
 			&sandbox.ID,
@@ -252,6 +298,10 @@ func (r *Repository) ListSandboxes(ctx context.Context) ([]model.Sandbox, error)
 			&startedAt,
 			&stoppedAt,
 			&sandbox.Error,
+			&pid,
+			&socketPath,
+			&tapDevice,
+			&internalIP,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("could not scan row: %w", err)
@@ -265,6 +315,20 @@ func (r *Repository) ListSandboxes(ctx context.Context) ([]model.Sandbox, error)
 		// Convert timestamps
 		if err := r.setTimestamps(&sandbox, createdAt, startedAt, stoppedAt); err != nil {
 			return nil, err
+		}
+
+		// Set Firecracker fields
+		if pid.Valid {
+			sandbox.PID = int(pid.Int64)
+		}
+		if socketPath.Valid {
+			sandbox.SocketPath = socketPath.String
+		}
+		if tapDevice.Valid {
+			sandbox.TapDevice = tapDevice.String
+		}
+		if internalIP.Valid {
+			sandbox.InternalIP = internalIP.String
 		}
 
 		sandboxes = append(sandboxes, sandbox)
@@ -298,7 +362,7 @@ func (r *Repository) UpdateSandbox(ctx context.Context, s model.Sandbox) error {
 
 	query := `
 		UPDATE sandboxes
-		SET name = ?, status = ?, config_json = ?, container_id = ?, created_at = ?, started_at = ?, stopped_at = ?, error = ?
+		SET name = ?, status = ?, config_json = ?, container_id = ?, created_at = ?, started_at = ?, stopped_at = ?, error = ?, pid = ?, socket_path = ?, tap_device = ?, internal_ip = ?
 		WHERE id = ?
 	`
 
@@ -311,6 +375,10 @@ func (r *Repository) UpdateSandbox(ctx context.Context, s model.Sandbox) error {
 		startedAt,
 		stoppedAt,
 		s.Error,
+		s.PID,
+		s.SocketPath,
+		s.TapDevice,
+		s.InternalIP,
 		s.ID,
 	)
 	if err != nil {

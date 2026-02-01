@@ -133,7 +133,7 @@ When stopping, provide:
   - Config format changed from `base: ubuntu:22.04` to `engine: { docker: { image: ubuntu:22.04 } }`
   - README updated with new configuration format and requirements
 
-- **Task 0004**: Task System (PR #8) - Opened on 2026-01-31
+- **Task 0004**: Task System (PR #8) - Merged on 2026-01-31
   - Implemented task tracking for multi-step operations with crash recovery
   - Added tasks table (migration 000003) without FK constraint for flexibility
   - Created task.Manager interface with SQLite implementation
@@ -142,3 +142,24 @@ When stopping, provide:
   - 8 unit test functions (23 scenarios), 3 integration tests (4 scenarios)
   - Coverage: Task SQLite manager (100%), Docker engine task integration (covered)
   - Design decisions: auto-increment sequences, no auto-cleanup, auto-resume on crash
+
+- **Task 0005**: Exec Command (PR #9) - Merged on 2026-01-31
+  - Implemented command execution inside running sandboxes (essential for agentic workflows)
+  - Added Exec method to Engine interface with ExecOpts (workdir, env, stdin/stdout/stderr, TTY) and ExecResult (exit code)
+  - Docker engine implementation using os/exec with real-time streaming and proper exit code propagation
+  - Fake engine exec implementation for unit tests with validation
+  - Created sbx exec CLI command with --workdir, --env, and --tty flags
+  - Created sbx shell CLI command as convenience wrapper for interactive shells (/bin/sh with TTY)
+  - 12 unit tests with 100% coverage + integration tests
+
+- **Task 0006**: Firecracker Engine (PR #10) - Opened on 2026-01-31
+  - Implemented Firecracker microVM engine for secure sandboxes with ~125ms boot time
+  - Added Check() method to Engine interface for preflight checks
+  - Full lifecycle operations: create, start, stop, remove, exec via SSH
+  - SSH key management for VM access with auto-generation
+  - TAP network + iptables NAT for outbound connectivity
+  - Hash-based IP/MAC allocation for deterministic addressing
+  - Task system integration for crash recovery
+  - Doctor CLI command (sbx doctor) for engine health checks
+  - 40+ unit tests covering all components
+  - Requirements: KVM access, root/CAP_NET_ADMIN for TAP/iptables

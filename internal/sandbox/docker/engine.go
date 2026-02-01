@@ -5,6 +5,8 @@ import (
 	"crypto/rand"
 	"fmt"
 	"io"
+	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -72,6 +74,75 @@ func NewEngine(cfg EngineConfig) (*Engine, error) {
 		taskRepo: cfg.TaskRepo,
 		logger:   cfg.Logger,
 	}, nil
+}
+
+// Check performs preflight checks for the Docker engine.
+func (e *Engine) Check(ctx context.Context) []model.CheckResult {
+	var results []model.CheckResult
+
+	// Check 1: Docker binary in PATH
+	dockerPath, err := exec.LookPath("docker")
+	if err != nil {
+		results = append(results, model.CheckResult{
+			ID:      "docker_binary",
+			Message: "Docker binary not found in PATH",
+			Status:  model.CheckStatusError,
+		})
+	} else {
+		results = append(results, model.CheckResult{
+			ID:      "docker_binary",
+			Message: fmt.Sprintf("Docker binary found at %s", dockerPath),
+			Status:  model.CheckStatusOK,
+		})
+	}
+
+	// Check 2: Docker daemon is running (ping)
+	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	// Try to get Docker info to check if daemon is running
+	cmd := exec.CommandContext(pingCtx, "docker", "info")
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	if err := cmd.Run(); err != nil {
+		// Check if it's a permission issue
+		if os.IsPermission(err) || strings.Contains(err.Error(), "permission denied") {
+			results = append(results, model.CheckResult{
+				ID:      "docker_running",
+				Message: "Docker daemon not accessible (check permissions)",
+				Status:  model.CheckStatusError,
+			})
+			results = append(results, model.CheckResult{
+				ID:      "docker_permission",
+				Message: "Permission denied accessing Docker socket",
+				Status:  model.CheckStatusError,
+			})
+		} else {
+			results = append(results, model.CheckResult{
+				ID:      "docker_running",
+				Message: "Docker daemon is not running or not accessible",
+				Status:  model.CheckStatusError,
+			})
+			results = append(results, model.CheckResult{
+				ID:      "docker_permission",
+				Message: "Cannot verify Docker socket permissions (daemon not running)",
+				Status:  model.CheckStatusWarning,
+			})
+		}
+	} else {
+		results = append(results, model.CheckResult{
+			ID:      "docker_running",
+			Message: "Docker daemon is running",
+			Status:  model.CheckStatusOK,
+		})
+		results = append(results, model.CheckResult{
+			ID:      "docker_permission",
+			Message: "Docker socket is accessible",
+			Status:  model.CheckStatusOK,
+		})
+	}
+
+	return results
 }
 
 // Create creates and starts a new Docker container sandbox.
@@ -376,4 +447,73 @@ func (e *Engine) Status(ctx context.Context, id string) (*model.Sandbox, error) 
 	}
 
 	return sandbox, nil
+}
+
+// Exec executes a command inside a running Docker container sandbox.
+func (e *Engine) Exec(ctx context.Context, id string, command []string, opts model.ExecOpts) (*model.ExecResult, error) {
+	if len(command) == 0 {
+		return nil, fmt.Errorf("command cannot be empty: %w", model.ErrNotValid)
+	}
+
+	containerName := fmt.Sprintf("sbx-%s", strings.ToLower(id))
+
+	// Build docker exec command
+	args := []string{"exec"}
+
+	// Add flags
+	if opts.Tty {
+		args = append(args, "-it")
+	}
+	if opts.WorkingDir != "" {
+		args = append(args, "-w", opts.WorkingDir)
+	}
+	for k, v := range opts.Env {
+		args = append(args, "-e", fmt.Sprintf("%s=%s", k, v))
+	}
+
+	// Add container name and command
+	args = append(args, containerName)
+	args = append(args, command...)
+
+	// Execute docker command
+	e.logger.Debugf("Executing command in container %s: docker %v", containerName, args)
+
+	cmd := exec.CommandContext(ctx, "docker", args...)
+
+	// Wire up streams
+	if opts.Stdin != nil {
+		cmd.Stdin = opts.Stdin
+	}
+	if opts.Stdout != nil {
+		cmd.Stdout = opts.Stdout
+	}
+	if opts.Stderr != nil {
+		cmd.Stderr = opts.Stderr
+	}
+
+	// Run the command
+	err := cmd.Run()
+
+	// Get exit code
+	exitCode := 0
+	if err != nil {
+		// Check if it's an exit error (non-zero exit code)
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+			e.logger.Debugf("Command exited with code %d", exitCode)
+		} else {
+			// Other error (e.g., container not found, not running)
+			if strings.Contains(err.Error(), "No such container") {
+				return nil, fmt.Errorf("container %s: %w", containerName, model.ErrNotFound)
+			}
+			if strings.Contains(err.Error(), "is not running") {
+				return nil, fmt.Errorf("container %s is not running: %w", containerName, model.ErrNotValid)
+			}
+			return nil, fmt.Errorf("failed to execute command: %w", err)
+		}
+	}
+
+	return &model.ExecResult{
+		ExitCode: exitCode,
+	}, nil
 }

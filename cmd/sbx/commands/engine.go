@@ -1,13 +1,12 @@
 package commands
 
 import (
-	"fmt"
-
 	"github.com/slok/sbx/internal/log"
 	"github.com/slok/sbx/internal/model"
 	"github.com/slok/sbx/internal/sandbox"
 	"github.com/slok/sbx/internal/sandbox/docker"
 	"github.com/slok/sbx/internal/sandbox/fake"
+	"github.com/slok/sbx/internal/sandbox/firecracker"
 	"github.com/slok/sbx/internal/storage"
 )
 
@@ -21,7 +20,10 @@ func newEngineFromConfig(cfg model.SandboxConfig, taskRepo storage.TaskRepositor
 	}
 
 	if cfg.FirecrackerEngine != nil {
-		return nil, fmt.Errorf("firecracker engine not yet implemented")
+		return firecracker.NewEngine(firecracker.EngineConfig{
+			TaskRepo: taskRepo,
+			Logger:   logger,
+		})
 	}
 
 	// Fallback to fake engine (for backward compatibility or testing)
