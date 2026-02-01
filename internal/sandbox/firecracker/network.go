@@ -144,6 +144,12 @@ func (e *Engine) getDefaultInterface() (string, error) {
 
 // setupNftables sets up NAT and forwarding rules for the VM using nftables.
 // This uses the google/nftables Go library which works with CAP_NET_ADMIN.
+//
+// Docker compatibility: When Docker is installed, it creates a FORWARD chain with
+// "policy drop" that blocks all forwarded traffic by default. Docker provides the
+// DOCKER-USER chain specifically for user rules - packets go through DOCKER-USER
+// before Docker's other rules. If DOCKER-USER exists, we add our forwarding rules
+// there. Otherwise, we create our own forward chain in the sbx table.
 func (e *Engine) setupNftables(tapDevice, gateway, vmIP string) error {
 	outInterface, err := e.getDefaultInterface()
 	if err != nil {
@@ -162,40 +168,26 @@ func (e *Engine) setupNftables(tapDevice, gateway, vmIP string) error {
 		return fmt.Errorf("failed to connect to nftables: %w", err)
 	}
 
-	// Create or get our table
-	table := &nftables.Table{
+	// Create our sbx table for NAT rules
+	sbxTable := &nftables.Table{
 		Family: nftables.TableFamilyIPv4,
 		Name:   nftTableName,
 	}
-	conn.AddTable(table)
+	conn.AddTable(sbxTable)
 
 	// Create NAT chain for postrouting (masquerade)
 	natChain := &nftables.Chain{
 		Name:     "postrouting",
-		Table:    table,
+		Table:    sbxTable,
 		Type:     nftables.ChainTypeNAT,
 		Hooknum:  nftables.ChainHookPostrouting,
 		Priority: nftables.ChainPriorityNATSource,
 	}
 	conn.AddChain(natChain)
 
-	// Create filter chain for forwarding with a lower (more negative) priority
-	// to ensure our rules are evaluated before Docker's iptables rules.
-	// Docker uses priority 0, so we use -10 to be evaluated first.
-	filterChain := &nftables.Chain{
-		Name:     "forward",
-		Table:    table,
-		Type:     nftables.ChainTypeFilter,
-		Hooknum:  nftables.ChainHookForward,
-		Priority: nftables.ChainPriorityRef(-10),
-	}
-	conn.AddChain(filterChain)
-
-	// Rule 1: Masquerade traffic from VM subnet going out
-	// nft add rule ip sbx postrouting ip saddr 10.x.x.0/24 masquerade
-	// Simplified: don't match output interface, just masquerade all traffic from VM subnet
+	// Rule: Masquerade traffic from VM subnet going out
 	conn.AddRule(&nftables.Rule{
-		Table: table,
+		Table: sbxTable,
 		Chain: natChain,
 		Exprs: []expr.Any{
 			// Match source IP in subnet
@@ -222,54 +214,122 @@ func (e *Engine) setupNftables(tapDevice, gateway, vmIP string) error {
 		},
 	})
 
-	// Rule 2: Allow forwarding from TAP to anywhere (not just outInterface)
-	// nft add rule ip sbx forward iifname "sbx-xxx" accept
-	conn.AddRule(&nftables.Rule{
-		Table: table,
-		Chain: filterChain,
-		Exprs: []expr.Any{
-			// Match input interface name (TAP)
-			&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
-			&expr.Cmp{
-				Op:       expr.CmpOpEq,
-				Register: 1,
-				Data:     ifname(tapDevice),
-			},
-			// Accept
-			&expr.Verdict{Kind: expr.VerdictAccept},
-		},
-	})
+	// Check if Docker's DOCKER-USER chain exists
+	dockerUserChain := e.findDockerUserChain(conn)
 
-	// Rule 3: Allow forwarding to TAP (return traffic)
-	// nft add rule ip sbx forward oifname "sbx-xxx" accept
-	conn.AddRule(&nftables.Rule{
-		Table: table,
-		Chain: filterChain,
-		Exprs: []expr.Any{
-			// Match output interface name (TAP)
-			&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
-			&expr.Cmp{
-				Op:       expr.CmpOpEq,
-				Register: 1,
-				Data:     ifname(tapDevice),
+	if dockerUserChain != nil {
+		// Docker is present - add forwarding rules to DOCKER-USER chain
+		// This is necessary because Docker's FORWARD chain has "policy drop"
+		e.logger.Debugf("Found Docker's DOCKER-USER chain, adding forwarding rules there")
+
+		// Rule: Allow forwarding from TAP
+		conn.AddRule(&nftables.Rule{
+			Table: dockerUserChain.Table,
+			Chain: dockerUserChain,
+			Exprs: []expr.Any{
+				&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+				&expr.Cmp{
+					Op:       expr.CmpOpEq,
+					Register: 1,
+					Data:     ifname(tapDevice),
+				},
+				&expr.Verdict{Kind: expr.VerdictAccept},
 			},
-			// Accept
-			&expr.Verdict{Kind: expr.VerdictAccept},
-		},
-	})
+		})
+
+		// Rule: Allow forwarding to TAP (return traffic)
+		conn.AddRule(&nftables.Rule{
+			Table: dockerUserChain.Table,
+			Chain: dockerUserChain,
+			Exprs: []expr.Any{
+				&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
+				&expr.Cmp{
+					Op:       expr.CmpOpEq,
+					Register: 1,
+					Data:     ifname(tapDevice),
+				},
+				&expr.Verdict{Kind: expr.VerdictAccept},
+			},
+		})
+	} else {
+		// No Docker - create our own forward chain in sbx table
+		e.logger.Debugf("Docker's DOCKER-USER chain not found, creating own forward chain")
+
+		filterChain := &nftables.Chain{
+			Name:     "forward",
+			Table:    sbxTable,
+			Type:     nftables.ChainTypeFilter,
+			Hooknum:  nftables.ChainHookForward,
+			Priority: nftables.ChainPriorityFilter,
+		}
+		conn.AddChain(filterChain)
+
+		// Rule: Allow forwarding from TAP
+		conn.AddRule(&nftables.Rule{
+			Table: sbxTable,
+			Chain: filterChain,
+			Exprs: []expr.Any{
+				&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+				&expr.Cmp{
+					Op:       expr.CmpOpEq,
+					Register: 1,
+					Data:     ifname(tapDevice),
+				},
+				&expr.Verdict{Kind: expr.VerdictAccept},
+			},
+		})
+
+		// Rule: Allow forwarding to TAP (return traffic)
+		conn.AddRule(&nftables.Rule{
+			Table: sbxTable,
+			Chain: filterChain,
+			Exprs: []expr.Any{
+				&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
+				&expr.Cmp{
+					Op:       expr.CmpOpEq,
+					Register: 1,
+					Data:     ifname(tapDevice),
+				},
+				&expr.Verdict{Kind: expr.VerdictAccept},
+			},
+		})
+	}
 
 	// Commit the changes
 	if err := conn.Flush(); err != nil {
 		return fmt.Errorf("failed to apply nftables rules: %w", err)
 	}
 
-	e.logger.Debugf("Set up nftables NAT for %s via %s", tapDevice, outInterface)
+	if dockerUserChain != nil {
+		e.logger.Debugf("Set up nftables NAT for %s via %s (using DOCKER-USER)", tapDevice, outInterface)
+	} else {
+		e.logger.Debugf("Set up nftables NAT for %s via %s (standalone)", tapDevice, outInterface)
+	}
+	return nil
+}
+
+// findDockerUserChain looks for Docker's DOCKER-USER chain in the filter table.
+// Returns nil if not found.
+func (e *Engine) findDockerUserChain(conn *nftables.Conn) *nftables.Chain {
+	chains, err := conn.ListChains()
+	if err != nil {
+		return nil
+	}
+
+	for _, chain := range chains {
+		if chain.Name == "DOCKER-USER" &&
+			chain.Table != nil &&
+			chain.Table.Name == "filter" &&
+			chain.Table.Family == nftables.TableFamilyIPv4 {
+			return chain
+		}
+	}
 	return nil
 }
 
 // cleanupNftables removes NAT and forwarding rules for the VM.
-// For simplicity, we delete the entire sbx table if no other VMs are using it.
-// In a production system, you'd want to track and remove individual rules.
+// This cleans up both our sbx table and any rules we added to Docker's DOCKER-USER chain.
+// In a production system with multiple VMs, you'd want to track and remove individual rules.
 func (e *Engine) cleanupNftables(tapDevice, gateway, vmIP string) error {
 	conn, err := nftables.New()
 	if err != nil {
@@ -277,7 +337,10 @@ func (e *Engine) cleanupNftables(tapDevice, gateway, vmIP string) error {
 		return nil
 	}
 
-	// Get all tables and find ours
+	// First, clean up any rules we added to Docker's DOCKER-USER chain
+	e.cleanupDockerUserRules(conn, tapDevice)
+
+	// Then delete our sbx table
 	tables, err := conn.ListTables()
 	if err != nil {
 		e.logger.Warningf("Failed to list nftables tables: %v", err)
@@ -301,6 +364,55 @@ func (e *Engine) cleanupNftables(tapDevice, gateway, vmIP string) error {
 	return nil
 }
 
+// cleanupDockerUserRules removes any rules we added to Docker's DOCKER-USER chain.
+func (e *Engine) cleanupDockerUserRules(conn *nftables.Conn, tapDevice string) {
+	dockerUserChain := e.findDockerUserChain(conn)
+	if dockerUserChain == nil {
+		return // No DOCKER-USER chain, nothing to clean up
+	}
+
+	// Get all rules in DOCKER-USER chain
+	rules, err := conn.GetRules(dockerUserChain.Table, dockerUserChain)
+	if err != nil {
+		e.logger.Warningf("Failed to get DOCKER-USER rules: %v", err)
+		return
+	}
+
+	// Find and delete rules that reference our TAP device
+	tapName := ifname(tapDevice)
+	deletedCount := 0
+	for _, rule := range rules {
+		if ruleMatchesTapDevice(rule, tapName) {
+			if err := conn.DelRule(rule); err != nil {
+				e.logger.Warningf("Failed to delete DOCKER-USER rule: %v", err)
+			} else {
+				deletedCount++
+			}
+		}
+	}
+
+	if deletedCount > 0 {
+		if err := conn.Flush(); err != nil {
+			e.logger.Warningf("Failed to flush DOCKER-USER cleanup: %v", err)
+		} else {
+			e.logger.Debugf("Cleaned up %d rules from DOCKER-USER for %s", deletedCount, tapDevice)
+		}
+	}
+}
+
+// ruleMatchesTapDevice checks if an nftables rule references the given TAP device name.
+func ruleMatchesTapDevice(rule *nftables.Rule, tapName []byte) bool {
+	for _, e := range rule.Exprs {
+		if cmp, ok := e.(*expr.Cmp); ok {
+			// Check if the comparison data matches our TAP device name
+			if len(cmp.Data) == len(tapName) && string(cmp.Data) == string(tapName) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // setupIPTables is a wrapper for backwards compatibility - now uses nftables.
 func (e *Engine) setupIPTables(tapDevice, gateway, vmIP string) error {
 	return e.setupNftables(tapDevice, gateway, vmIP)
@@ -311,7 +423,7 @@ func (e *Engine) cleanupIPTables(tapDevice, gateway, vmIP string) error {
 }
 
 // configureVMNetwork configures networking inside the VM via SSH.
-// This sets up the IP address, default route, and DNS.
+// This sets up the IP address, default route, and ensures DNS is configured.
 func (e *Engine) configureVMNetwork(ctx context.Context, vmIP, gateway string) error {
 	sshKeyPath := e.sshKeyManager.PrivateKeyPath()
 
@@ -338,8 +450,9 @@ func (e *Engine) configureVMNetwork(ctx context.Context, vmIP, gateway string) e
 			args: []string{"ip", "route", "add", "default", "via", gateway},
 		},
 		{
-			name: "configure DNS",
-			args: []string{"sh", "-c", "echo 'nameserver 8.8.8.8' > /etc/resolv.conf"},
+			// Only add nameserver if resolv.conf doesn't have one configured
+			name: "ensure DNS",
+			args: []string{"sh", "-c", "grep -q '^nameserver' /etc/resolv.conf 2>/dev/null || echo 'nameserver 1.1.1.1' >> /etc/resolv.conf"},
 		},
 	}
 
