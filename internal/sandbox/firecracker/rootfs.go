@@ -1,6 +1,7 @@
 package firecracker
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -130,4 +131,84 @@ set_inode_field /root/.ssh/authorized_keys mode 0100600
 // RootFSPath returns the path to the VM's rootfs.
 func (e *Engine) RootFSPath(vmDir string) string {
 	return filepath.Join(vmDir, RootFSFile)
+}
+
+// MaxDiskGB is the maximum allowed disk size in GB.
+const MaxDiskGB = 25
+
+// resizeRootFS extends the rootfs file to the specified size in GB.
+// This uses sparse file extension (fast, doesn't allocate actual disk space until written).
+// The actual filesystem expansion happens inside the VM after boot via expandFilesystem.
+func (e *Engine) resizeRootFS(vmDir string, sizeGB int, baseImagePath string) error {
+	// Validate maximum size
+	if sizeGB > MaxDiskGB {
+		return fmt.Errorf("disk_gb (%d) exceeds maximum allowed (%d GB)", sizeGB, MaxDiskGB)
+	}
+
+	// Get base image size to ensure we don't shrink
+	baseInfo, err := os.Stat(baseImagePath)
+	if err != nil {
+		return fmt.Errorf("could not stat base image: %w", err)
+	}
+	baseSize := baseInfo.Size()
+
+	// Calculate target size in bytes
+	targetSize := int64(sizeGB) * 1024 * 1024 * 1024
+
+	// Validate target size is not smaller than base image
+	if targetSize < baseSize {
+		baseSizeGB := float64(baseSize) / (1024 * 1024 * 1024)
+		return fmt.Errorf("disk_gb (%d GB) is smaller than base image size (%.2f GB)", sizeGB, baseSizeGB)
+	}
+
+	// Get rootfs path in VM directory
+	rootfsPath := e.RootFSPath(vmDir)
+
+	// Get current size of copied rootfs
+	currentInfo, err := os.Stat(rootfsPath)
+	if err != nil {
+		return fmt.Errorf("could not stat rootfs: %w", err)
+	}
+
+	// Skip if already at target size
+	if currentInfo.Size() == targetSize {
+		e.logger.Debugf("Rootfs already at target size (%d GB)", sizeGB)
+		return nil
+	}
+
+	// Extend the file using truncate (sparse file extension)
+	if err := os.Truncate(rootfsPath, targetSize); err != nil {
+		return fmt.Errorf("could not resize rootfs: %w", err)
+	}
+
+	e.logger.Debugf("Resized rootfs to %d GB at %s", sizeGB, rootfsPath)
+	return nil
+}
+
+// expandFilesystem expands the ext4 filesystem inside the VM to fill the available space.
+// This must be called after the VM boots and network is configured (SSH access required).
+func (e *Engine) expandFilesystem(ctx context.Context, vmIP string) error {
+	// Get SSH key path
+	keyPath := e.sshKeyManager.PrivateKeyPath()
+
+	// Run resize2fs via SSH
+	// -o StrictHostKeyChecking=no: Don't prompt for host key verification
+	// -o UserKnownHostsFile=/dev/null: Don't save host key
+	// -o ConnectTimeout=10: Timeout for connection
+	cmd := exec.CommandContext(ctx, "ssh",
+		"-i", keyPath,
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
+		"-o", "ConnectTimeout=10",
+		fmt.Sprintf("root@%s", vmIP),
+		"resize2fs", "/dev/vda",
+	)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("resize2fs failed: %w, output: %s", err, string(output))
+	}
+
+	e.logger.Debugf("Expanded filesystem inside VM: %s", strings.TrimSpace(string(output)))
+	return nil
 }

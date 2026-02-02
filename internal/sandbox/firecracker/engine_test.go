@@ -4,6 +4,10 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/slok/sbx/internal/log"
 	"github.com/slok/sbx/internal/model"
 )
 
@@ -169,5 +173,70 @@ func TestEngine_CheckRootFS(t *testing.T) {
 	}
 	if result.ID != "base_rootfs" {
 		t.Errorf("expected ID base_rootfs, got %s", result.ID)
+	}
+}
+
+func TestEngine_Create_DiskGBValidation(t *testing.T) {
+	tests := map[string]struct {
+		diskGB    int
+		expErr    bool
+		expErrMsg string
+	}{
+		"Valid disk_gb at maximum should succeed validation": {
+			diskGB: 25,
+			expErr: false,
+		},
+		"Valid disk_gb below maximum should succeed validation": {
+			diskGB: 10,
+			expErr: false,
+		},
+		"disk_gb exceeding maximum should fail early": {
+			diskGB:    26,
+			expErr:    true,
+			expErrMsg: "exceeds maximum allowed",
+		},
+		"disk_gb way over maximum should fail early": {
+			diskGB:    100,
+			expErr:    true,
+			expErrMsg: "exceeds maximum allowed",
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert := assert.New(t)
+			require := require.New(t)
+
+			e, err := NewEngine(EngineConfig{
+				DataDir: t.TempDir(),
+				Logger:  log.Noop,
+			})
+			require.NoError(err)
+
+			cfg := model.SandboxConfig{
+				Name: "test-sandbox",
+				FirecrackerEngine: &model.FirecrackerEngineConfig{
+					KernelImage: "/fake/vmlinux",
+					RootFS:      "/fake/rootfs.ext4",
+				},
+				Resources: model.Resources{
+					VCPUs:    1,
+					MemoryMB: 512,
+					DiskGB:   tc.diskGB,
+				},
+			}
+
+			_, err = e.Create(context.Background(), cfg)
+
+			if tc.expErr {
+				// Should fail early with validation error (before trying to access files)
+				assert.Error(err)
+				assert.Contains(err.Error(), tc.expErrMsg)
+			} else {
+				// Will fail later due to fake paths, but NOT with the validation error
+				assert.Error(err) // It will fail because kernel/rootfs don't exist
+				assert.NotContains(err.Error(), "exceeds maximum allowed")
+			}
+		})
 	}
 }

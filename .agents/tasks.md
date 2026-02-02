@@ -194,3 +194,12 @@ When stopping, provide:
   - Graceful shutdown on Ctrl+C via context cancellation
   - 30 unit tests covering parsing, service validation, and engine behavior
   - Usage: `sbx forward my-sandbox 8080` or `sbx forward my-sandbox 8080:8080 3000`
+
+- **Task 0010**: Rootfs Resize (PR #15) - Merged on 2026-02-02
+  - Automatic rootfs resizing for Firecracker sandboxes using `disk_gb` config
+  - Two-step resize: host-side file extension via `os.Truncate()`, guest-side filesystem expansion via `resize2fs` over SSH
+  - Added `resize_rootfs` and `expand_filesystem` tasks to create flow (now 11 tasks)
+  - 25GB hard limit on disk size with early validation
+  - Base image protection: error if `disk_gb < base image size`
+  - 13 unit tests covering resize, validation, and error cases
+  - No integration tests (unit tests only as requested)
