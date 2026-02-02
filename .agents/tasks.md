@@ -172,3 +172,14 @@ When stopping, provide:
   - Network configuration applied on start (IP, route, DNS via SSH)
   - 5 unit tests with table-driven pattern covering error cases
   - New process PID updated in repository after successful start
+
+- **Task 0008**: Copy Command (PR #13) - Merged on 2026-02-01
+  - Implemented `sbx cp` command for copying files/directories between host and sandboxes
+  - Added CopyTo/CopyFrom methods to Engine interface
+  - Docker engine uses `docker cp` command for file transfer
+  - Firecracker engine uses `scp -r` over SSH with sandbox IP
+  - Colon syntax like scp: `sbx cp ./file sandbox:/path` or `sbx cp sandbox:/path ./file`
+  - Direction auto-detected from argument syntax (which has the colon prefix)
+  - App service validates source exists (for host sources) and sandbox is running
+  - 26 unit tests + 5 integration test scenarios
+  - Fake engine implementation for testing with validation
