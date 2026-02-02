@@ -335,6 +335,8 @@ func TestMockFirecrackerAPI_configureVM(t *testing.T) {
 		tmpDir,
 		"06:00:0A:01:02:02",
 		"sbx-0102",
+		"10.1.2.2", // vmIP
+		"10.1.2.1", // gateway
 		resources,
 	)
 	if err != nil {
