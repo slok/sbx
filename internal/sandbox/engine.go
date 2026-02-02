@@ -18,4 +18,12 @@ type Engine interface {
 	Remove(ctx context.Context, id string) error
 	Status(ctx context.Context, id string) (*model.Sandbox, error)
 	Exec(ctx context.Context, id string, command []string, opts model.ExecOpts) (*model.ExecResult, error)
+
+	// CopyTo copies a file or directory from the local host to the sandbox.
+	// Directories are copied recursively.
+	CopyTo(ctx context.Context, id string, srcLocal string, dstRemote string) error
+
+	// CopyFrom copies a file or directory from the sandbox to the local host.
+	// Directories are copied recursively.
+	CopyFrom(ctx context.Context, id string, srcRemote string, dstLocal string) error
 }

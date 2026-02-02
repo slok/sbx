@@ -384,6 +384,78 @@ func (e *Engine) Exec(ctx context.Context, id string, command []string, opts mod
 	}, nil
 }
 
+// CopyTo copies a file or directory from the local host to the Firecracker VM via SCP.
+func (e *Engine) CopyTo(ctx context.Context, id string, srcLocal string, dstRemote string) error {
+	// Get VM IP from deterministic allocation
+	_, _, vmIP, _ := e.allocateNetwork(id)
+	sshKeyPath := e.sshKeyManager.PrivateKeyPath()
+
+	// Build SCP command with -r for recursive copy
+	args := []string{
+		"-r",
+		"-i", sshKeyPath,
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
+		"-o", "ConnectTimeout=10",
+		srcLocal,
+		fmt.Sprintf("root@%s:%s", vmIP, dstRemote),
+	}
+
+	e.logger.Debugf("Copying to VM %s: scp %v", id, args)
+
+	cmd := exec.CommandContext(ctx, "scp", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		errStr := string(output)
+		if strings.Contains(errStr, "No such file or directory") {
+			return fmt.Errorf("source path '%s' does not exist: %w", srcLocal, model.ErrNotFound)
+		}
+		if strings.Contains(errStr, "Connection refused") || strings.Contains(errStr, "Connection timed out") {
+			return fmt.Errorf("sandbox %s is not running or not reachable: %w", id, model.ErrNotValid)
+		}
+		return fmt.Errorf("failed to copy to VM: %s: %w", errStr, err)
+	}
+
+	e.logger.Infof("Copied %s to %s:%s", srcLocal, id, dstRemote)
+	return nil
+}
+
+// CopyFrom copies a file or directory from the Firecracker VM to the local host via SCP.
+func (e *Engine) CopyFrom(ctx context.Context, id string, srcRemote string, dstLocal string) error {
+	// Get VM IP from deterministic allocation
+	_, _, vmIP, _ := e.allocateNetwork(id)
+	sshKeyPath := e.sshKeyManager.PrivateKeyPath()
+
+	// Build SCP command with -r for recursive copy
+	args := []string{
+		"-r",
+		"-i", sshKeyPath,
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
+		"-o", "ConnectTimeout=10",
+		fmt.Sprintf("root@%s:%s", vmIP, srcRemote),
+		dstLocal,
+	}
+
+	e.logger.Debugf("Copying from VM %s: scp %v", id, args)
+
+	cmd := exec.CommandContext(ctx, "scp", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		errStr := string(output)
+		if strings.Contains(errStr, "No such file or directory") {
+			return fmt.Errorf("source path '%s' does not exist in sandbox: %w", srcRemote, model.ErrNotFound)
+		}
+		if strings.Contains(errStr, "Connection refused") || strings.Contains(errStr, "Connection timed out") {
+			return fmt.Errorf("sandbox %s is not running or not reachable: %w", id, model.ErrNotValid)
+		}
+		return fmt.Errorf("failed to copy from VM: %s: %w", errStr, err)
+	}
+
+	e.logger.Infof("Copied %s:%s to %s", id, srcRemote, dstLocal)
+	return nil
+}
+
 // gracefulShutdown attempts to gracefully shutdown the VM via SSH.
 func (e *Engine) gracefulShutdown(ctx context.Context, id string) error {
 	_, _, vmIP, _ := e.allocateNetwork(id)

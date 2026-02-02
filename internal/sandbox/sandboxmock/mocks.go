@@ -70,6 +70,104 @@ func (_c *MockEngine_Check_Call) RunAndReturn(run func(context.Context) []model.
 	return _c
 }
 
+// CopyFrom provides a mock function with given fields: ctx, id, srcRemote, dstLocal
+func (_m *MockEngine) CopyFrom(ctx context.Context, id string, srcRemote string, dstLocal string) error {
+	ret := _m.Called(ctx, id, srcRemote, dstLocal)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CopyFrom")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) error); ok {
+		r0 = rf(ctx, id, srcRemote, dstLocal)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockEngine_CopyFrom_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CopyFrom'
+type MockEngine_CopyFrom_Call struct {
+	*mock.Call
+}
+
+// CopyFrom is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id string
+//   - srcRemote string
+//   - dstLocal string
+func (_e *MockEngine_Expecter) CopyFrom(ctx interface{}, id interface{}, srcRemote interface{}, dstLocal interface{}) *MockEngine_CopyFrom_Call {
+	return &MockEngine_CopyFrom_Call{Call: _e.mock.On("CopyFrom", ctx, id, srcRemote, dstLocal)}
+}
+
+func (_c *MockEngine_CopyFrom_Call) Run(run func(ctx context.Context, id string, srcRemote string, dstLocal string)) *MockEngine_CopyFrom_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
+	})
+	return _c
+}
+
+func (_c *MockEngine_CopyFrom_Call) Return(_a0 error) *MockEngine_CopyFrom_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockEngine_CopyFrom_Call) RunAndReturn(run func(context.Context, string, string, string) error) *MockEngine_CopyFrom_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// CopyTo provides a mock function with given fields: ctx, id, srcLocal, dstRemote
+func (_m *MockEngine) CopyTo(ctx context.Context, id string, srcLocal string, dstRemote string) error {
+	ret := _m.Called(ctx, id, srcLocal, dstRemote)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CopyTo")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) error); ok {
+		r0 = rf(ctx, id, srcLocal, dstRemote)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockEngine_CopyTo_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CopyTo'
+type MockEngine_CopyTo_Call struct {
+	*mock.Call
+}
+
+// CopyTo is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id string
+//   - srcLocal string
+//   - dstRemote string
+func (_e *MockEngine_Expecter) CopyTo(ctx interface{}, id interface{}, srcLocal interface{}, dstRemote interface{}) *MockEngine_CopyTo_Call {
+	return &MockEngine_CopyTo_Call{Call: _e.mock.On("CopyTo", ctx, id, srcLocal, dstRemote)}
+}
+
+func (_c *MockEngine_CopyTo_Call) Run(run func(ctx context.Context, id string, srcLocal string, dstRemote string)) *MockEngine_CopyTo_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
+	})
+	return _c
+}
+
+func (_c *MockEngine_CopyTo_Call) Return(_a0 error) *MockEngine_CopyTo_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockEngine_CopyTo_Call) RunAndReturn(run func(context.Context, string, string, string) error) *MockEngine_CopyTo_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Create provides a mock function with given fields: ctx, cfg
 func (_m *MockEngine) Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sandbox, error) {
 	ret := _m.Called(ctx, cfg)

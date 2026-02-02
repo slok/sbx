@@ -270,3 +270,59 @@ func (e *Engine) Exec(ctx context.Context, id string, command []string, opts mod
 	e.logger.Debugf("Fake exec in sandbox %s: %v", id, command)
 	return &model.ExecResult{ExitCode: 0}, nil
 }
+
+// CopyTo simulates copying a file or directory from the local host to the sandbox.
+// The fake engine validates inputs but doesn't actually copy anything.
+func (e *Engine) CopyTo(ctx context.Context, id string, srcLocal string, dstRemote string) error {
+	if srcLocal == "" {
+		return fmt.Errorf("source path cannot be empty: %w", model.ErrNotValid)
+	}
+	if dstRemote == "" {
+		return fmt.Errorf("destination path cannot be empty: %w", model.ErrNotValid)
+	}
+
+	e.mu.RLock()
+	sandbox, ok := e.sandboxes[id]
+	e.mu.RUnlock()
+
+	if !ok {
+		// For stateless integration tests, just return success
+		e.logger.Debugf("Fake CopyTo in sandbox: %s (not in engine memory): %s -> %s", id, srcLocal, dstRemote)
+		return nil
+	}
+
+	if sandbox.Status != model.SandboxStatusRunning {
+		return fmt.Errorf("sandbox %s is not running: %w", id, model.ErrNotValid)
+	}
+
+	e.logger.Debugf("Fake CopyTo in sandbox %s: %s -> %s", id, srcLocal, dstRemote)
+	return nil
+}
+
+// CopyFrom simulates copying a file or directory from the sandbox to the local host.
+// The fake engine validates inputs but doesn't actually copy anything.
+func (e *Engine) CopyFrom(ctx context.Context, id string, srcRemote string, dstLocal string) error {
+	if srcRemote == "" {
+		return fmt.Errorf("source path cannot be empty: %w", model.ErrNotValid)
+	}
+	if dstLocal == "" {
+		return fmt.Errorf("destination path cannot be empty: %w", model.ErrNotValid)
+	}
+
+	e.mu.RLock()
+	sandbox, ok := e.sandboxes[id]
+	e.mu.RUnlock()
+
+	if !ok {
+		// For stateless integration tests, just return success
+		e.logger.Debugf("Fake CopyFrom in sandbox: %s (not in engine memory): %s -> %s", id, srcRemote, dstLocal)
+		return nil
+	}
+
+	if sandbox.Status != model.SandboxStatusRunning {
+		return fmt.Errorf("sandbox %s is not running: %w", id, model.ErrNotValid)
+	}
+
+	e.logger.Debugf("Fake CopyFrom in sandbox %s: %s -> %s", id, srcRemote, dstLocal)
+	return nil
+}

@@ -38,6 +38,7 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	execCmd := commands.NewExecCommand(rootCmd, app)
 	shellCmd := commands.NewShellCommand(rootCmd, app)
 	doctorCmd := commands.NewDoctorCommand(rootCmd, app)
+	cpCmd := commands.NewCpCommand(rootCmd, app)
 
 	cmds := map[string]commands.Command{
 		createCmd.Name(): createCmd,
@@ -49,6 +50,7 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		execCmd.Name():   execCmd,
 		shellCmd.Name():  shellCmd,
 		doctorCmd.Name(): doctorCmd,
+		cpCmd.Name():     cpCmd,
 	}
 
 	// Parse command.

@@ -201,3 +201,177 @@ func TestEngineCreateStartStopRemove(t *testing.T) {
 		})
 	}
 }
+
+func TestEngineCopyToFrom(t *testing.T) {
+	tests := map[string]struct {
+		actions func(ctx context.Context, t *testing.T, eng *fake.Engine) error
+		expErr  bool
+	}{
+		"CopyTo on running sandbox should succeed": {
+			actions: func(ctx context.Context, t *testing.T, eng *fake.Engine) error {
+				cfg := model.SandboxConfig{
+					Name:         "test",
+					DockerEngine: &model.DockerEngineConfig{Image: "ubuntu-22.04"},
+					Resources:    model.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
+				}
+
+				created, err := eng.Create(ctx, cfg)
+				require.NoError(t, err)
+
+				return eng.CopyTo(ctx, created.ID, "/local/file.txt", "/remote/file.txt")
+			},
+			expErr: false,
+		},
+
+		"CopyFrom on running sandbox should succeed": {
+			actions: func(ctx context.Context, t *testing.T, eng *fake.Engine) error {
+				cfg := model.SandboxConfig{
+					Name:         "test",
+					DockerEngine: &model.DockerEngineConfig{Image: "ubuntu-22.04"},
+					Resources:    model.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
+				}
+
+				created, err := eng.Create(ctx, cfg)
+				require.NoError(t, err)
+
+				return eng.CopyFrom(ctx, created.ID, "/remote/file.txt", "/local/file.txt")
+			},
+			expErr: false,
+		},
+
+		"CopyTo on stopped sandbox should fail": {
+			actions: func(ctx context.Context, t *testing.T, eng *fake.Engine) error {
+				cfg := model.SandboxConfig{
+					Name:         "test",
+					DockerEngine: &model.DockerEngineConfig{Image: "ubuntu-22.04"},
+					Resources:    model.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
+				}
+
+				created, err := eng.Create(ctx, cfg)
+				require.NoError(t, err)
+
+				err = eng.Stop(ctx, created.ID)
+				require.NoError(t, err)
+
+				return eng.CopyTo(ctx, created.ID, "/local/file.txt", "/remote/file.txt")
+			},
+			expErr: true,
+		},
+
+		"CopyFrom on stopped sandbox should fail": {
+			actions: func(ctx context.Context, t *testing.T, eng *fake.Engine) error {
+				cfg := model.SandboxConfig{
+					Name:         "test",
+					DockerEngine: &model.DockerEngineConfig{Image: "ubuntu-22.04"},
+					Resources:    model.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
+				}
+
+				created, err := eng.Create(ctx, cfg)
+				require.NoError(t, err)
+
+				err = eng.Stop(ctx, created.ID)
+				require.NoError(t, err)
+
+				return eng.CopyFrom(ctx, created.ID, "/remote/file.txt", "/local/file.txt")
+			},
+			expErr: true,
+		},
+
+		"CopyTo with empty source should fail": {
+			actions: func(ctx context.Context, t *testing.T, eng *fake.Engine) error {
+				cfg := model.SandboxConfig{
+					Name:         "test",
+					DockerEngine: &model.DockerEngineConfig{Image: "ubuntu-22.04"},
+					Resources:    model.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
+				}
+
+				created, err := eng.Create(ctx, cfg)
+				require.NoError(t, err)
+
+				return eng.CopyTo(ctx, created.ID, "", "/remote/file.txt")
+			},
+			expErr: true,
+		},
+
+		"CopyTo with empty destination should fail": {
+			actions: func(ctx context.Context, t *testing.T, eng *fake.Engine) error {
+				cfg := model.SandboxConfig{
+					Name:         "test",
+					DockerEngine: &model.DockerEngineConfig{Image: "ubuntu-22.04"},
+					Resources:    model.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
+				}
+
+				created, err := eng.Create(ctx, cfg)
+				require.NoError(t, err)
+
+				return eng.CopyTo(ctx, created.ID, "/local/file.txt", "")
+			},
+			expErr: true,
+		},
+
+		"CopyFrom with empty source should fail": {
+			actions: func(ctx context.Context, t *testing.T, eng *fake.Engine) error {
+				cfg := model.SandboxConfig{
+					Name:         "test",
+					DockerEngine: &model.DockerEngineConfig{Image: "ubuntu-22.04"},
+					Resources:    model.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
+				}
+
+				created, err := eng.Create(ctx, cfg)
+				require.NoError(t, err)
+
+				return eng.CopyFrom(ctx, created.ID, "", "/local/file.txt")
+			},
+			expErr: true,
+		},
+
+		"CopyFrom with empty destination should fail": {
+			actions: func(ctx context.Context, t *testing.T, eng *fake.Engine) error {
+				cfg := model.SandboxConfig{
+					Name:         "test",
+					DockerEngine: &model.DockerEngineConfig{Image: "ubuntu-22.04"},
+					Resources:    model.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
+				}
+
+				created, err := eng.Create(ctx, cfg)
+				require.NoError(t, err)
+
+				return eng.CopyFrom(ctx, created.ID, "/remote/file.txt", "")
+			},
+			expErr: true,
+		},
+
+		"CopyTo on non-existent sandbox should succeed (stateless mode)": {
+			actions: func(ctx context.Context, t *testing.T, eng *fake.Engine) error {
+				return eng.CopyTo(ctx, "non-existent", "/local/file.txt", "/remote/file.txt")
+			},
+			expErr: false,
+		},
+
+		"CopyFrom on non-existent sandbox should succeed (stateless mode)": {
+			actions: func(ctx context.Context, t *testing.T, eng *fake.Engine) error {
+				return eng.CopyFrom(ctx, "non-existent", "/remote/file.txt", "/local/file.txt")
+			},
+			expErr: false,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert := assert.New(t)
+
+			eng, err := fake.NewEngine(fake.EngineConfig{
+				Logger: log.Noop,
+			})
+			require.NoError(t, err)
+
+			err = test.actions(context.Background(), t, eng)
+
+			if test.expErr {
+				assert.Error(err)
+			} else {
+				assert.NoError(err)
+			}
+		})
+	}
+}
