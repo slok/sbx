@@ -39,18 +39,20 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	shellCmd := commands.NewShellCommand(rootCmd, app)
 	doctorCmd := commands.NewDoctorCommand(rootCmd, app)
 	cpCmd := commands.NewCpCommand(rootCmd, app)
+	forwardCmd := commands.NewForwardCommand(rootCmd, app)
 
 	cmds := map[string]commands.Command{
-		createCmd.Name(): createCmd,
-		listCmd.Name():   listCmd,
-		statusCmd.Name(): statusCmd,
-		stopCmd.Name():   stopCmd,
-		startCmd.Name():  startCmd,
-		removeCmd.Name(): removeCmd,
-		execCmd.Name():   execCmd,
-		shellCmd.Name():  shellCmd,
-		doctorCmd.Name(): doctorCmd,
-		cpCmd.Name():     cpCmd,
+		createCmd.Name():  createCmd,
+		listCmd.Name():    listCmd,
+		statusCmd.Name():  statusCmd,
+		stopCmd.Name():    stopCmd,
+		startCmd.Name():   startCmd,
+		removeCmd.Name():  removeCmd,
+		execCmd.Name():    execCmd,
+		shellCmd.Name():   shellCmd,
+		doctorCmd.Name():  doctorCmd,
+		cpCmd.Name():      cpCmd,
+		forwardCmd.Name(): forwardCmd,
 	}
 
 	// Parse command.

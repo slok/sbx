@@ -183,3 +183,14 @@ When stopping, provide:
   - App service validates source exists (for host sources) and sandbox is running
   - 26 unit tests + 5 integration test scenarios
   - Fake engine implementation for testing with validation
+
+- **Task 0009**: Port Forward Command (PR #14) - Merged on 2026-02-02
+  - Implemented `sbx forward` command for forwarding ports from localhost to running sandboxes
+  - Added Forward method to Engine interface with PortMapping model
+  - Firecracker engine uses SSH tunnels (`ssh -N -L`) for dynamic port forwarding
+  - Docker engine returns clear error (ports must be defined at container creation)
+  - Port mapping parsing supports short (`8080`) and full (`9000:8080`) formats
+  - Validates port range (1-65535) and sandbox state (must be running)
+  - Graceful shutdown on Ctrl+C via context cancellation
+  - 30 unit tests covering parsing, service validation, and engine behavior
+  - Usage: `sbx forward my-sandbox 8080` or `sbx forward my-sandbox 8080:8080 3000`

@@ -485,3 +485,22 @@ func TestEngine_allocateNetwork_consistency(t *testing.T) {
 		t.Error("different IDs should produce different network configs")
 	}
 }
+
+func TestEngine_Forward_EmptyPorts(t *testing.T) {
+	tmpDir := t.TempDir()
+	e, err := NewEngine(EngineConfig{
+		DataDir: tmpDir,
+		Logger:  log.Noop,
+	})
+	if err != nil {
+		t.Fatalf("failed to create engine: %v", err)
+	}
+
+	err = e.Forward(context.Background(), "sandbox-id", []model.PortMapping{})
+	if err == nil {
+		t.Error("Forward should return error for empty ports")
+	}
+	if !errors.Is(err, model.ErrNotValid) {
+		t.Errorf("Expected ErrNotValid, got: %v", err)
+	}
+}

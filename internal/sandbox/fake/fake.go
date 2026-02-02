@@ -326,3 +326,32 @@ func (e *Engine) CopyFrom(ctx context.Context, id string, srcRemote string, dstL
 	e.logger.Debugf("Fake CopyFrom in sandbox %s: %s -> %s", id, srcRemote, dstLocal)
 	return nil
 }
+
+// Forward simulates port forwarding from localhost to the sandbox.
+// The fake engine validates inputs and blocks until context is cancelled.
+func (e *Engine) Forward(ctx context.Context, id string, ports []model.PortMapping) error {
+	if len(ports) == 0 {
+		return fmt.Errorf("at least one port mapping is required: %w", model.ErrNotValid)
+	}
+
+	e.mu.RLock()
+	sandbox, ok := e.sandboxes[id]
+	e.mu.RUnlock()
+
+	if !ok {
+		// For stateless integration tests, just block until cancelled
+		e.logger.Debugf("Fake Forward in sandbox: %s (not in engine memory): %v", id, ports)
+		<-ctx.Done()
+		return ctx.Err()
+	}
+
+	if sandbox.Status != model.SandboxStatusRunning {
+		return fmt.Errorf("sandbox %s is not running: %w", id, model.ErrNotValid)
+	}
+
+	e.logger.Debugf("Fake Forward in sandbox %s: %v", id, ports)
+
+	// Block until context is cancelled (simulating real forwarding behavior)
+	<-ctx.Done()
+	return ctx.Err()
+}

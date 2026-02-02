@@ -574,3 +574,9 @@ func (e *Engine) CopyFrom(ctx context.Context, id string, srcRemote string, dstL
 	e.logger.Infof("Copied %s:%s to %s", containerName, srcRemote, dstLocal)
 	return nil
 }
+
+// Forward returns an error because Docker doesn't support dynamic port forwarding.
+// Ports must be defined at container creation time.
+func (e *Engine) Forward(ctx context.Context, id string, ports []model.PortMapping) error {
+	return fmt.Errorf("port forwarding not supported for Docker engine")
+}

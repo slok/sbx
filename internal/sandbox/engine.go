@@ -26,4 +26,9 @@ type Engine interface {
 	// CopyFrom copies a file or directory from the sandbox to the local host.
 	// Directories are copied recursively.
 	CopyFrom(ctx context.Context, id string, srcRemote string, dstLocal string) error
+
+	// Forward forwards ports from localhost to the sandbox.
+	// Blocks until context is cancelled or connection drops.
+	// Not all engines support forwarding (e.g., Docker requires ports at creation time).
+	Forward(ctx context.Context, id string, ports []model.PortMapping) error
 }
