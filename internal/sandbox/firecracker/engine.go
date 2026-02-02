@@ -326,6 +326,11 @@ func (e *Engine) Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sa
 		return nil, fmt.Errorf("firecracker engine configuration is required")
 	}
 
+	// Validate disk_gb doesn't exceed maximum
+	if cfg.Resources.DiskGB > MaxDiskGB {
+		return nil, fmt.Errorf("disk_gb (%d) exceeds maximum allowed (%d GB)", cfg.Resources.DiskGB, MaxDiskGB)
+	}
+
 	// Generate ULID for sandbox
 	id := ulid.MustNew(ulid.Timestamp(time.Now()), rand.Reader).String()
 
@@ -354,6 +359,7 @@ func (e *Engine) Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sa
 		taskNames := []string{
 			"ensure_ssh_keys",
 			"copy_rootfs",
+			"resize_rootfs",
 			"patch_rootfs_ssh",
 			"create_tap",
 			"setup_iptables",
@@ -361,6 +367,7 @@ func (e *Engine) Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sa
 			"configure_vm",
 			"boot_vm",
 			"configure_network",
+			"expand_filesystem",
 		}
 		if err := e.taskRepo.AddTasks(ctx, id, "create", taskNames); err != nil {
 			return nil, fmt.Errorf("failed to add tasks: %w", err)
@@ -372,7 +379,7 @@ func (e *Engine) Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sa
 
 	// Task 1: Ensure SSH keys exist
 	if err := e.executeTask(ctx, id, "create", "ensure_ssh_keys", func() error {
-		e.logger.Infof("[1/9] Ensuring SSH keys exist")
+		e.logger.Infof("[1/11] Ensuring SSH keys exist")
 		_, err := e.sshKeyManager.EnsureKeys()
 		return err
 	}); err != nil {
@@ -382,43 +389,52 @@ func (e *Engine) Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sa
 
 	// Task 2: Copy rootfs
 	if err := e.executeTask(ctx, id, "create", "copy_rootfs", func() error {
-		e.logger.Infof("[2/9] Copying rootfs to VM directory")
+		e.logger.Infof("[2/11] Copying rootfs to VM directory")
 		return e.copyRootFS(rootfsPath, vmDir)
 	}); err != nil {
 		createErr = err
 		goto cleanup
 	}
 
-	// Task 3: Patch rootfs with SSH key
+	// Task 3: Resize rootfs to configured disk_gb
+	if err := e.executeTask(ctx, id, "create", "resize_rootfs", func() error {
+		e.logger.Infof("[3/11] Resizing rootfs to %d GB", cfg.Resources.DiskGB)
+		return e.resizeRootFS(vmDir, cfg.Resources.DiskGB, rootfsPath)
+	}); err != nil {
+		createErr = err
+		goto cleanup
+	}
+
+	// Task 4: Patch rootfs with SSH key
 	if err := e.executeTask(ctx, id, "create", "patch_rootfs_ssh", func() error {
-		e.logger.Infof("[3/9] Patching rootfs with SSH public key")
+		e.logger.Infof("[4/11] Patching rootfs with SSH public key")
 		return e.patchRootFSSSH(vmDir)
 	}); err != nil {
 		createErr = err
 		goto cleanup
 	}
 
-	// Task 4: Create TAP device
+	// Task 5: Create TAP device
 	if err := e.executeTask(ctx, id, "create", "create_tap", func() error {
-		e.logger.Infof("[4/9] Creating TAP device: %s", tapDevice)
+		e.logger.Infof("[5/11] Creating TAP device: %s", tapDevice)
 		return e.createTAP(tapDevice, gateway)
 	}); err != nil {
 		createErr = err
 		goto cleanup
 	}
 
-	// Task 5: Setup iptables
+	// Task 6: Setup iptables
 	if err := e.executeTask(ctx, id, "create", "setup_iptables", func() error {
-		e.logger.Infof("[5/9] Setting up iptables NAT rules")
+		e.logger.Infof("[6/11] Setting up iptables NAT rules")
 		return e.setupIPTables(tapDevice, gateway, vmIP)
 	}); err != nil {
 		createErr = err
 		goto cleanup
 	}
 
-	// Task 6: Spawn Firecracker process
+	// Task 7: Spawn Firecracker process
 	if err := e.executeTask(ctx, id, "create", "spawn_firecracker", func() error {
-		e.logger.Infof("[6/9] Spawning Firecracker process")
+		e.logger.Infof("[7/11] Spawning Firecracker process")
 		var err error
 		pid, err = e.spawnFirecracker(vmDir, socketPath)
 		return err
@@ -427,28 +443,37 @@ func (e *Engine) Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sa
 		goto cleanup
 	}
 
-	// Task 7: Configure VM via API
+	// Task 8: Configure VM via API
 	if err := e.executeTask(ctx, id, "create", "configure_vm", func() error {
-		e.logger.Infof("[7/9] Configuring VM via Firecracker API")
+		e.logger.Infof("[8/11] Configuring VM via Firecracker API")
 		return e.configureVM(ctx, socketPath, kernelPath, vmDir, mac, tapDevice, cfg.Resources)
 	}); err != nil {
 		createErr = err
 		goto cleanup
 	}
 
-	// Task 8: Boot VM
+	// Task 9: Boot VM
 	if err := e.executeTask(ctx, id, "create", "boot_vm", func() error {
-		e.logger.Infof("[8/9] Booting VM")
+		e.logger.Infof("[9/11] Booting VM")
 		return e.bootVM(ctx, socketPath)
 	}); err != nil {
 		createErr = err
 		goto cleanup
 	}
 
-	// Task 9: Configure network inside VM via SSH
+	// Task 10: Configure network inside VM via SSH
 	if err := e.executeTask(ctx, id, "create", "configure_network", func() error {
-		e.logger.Infof("[9/9] Configuring network inside VM")
+		e.logger.Infof("[10/11] Configuring network inside VM")
 		return e.configureVMNetwork(ctx, vmIP, gateway)
+	}); err != nil {
+		createErr = err
+		goto cleanup
+	}
+
+	// Task 11: Expand filesystem inside VM to fill resized disk
+	if err := e.executeTask(ctx, id, "create", "expand_filesystem", func() error {
+		e.logger.Infof("[11/11] Expanding filesystem inside VM")
+		return e.expandFilesystem(ctx, vmIP)
 	}); err != nil {
 		createErr = err
 		goto cleanup
