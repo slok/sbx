@@ -288,6 +288,54 @@ func (_c *MockEngine_Exec_Call) RunAndReturn(run func(context.Context, string, [
 	return _c
 }
 
+// Forward provides a mock function with given fields: ctx, id, ports
+func (_m *MockEngine) Forward(ctx context.Context, id string, ports []model.PortMapping) error {
+	ret := _m.Called(ctx, id, ports)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Forward")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, []model.PortMapping) error); ok {
+		r0 = rf(ctx, id, ports)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockEngine_Forward_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Forward'
+type MockEngine_Forward_Call struct {
+	*mock.Call
+}
+
+// Forward is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id string
+//   - ports []model.PortMapping
+func (_e *MockEngine_Expecter) Forward(ctx interface{}, id interface{}, ports interface{}) *MockEngine_Forward_Call {
+	return &MockEngine_Forward_Call{Call: _e.mock.On("Forward", ctx, id, ports)}
+}
+
+func (_c *MockEngine_Forward_Call) Run(run func(ctx context.Context, id string, ports []model.PortMapping)) *MockEngine_Forward_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].([]model.PortMapping))
+	})
+	return _c
+}
+
+func (_c *MockEngine_Forward_Call) Return(_a0 error) *MockEngine_Forward_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockEngine_Forward_Call) RunAndReturn(run func(context.Context, string, []model.PortMapping) error) *MockEngine_Forward_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Remove provides a mock function with given fields: ctx, id
 func (_m *MockEngine) Remove(ctx context.Context, id string) error {
 	ret := _m.Called(ctx, id)

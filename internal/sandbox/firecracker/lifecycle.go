@@ -456,6 +456,54 @@ func (e *Engine) CopyFrom(ctx context.Context, id string, srcRemote string, dstL
 	return nil
 }
 
+// Forward forwards ports from localhost to the sandbox via SSH tunnel.
+// Blocks until context is cancelled or connection drops.
+func (e *Engine) Forward(ctx context.Context, id string, ports []model.PortMapping) error {
+	if len(ports) == 0 {
+		return fmt.Errorf("at least one port mapping is required: %w", model.ErrNotValid)
+	}
+
+	// Get VM IP from deterministic allocation
+	_, _, vmIP, _ := e.allocateNetwork(id)
+	sshKeyPath := e.sshKeyManager.PrivateKeyPath()
+
+	// Build SSH command with -N (no command) and -L flags for port forwarding
+	args := []string{
+		"-N", // No remote command, just forward ports
+		"-i", sshKeyPath,
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
+		"-o", "ConnectTimeout=10",
+		"-o", "ServerAliveInterval=30",
+		"-o", "ServerAliveCountMax=3",
+	}
+
+	// Add -L flag for each port mapping
+	for _, pm := range ports {
+		args = append(args, "-L", fmt.Sprintf("%d:localhost:%d", pm.LocalPort, pm.RemotePort))
+	}
+
+	// Add target
+	args = append(args, fmt.Sprintf("root@%s", vmIP))
+
+	e.logger.Debugf("Starting SSH tunnel: ssh %v", args)
+
+	// Execute SSH tunnel
+	cmd := exec.CommandContext(ctx, "ssh", args...)
+
+	// Run the command (blocks until context cancelled or SSH disconnects)
+	err := cmd.Run()
+	if err != nil {
+		// Context cancellation is expected (user pressed Ctrl+C)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return fmt.Errorf("SSH tunnel failed: %w", err)
+	}
+
+	return nil
+}
+
 // gracefulShutdown attempts to gracefully shutdown the VM via SSH.
 func (e *Engine) gracefulShutdown(ctx context.Context, id string) error {
 	_, _, vmIP, _ := e.allocateNetwork(id)
