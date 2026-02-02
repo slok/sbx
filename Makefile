@@ -5,6 +5,7 @@ help: ## Show this help
 .PHONY: build
 build: ## Build the binary
 	go build -o bin/sbx ./cmd/sbx
+	sudo setcap cap_net_admin+ep ./bin/sbx
 
 .PHONY: test
 test: ## Run unit tests
