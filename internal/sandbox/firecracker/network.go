@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"time"
 
 	"github.com/google/nftables"
 	"github.com/google/nftables/expr"
@@ -420,75 +419,6 @@ func (e *Engine) setupIPTables(tapDevice, gateway, vmIP string) error {
 
 func (e *Engine) cleanupIPTables(tapDevice, gateway, vmIP string) error {
 	return e.cleanupNftables(tapDevice, gateway, vmIP)
-}
-
-// configureVMNetwork configures networking inside the VM via SSH.
-// This sets up the IP address, default route, and ensures DNS is configured.
-func (e *Engine) configureVMNetwork(ctx context.Context, vmIP, gateway string) error {
-	sshKeyPath := e.sshKeyManager.PrivateKeyPath()
-
-	// Wait for SSH to be available
-	if err := e.waitForSSH(ctx, vmIP, sshKeyPath); err != nil {
-		return fmt.Errorf("VM SSH not available: %w", err)
-	}
-
-	// Commands to configure network inside VM
-	commands := []struct {
-		name string
-		args []string
-	}{
-		{
-			name: "configure IP",
-			args: []string{"ip", "addr", "add", vmIP + "/24", "dev", "eth0"},
-		},
-		{
-			name: "bring up interface",
-			args: []string{"ip", "link", "set", "eth0", "up"},
-		},
-		{
-			name: "add default route",
-			args: []string{"ip", "route", "add", "default", "via", gateway},
-		},
-		{
-			// Only add nameserver if resolv.conf doesn't have one configured
-			name: "ensure DNS",
-			args: []string{"sh", "-c", "grep -q '^nameserver' /etc/resolv.conf 2>/dev/null || echo 'nameserver 1.1.1.1' >> /etc/resolv.conf"},
-		},
-	}
-
-	for _, cmd := range commands {
-		if err := e.sshExec(ctx, vmIP, sshKeyPath, cmd.args); err != nil {
-			// IP might already be configured, route might exist - continue on error
-			e.logger.Warningf("SSH command '%s' failed (may be ok): %v", cmd.name, err)
-		}
-	}
-
-	e.logger.Debugf("Configured network inside VM: %s", vmIP)
-	return nil
-}
-
-// waitForSSH waits for SSH to become available on the VM.
-func (e *Engine) waitForSSH(ctx context.Context, vmIP, sshKeyPath string) error {
-	timeout := 60 * time.Second
-	interval := 2 * time.Second
-	deadline := time.Now().Add(timeout)
-
-	for time.Now().Before(deadline) {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
-		// Try to connect with a simple command
-		if err := e.sshExec(ctx, vmIP, sshKeyPath, []string{"true"}); err == nil {
-			return nil
-		}
-
-		time.Sleep(interval)
-	}
-
-	return fmt.Errorf("timeout waiting for SSH on %s", vmIP)
 }
 
 // sshExec executes a command on the VM via SSH.
