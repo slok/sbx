@@ -66,7 +66,6 @@ func (e *Engine) Start(ctx context.Context, id string) error {
 			"spawn_firecracker",
 			"configure_vm",
 			"boot_vm",
-			"configure_network",
 		}
 		if err := e.taskRepo.AddTasks(ctx, id, "start", taskNames); err != nil {
 			return fmt.Errorf("failed to add tasks: %w", err)
@@ -79,7 +78,7 @@ func (e *Engine) Start(ctx context.Context, id string) error {
 	// Task 1: Ensure networking resources exist (TAP + iptables)
 	// If TAP is missing (e.g., after system reboot), recreate it
 	if err := e.executeTask(ctx, id, "start", "ensure_networking", func() error {
-		e.logger.Infof("[1/5] Ensuring network resources exist")
+		e.logger.Infof("[1/4] Ensuring network resources exist")
 		return e.ensureNetworking(tapDevice, gateway, vmIP)
 	}); err != nil {
 		startErr = err
@@ -88,7 +87,7 @@ func (e *Engine) Start(ctx context.Context, id string) error {
 
 	// Task 2: Spawn Firecracker process
 	if err := e.executeTask(ctx, id, "start", "spawn_firecracker", func() error {
-		e.logger.Infof("[2/5] Spawning Firecracker process")
+		e.logger.Infof("[2/4] Spawning Firecracker process")
 		var err error
 		pid, err = e.spawnFirecracker(vmDir, socketPath)
 		return err
@@ -97,10 +96,10 @@ func (e *Engine) Start(ctx context.Context, id string) error {
 		goto cleanup
 	}
 
-	// Task 3: Configure VM via API
+	// Task 3: Configure VM via API (includes network config via kernel ip= parameter)
 	if err := e.executeTask(ctx, id, "start", "configure_vm", func() error {
-		e.logger.Infof("[3/5] Configuring VM via Firecracker API")
-		return e.configureVM(ctx, socketPath, kernelPath, vmDir, mac, tapDevice, sandbox.Config.Resources)
+		e.logger.Infof("[3/4] Configuring VM via Firecracker API")
+		return e.configureVM(ctx, socketPath, kernelPath, vmDir, mac, tapDevice, vmIP, gateway, sandbox.Config.Resources)
 	}); err != nil {
 		startErr = err
 		goto cleanup
@@ -108,18 +107,8 @@ func (e *Engine) Start(ctx context.Context, id string) error {
 
 	// Task 4: Boot VM
 	if err := e.executeTask(ctx, id, "start", "boot_vm", func() error {
-		e.logger.Infof("[4/5] Booting VM")
+		e.logger.Infof("[4/4] Booting VM")
 		return e.bootVM(ctx, socketPath)
-	}); err != nil {
-		startErr = err
-		goto cleanup
-	}
-
-	// Task 5: Configure network inside VM via SSH
-	// This is needed because network config is not persisted to disk
-	if err := e.executeTask(ctx, id, "start", "configure_network", func() error {
-		e.logger.Infof("[5/5] Configuring network inside VM")
-		return e.configureVMNetwork(ctx, vmIP, gateway)
 	}); err != nil {
 		startErr = err
 		goto cleanup

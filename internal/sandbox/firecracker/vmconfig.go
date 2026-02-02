@@ -138,11 +138,15 @@ func (e *Engine) waitForSocket(socketPath string, timeout time.Duration) error {
 }
 
 // configureVM configures the VM via the Firecracker API.
-func (e *Engine) configureVM(ctx context.Context, socketPath, kernelPath, vmDir, mac, tapDevice string, resources model.Resources) error {
+// vmIP and gateway are used to configure networking via kernel boot parameters,
+// which works for any distro (Ubuntu, Alpine, etc.) without post-boot SSH config.
+func (e *Engine) configureVM(ctx context.Context, socketPath, kernelPath, vmDir, mac, tapDevice, vmIP, gateway string, resources model.Resources) error {
 	client := e.newUnixHTTPClient(socketPath)
 
-	// 1. Configure boot source
-	bootArgs := "console=ttyS0 reboot=k panic=1 pci=off"
+	// 1. Configure boot source with network config via kernel ip= parameter
+	// Format: ip=<client-ip>:<server-ip>:<gateway>:<netmask>:<hostname>:<device>:<autoconf>
+	// This configures networking before init runs, works for any distro
+	bootArgs := fmt.Sprintf("console=ttyS0 reboot=k panic=1 pci=off ip=%s::%s:255.255.255.0::eth0:off", vmIP, gateway)
 	bootSource := BootSource{
 		KernelImagePath: kernelPath,
 		BootArgs:        bootArgs,
