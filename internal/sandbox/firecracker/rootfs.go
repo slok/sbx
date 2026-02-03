@@ -186,6 +186,80 @@ set_inode_field /etc/resolv.conf mode 0100644
 	return nil
 }
 
+// sbxInitScript is the init wrapper script injected into the rootfs.
+// It runs before the real init to set up things that the distro's init
+// may not handle in a minimal/microVM environment (e.g., Alpine).
+const sbxInitScript = `#!/bin/sh
+# sbx-init: Pre-init setup for SBX Firecracker VMs.
+# This script runs as PID 1 before handing off to the real init.
+
+# Mount devpts for PTY support (needed for SSH TTY allocation).
+# Without this, interactive shells (sbx shell) fail on minimal distros.
+if ! mountpoint -q /dev/pts 2>/dev/null; then
+    mkdir -p /dev/pts
+    mount -t devpts devpts /dev/pts
+fi
+
+# Hand off to the real init system.
+exec /sbin/init
+`
+
+// patchRootFSInit injects the sbx-init wrapper script into the rootfs.
+// This script runs as PID 1 (via kernel init= parameter) and sets up
+// things like devpts before handing off to the real /sbin/init.
+func (e *Engine) patchRootFSInit(vmDir string) error {
+	rootfsPath := filepath.Join(vmDir, RootFSFile)
+
+	// Verify rootfs exists
+	if _, err := os.Stat(rootfsPath); err != nil {
+		return fmt.Errorf("rootfs not found at %s: %w", rootfsPath, err)
+	}
+
+	// Create a temporary file with the init script
+	tmpFile, err := os.CreateTemp("", "sbx-init")
+	if err != nil {
+		return fmt.Errorf("could not create temp file: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := tmpFile.WriteString(sbxInitScript); err != nil {
+		tmpFile.Close()
+		return fmt.Errorf("could not write to temp file: %w", err)
+	}
+	tmpFile.Close()
+
+	// Check if debugfs is available
+	if _, err := exec.LookPath("debugfs"); err != nil {
+		return fmt.Errorf("debugfs not found (install e2fsprogs): %w", err)
+	}
+
+	// Use debugfs to inject /sbin/sbx-init into the rootfs.
+	// 1. rm existing sbx-init (may not exist, that's ok)
+	// 2. write the init script
+	// 3. set permissions to 755 (regular file + rwxr-xr-x: 0100755)
+	commands := fmt.Sprintf(`rm /sbin/sbx-init
+write %s /sbin/sbx-init
+set_inode_field /sbin/sbx-init mode 0100755
+`, tmpPath)
+
+	cmd := exec.Command("debugfs", "-w", rootfsPath)
+	cmd.Stdin = strings.NewReader(commands)
+	output, err := cmd.CombinedOutput()
+	outStr := string(output)
+
+	e.logger.Debugf("debugfs init output: %s", outStr)
+
+	if err != nil {
+		if strings.Contains(outStr, "write:") && strings.Contains(outStr, "error") {
+			return fmt.Errorf("debugfs write failed: %w, output: %s", err, outStr)
+		}
+	}
+
+	e.logger.Debugf("Patched rootfs with sbx-init script at %s", rootfsPath)
+	return nil
+}
+
 // RootFSPath returns the path to the VM's rootfs.
 func (e *Engine) RootFSPath(vmDir string) string {
 	return filepath.Join(vmDir, RootFSFile)

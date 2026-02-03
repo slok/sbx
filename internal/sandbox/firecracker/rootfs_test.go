@@ -203,6 +203,38 @@ func TestEngine_patchRootFSDNS_missingRootfs(t *testing.T) {
 	assert.Contains(err.Error(), "rootfs not found")
 }
 
+func TestEngine_patchRootFSInit_missingRootfs(t *testing.T) {
+	assert := assert.New(t)
+	require := require.New(t)
+
+	tmpDir, err := os.MkdirTemp("", "sbx-init-test-*")
+	require.NoError(err)
+	defer os.RemoveAll(tmpDir)
+
+	vmDir := filepath.Join(tmpDir, "vm")
+	err = os.MkdirAll(vmDir, 0755)
+	require.NoError(err)
+
+	e := &Engine{
+		logger: log.Noop,
+	}
+
+	// Should fail when rootfs doesn't exist
+	err = e.patchRootFSInit(vmDir)
+	assert.Error(err)
+	assert.Contains(err.Error(), "rootfs not found")
+}
+
+func TestSbxInitScript(t *testing.T) {
+	assert := assert.New(t)
+
+	// Verify the init script has the essential components
+	assert.Contains(sbxInitScript, "#!/bin/sh", "must have shebang")
+	assert.Contains(sbxInitScript, "/dev/pts", "must mount devpts")
+	assert.Contains(sbxInitScript, "mount -t devpts", "must mount devpts filesystem")
+	assert.Contains(sbxInitScript, "exec /sbin/init", "must exec real init")
+}
+
 // Helper functions
 
 // createSparseFile creates a sparse file of the given size.
