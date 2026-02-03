@@ -146,7 +146,7 @@ func (e *Engine) configureVM(ctx context.Context, socketPath, kernelPath, vmDir,
 	// 1. Configure boot source with network config via kernel ip= parameter
 	// Format: ip=<client-ip>:<server-ip>:<gateway>:<netmask>:<hostname>:<device>:<autoconf>
 	// This configures networking before init runs, works for any distro
-	bootArgs := fmt.Sprintf("console=ttyS0 reboot=k panic=1 pci=off ip=%s::%s:255.255.255.0::eth0:off", vmIP, gateway)
+	bootArgs := fmt.Sprintf("console=ttyS0 reboot=k panic=1 pci=off init=/sbin/sbx-init ip=%s::%s:255.255.255.0::eth0:off", vmIP, gateway)
 	bootSource := BootSource{
 		KernelImagePath: kernelPath,
 		BootArgs:        bootArgs,

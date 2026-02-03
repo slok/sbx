@@ -4,5 +4,5 @@ set -o errexit
 set -o nounset
 
 echo "Running unit tests with race detector and coverage..."
-go test -race -coverprofile=.test_coverage.txt $(go list ./... | grep -v /test/integration)
+go test -race -timeout 5m -coverprofile=.test_coverage.txt $(go list ./... | grep -v /test/integration)
 go tool cover -func=.test_coverage.txt | tail -n1 | awk '{print "Total test coverage: " $3}'
