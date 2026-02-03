@@ -128,6 +128,64 @@ set_inode_field /root/.ssh/authorized_keys mode 0100600
 	return nil
 }
 
+// patchRootFSDNS patches the rootfs with DNS configuration.
+// This uses debugfs to write /etc/resolv.conf so DNS works immediately on boot
+// without needing post-boot SSH configuration.
+func (e *Engine) patchRootFSDNS(vmDir string) error {
+	rootfsPath := filepath.Join(vmDir, RootFSFile)
+
+	// Verify rootfs exists
+	if _, err := os.Stat(rootfsPath); err != nil {
+		return fmt.Errorf("rootfs not found at %s: %w", rootfsPath, err)
+	}
+
+	// Create a temporary resolv.conf file
+	tmpFile, err := os.CreateTemp("", "resolv.conf")
+	if err != nil {
+		return fmt.Errorf("could not create temp file: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath)
+
+	// Write DNS configuration
+	resolvConf := "nameserver 1.1.1.1\nnameserver 8.8.8.8\n"
+	if _, err := tmpFile.WriteString(resolvConf); err != nil {
+		tmpFile.Close()
+		return fmt.Errorf("could not write to temp file: %w", err)
+	}
+	tmpFile.Close()
+
+	// Check if debugfs is available
+	if _, err := exec.LookPath("debugfs"); err != nil {
+		return fmt.Errorf("debugfs not found (install e2fsprogs): %w", err)
+	}
+
+	// Use debugfs to overwrite /etc/resolv.conf in the rootfs image.
+	// 1. rm existing resolv.conf (may not exist, that's ok)
+	// 2. write our resolv.conf
+	// 3. set permissions to 644 (regular file: 0100644)
+	commands := fmt.Sprintf(`rm /etc/resolv.conf
+write %s /etc/resolv.conf
+set_inode_field /etc/resolv.conf mode 0100644
+`, tmpPath)
+
+	cmd := exec.Command("debugfs", "-w", rootfsPath)
+	cmd.Stdin = strings.NewReader(commands)
+	output, err := cmd.CombinedOutput()
+	outStr := string(output)
+
+	e.logger.Debugf("debugfs DNS output: %s", outStr)
+
+	if err != nil {
+		if strings.Contains(outStr, "write:") && strings.Contains(outStr, "error") {
+			return fmt.Errorf("debugfs write failed: %w, output: %s", err, outStr)
+		}
+	}
+
+	e.logger.Debugf("Patched rootfs with DNS configuration at %s", rootfsPath)
+	return nil
+}
+
 // RootFSPath returns the path to the VM's rootfs.
 func (e *Engine) RootFSPath(vmDir string) string {
 	return filepath.Join(vmDir, RootFSFile)
