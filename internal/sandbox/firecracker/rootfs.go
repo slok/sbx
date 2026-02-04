@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 const (
@@ -319,28 +320,65 @@ func (e *Engine) resizeRootFS(vmDir string, sizeGB int, baseImagePath string) er
 
 // expandFilesystem expands the ext4 filesystem inside the VM to fill the available space.
 // This must be called after the VM boots and network is configured (SSH access required).
+// Retries with exponential backoff to wait for SSH to be available after boot.
 func (e *Engine) expandFilesystem(ctx context.Context, vmIP string) error {
 	// Get SSH key path
 	keyPath := e.sshKeyManager.PrivateKeyPath()
 
-	// Run resize2fs via SSH
-	// -o StrictHostKeyChecking=no: Don't prompt for host key verification
-	// -o UserKnownHostsFile=/dev/null: Don't save host key
-	// -o ConnectTimeout=10: Timeout for connection
-	cmd := exec.CommandContext(ctx, "ssh",
-		"-i", keyPath,
-		"-o", "StrictHostKeyChecking=no",
-		"-o", "UserKnownHostsFile=/dev/null",
-		"-o", "ConnectTimeout=10",
-		fmt.Sprintf("root@%s", vmIP),
-		"resize2fs", "/dev/vda",
-	)
+	// Retry logic: VM needs time to boot and start SSH service
+	maxRetries := 10
+	baseDelay := 500 * time.Millisecond
 
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("resize2fs failed: %w, output: %s", err, string(output))
+	var lastErr error
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			// Exponential backoff: 500ms, 1s, 2s, 4s, 8s...
+			delay := baseDelay * time.Duration(1<<uint(attempt-1))
+			if delay > 10*time.Second {
+				delay = 10 * time.Second // Cap at 10s
+			}
+			e.logger.Debugf("Waiting %v before retry %d/%d", delay, attempt+1, maxRetries)
+
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(delay):
+			}
+		}
+
+		// Run resize2fs via SSH
+		// -o StrictHostKeyChecking=no: Don't prompt for host key verification
+		// -o UserKnownHostsFile=/dev/null: Don't save host key
+		// -o ConnectTimeout=5: Timeout for connection (shorter for retries)
+		cmd := exec.CommandContext(ctx, "ssh",
+			"-i", keyPath,
+			"-o", "StrictHostKeyChecking=no",
+			"-o", "UserKnownHostsFile=/dev/null",
+			"-o", "ConnectTimeout=5",
+			fmt.Sprintf("root@%s", vmIP),
+			"resize2fs", "/dev/vda",
+		)
+
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			outputStr := string(output)
+			// Check if it's a connection error (SSH not ready yet)
+			if strings.Contains(outputStr, "Connection refused") ||
+				strings.Contains(outputStr, "Connection timed out") ||
+				strings.Contains(outputStr, "No route to host") {
+				lastErr = fmt.Errorf("SSH not ready: %w", err)
+				e.logger.Debugf("SSH connection failed (attempt %d/%d): %v", attempt+1, maxRetries, err)
+				continue
+			}
+			// Other errors are not retryable
+			return fmt.Errorf("resize2fs failed: %w, output: %s", err, outputStr)
+		}
+
+		// Success!
+		e.logger.Debugf("Expanded filesystem inside VM: %s", strings.TrimSpace(string(output)))
+		return nil
 	}
 
-	e.logger.Debugf("Expanded filesystem inside VM: %s", strings.TrimSpace(string(output)))
-	return nil
+	// All retries exhausted
+	return fmt.Errorf("failed to expand filesystem after %d attempts: %w", maxRetries, lastErr)
 }
