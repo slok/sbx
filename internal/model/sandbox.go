@@ -69,7 +69,7 @@ type FirecrackerEngineConfig struct {
 
 // Resources defines the compute resources for a sandbox.
 type Resources struct {
-	VCPUs    int
+	VCPUs    float64 // Number of VCPUs (can be fractional for Docker, whole numbers for Firecracker)
 	MemoryMB int
 	DiskGB   int
 }

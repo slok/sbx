@@ -169,8 +169,13 @@ func (e *Engine) configureVM(ctx context.Context, socketPath, kernelPath, vmDir,
 	}
 
 	// 3. Configure machine
+	// Note: Firecracker only supports whole VCPUs, so we round to nearest integer
+	vcpuCount := int(resources.VCPUs + 0.5) // Round to nearest
+	if vcpuCount < 1 {
+		vcpuCount = 1 // Minimum 1 vCPU
+	}
 	machineConfig := MachineConfig{
-		VCPUCount:  resources.VCPUs,
+		VCPUCount:  vcpuCount,
 		MemSizeMib: resources.MemoryMB,
 	}
 	if err := e.apiPUT(ctx, client, "/machine-config", machineConfig); err != nil {

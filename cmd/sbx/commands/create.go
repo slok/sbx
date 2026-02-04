@@ -24,7 +24,7 @@ type CreateCommand struct {
 	engine string
 
 	// Resource flags.
-	cpu  int
+	cpu  float64
 	mem  int
 	disk int
 
@@ -47,7 +47,7 @@ func NewCreateCommand(rootCmd *RootCommand, app *kingpin.Application) *CreateCom
 	c.Cmd.Flag("engine", "Engine type (docker, firecracker, fake).").Required().EnumVar(&c.engine, "docker", "firecracker", "fake")
 
 	// Resource flags.
-	c.Cmd.Flag("cpu", "Number of VCPUs.").Default("2").IntVar(&c.cpu)
+	c.Cmd.Flag("cpu", "Number of VCPUs (can be fractional, e.g., 0.5, 1.5).").Default("2").Float64Var(&c.cpu)
 	c.Cmd.Flag("mem", "Memory in MB.").Default("2048").IntVar(&c.mem)
 	c.Cmd.Flag("disk", "Disk in GB.").Default("10").IntVar(&c.disk)
 

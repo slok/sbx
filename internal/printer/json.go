@@ -32,7 +32,7 @@ type statusOutput struct {
 	Name      string        `json:"name"`
 	Status    string        `json:"status"`
 	Engine    *engineOutput `json:"engine,omitempty"`
-	VCPUs     int           `json:"vcpus"`
+	VCPUs     float64       `json:"vcpus"`
 	MemoryMB  int           `json:"memory_mb"`
 	DiskGB    int           `json:"disk_gb"`
 	CreatedAt time.Time     `json:"created_at"`
