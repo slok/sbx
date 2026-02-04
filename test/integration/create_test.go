@@ -46,7 +46,7 @@ func TestCreateCommand(t *testing.T) {
 			},
 		},
 		"Custom resource flags work": {
-			args: []string{"--name", "custom-name", "--engine", "docker", "--docker-image", "ubuntu:22.04", "--cpu", "4", "--mem", "4096", "--disk", "20"},
+			args: []string{"--name", "custom-name", "--engine", "docker", "--docker-image", "ubuntu:22.04", "--cpu", "1", "--mem", "1024", "--disk", "20"},
 			expStdout: []string{
 				"Sandbox created successfully!",
 				"Name:   custom-name",
