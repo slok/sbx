@@ -133,11 +133,14 @@ func TestCopyCommand(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			tmpDir := t.TempDir()
 			dbPath := filepath.Join(tmpDir, "test.db")
-			configPath := filepath.Join("..", "..", "testdata", "sandbox.yaml")
 
-			// Create a sandbox first.
-			createCmd := exec.Command("./sbx-test", "create", "-f", configPath, "--db-path", dbPath, "--no-log", "--name", "copy-test-sandbox")
+			// Create and start a sandbox first (copy requires running sandbox).
+			createCmd := exec.Command("./sbx-test", "create", "--name", "copy-test-sandbox", "--engine", "docker", "--docker-image", "ubuntu:22.04", "--db-path", dbPath, "--no-log")
 			err := createCmd.Run()
+			require.NoError(t, err)
+
+			startCmd := exec.Command("./sbx-test", "start", "copy-test-sandbox", "--db-path", dbPath, "--no-log")
+			err = startCmd.Run()
 			require.NoError(t, err)
 
 			// Get container name for cleanup.
@@ -194,11 +197,14 @@ func TestCopyOnStoppedSandbox(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
-	configPath := filepath.Join("..", "..", "testdata", "sandbox.yaml")
 
-	// Create and stop a sandbox.
-	createCmd := exec.Command("./sbx-test", "create", "-f", configPath, "--db-path", dbPath, "--no-log", "--name", "stopped-sandbox")
+	// Create, start, then stop a sandbox.
+	createCmd := exec.Command("./sbx-test", "create", "--name", "stopped-sandbox", "--engine", "docker", "--docker-image", "ubuntu:22.04", "--db-path", dbPath, "--no-log")
 	err := createCmd.Run()
+	require.NoError(t, err)
+
+	startCmd := exec.Command("./sbx-test", "start", "stopped-sandbox", "--db-path", dbPath, "--no-log")
+	err = startCmd.Run()
 	require.NoError(t, err)
 
 	// Get container name for cleanup.

@@ -3,11 +3,15 @@ package commands
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/alecthomas/kingpin/v2"
 
 	"github.com/slok/sbx/internal/app/start"
+	"github.com/slok/sbx/internal/model"
 	"github.com/slok/sbx/internal/printer"
+	"github.com/slok/sbx/internal/storage/io"
 	"github.com/slok/sbx/internal/storage/sqlite"
 )
 
@@ -15,15 +19,17 @@ type StartCommand struct {
 	Cmd     *kingpin.CmdClause
 	rootCmd *RootCommand
 
-	nameOrID string
+	nameOrID   string
+	configFile string
 }
 
 // NewStartCommand returns the start command.
 func NewStartCommand(rootCmd *RootCommand, app *kingpin.Application) *StartCommand {
 	c := &StartCommand{rootCmd: rootCmd}
 
-	c.Cmd = app.Command("start", "Start a stopped sandbox.")
+	c.Cmd = app.Command("start", "Start a created or stopped sandbox.")
 	c.Cmd.Arg("name-or-id", "Sandbox name or ID.").Required().StringVar(&c.nameOrID)
+	c.Cmd.Flag("file", "Path to a session configuration YAML file.").Short('f').StringVar(&c.configFile)
 
 	return c
 }
@@ -32,6 +38,26 @@ func (c StartCommand) Name() string { return c.Cmd.FullCommand() }
 
 func (c StartCommand) Run(ctx context.Context) error {
 	logger := c.rootCmd.Logger
+
+	// Load session config from YAML if provided.
+	var sessionCfg model.SessionConfig
+	if c.configFile != "" {
+		configPath := c.configFile
+		if !filepath.IsAbs(configPath) {
+			absPath, err := filepath.Abs(configPath)
+			if err != nil {
+				return fmt.Errorf("could not resolve session config path: %w", err)
+			}
+			configPath = absPath
+		}
+
+		configRepo := io.NewSessionYAMLRepository(os.DirFS("/"))
+		var err error
+		sessionCfg, err = configRepo.GetSessionConfig(ctx, configPath[1:])
+		if err != nil {
+			return fmt.Errorf("could not load session config: %w", err)
+		}
+	}
 
 	// Initialize storage (SQLite).
 	repo, err := sqlite.NewRepository(ctx, sqlite.RepositoryConfig{
@@ -79,7 +105,8 @@ func (c StartCommand) Run(ctx context.Context) error {
 
 	// Execute start.
 	sandbox, err = svc.Run(ctx, start.Request{
-		NameOrID: c.nameOrID,
+		NameOrID:      c.nameOrID,
+		SessionConfig: sessionCfg,
 	})
 	if err != nil {
 		return fmt.Errorf("could not start sandbox: %w", err)

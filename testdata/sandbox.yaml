@@ -1,15 +1,3 @@
-name: example-sandbox
-engine:
-  docker:
-    image: ubuntu:22.04
-packages:
-  - curl
-  - git
-  - vim
-env:
-  ENVIRONMENT: development
-  LOG_LEVEL: debug
-resources:
-  vcpus: 2
-  memory_mb: 2048
-  disk_gb: 10
+# Example session configuration for `sbx start -f`.
+# This is a placeholder for future session provisioners (env vars, file copies, etc.).
+name: dev-session

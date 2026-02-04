@@ -18,7 +18,7 @@ func TestEngineCreateStartStopRemove(t *testing.T) {
 		actions func(ctx context.Context, t *testing.T, eng *fake.Engine) error
 		expErr  bool
 	}{
-		"Creating a sandbox should work": {
+		"Creating a sandbox should return created status": {
 			actions: func(ctx context.Context, t *testing.T, eng *fake.Engine) error {
 				cfg := model.SandboxConfig{
 					Name:         "test",
@@ -34,15 +34,15 @@ func TestEngineCreateStartStopRemove(t *testing.T) {
 				require.NoError(t, err)
 				assert.NotEmpty(t, sandbox.ID)
 				assert.Equal(t, "test", sandbox.Name)
-				assert.Equal(t, model.SandboxStatusRunning, sandbox.Status)
-				assert.NotNil(t, sandbox.StartedAt)
+				assert.Equal(t, model.SandboxStatusCreated, sandbox.Status)
+				assert.Nil(t, sandbox.StartedAt)
 				assert.Nil(t, sandbox.StoppedAt)
 
 				return nil
 			},
 		},
 
-		"Getting status of created sandbox should work": {
+		"Getting status of created sandbox should show created": {
 			actions: func(ctx context.Context, t *testing.T, eng *fake.Engine) error {
 				cfg := model.SandboxConfig{
 					Name:         "test",
@@ -56,7 +56,7 @@ func TestEngineCreateStartStopRemove(t *testing.T) {
 				status, err := eng.Status(ctx, created.ID)
 				require.NoError(t, err)
 				assert.Equal(t, created.ID, status.ID)
-				assert.Equal(t, model.SandboxStatusRunning, status.Status)
+				assert.Equal(t, model.SandboxStatusCreated, status.Status)
 
 				return nil
 			},
@@ -70,7 +70,7 @@ func TestEngineCreateStartStopRemove(t *testing.T) {
 			expErr: true,
 		},
 
-		"Full lifecycle (create, stop, start, remove) should work": {
+		"Full lifecycle (create, start, stop, start, remove) should work": {
 			actions: func(ctx context.Context, t *testing.T, eng *fake.Engine) error {
 				cfg := model.SandboxConfig{
 					Name:         "test",
@@ -81,18 +81,26 @@ func TestEngineCreateStartStopRemove(t *testing.T) {
 				// Create
 				created, err := eng.Create(ctx, cfg)
 				require.NoError(t, err)
-				assert.Equal(t, model.SandboxStatusRunning, created.Status)
+				assert.Equal(t, model.SandboxStatusCreated, created.Status)
+
+				// Start (first time)
+				err = eng.Start(ctx, created.ID)
+				require.NoError(t, err)
+
+				status, err := eng.Status(ctx, created.ID)
+				require.NoError(t, err)
+				assert.Equal(t, model.SandboxStatusRunning, status.Status)
 
 				// Stop
 				err = eng.Stop(ctx, created.ID)
 				require.NoError(t, err)
 
-				status, err := eng.Status(ctx, created.ID)
+				status, err = eng.Status(ctx, created.ID)
 				require.NoError(t, err)
 				assert.Equal(t, model.SandboxStatusStopped, status.Status)
 				assert.NotNil(t, status.StoppedAt)
 
-				// Start
+				// Start again
 				err = eng.Start(ctx, created.ID)
 				require.NoError(t, err)
 
@@ -124,7 +132,11 @@ func TestEngineCreateStartStopRemove(t *testing.T) {
 				created, err := eng.Create(ctx, cfg)
 				require.NoError(t, err)
 
-				// Start again
+				// Start
+				err = eng.Start(ctx, created.ID)
+				require.NoError(t, err)
+
+				// Start again (idempotent)
 				err = eng.Start(ctx, created.ID)
 				require.NoError(t, err)
 
@@ -145,6 +157,10 @@ func TestEngineCreateStartStopRemove(t *testing.T) {
 				}
 
 				created, err := eng.Create(ctx, cfg)
+				require.NoError(t, err)
+
+				// Start then stop
+				err = eng.Start(ctx, created.ID)
 				require.NoError(t, err)
 
 				err = eng.Stop(ctx, created.ID)
@@ -217,6 +233,8 @@ func TestEngineCopyToFrom(t *testing.T) {
 
 				created, err := eng.Create(ctx, cfg)
 				require.NoError(t, err)
+				err = eng.Start(ctx, created.ID)
+				require.NoError(t, err)
 
 				return eng.CopyTo(ctx, created.ID, "/local/file.txt", "/remote/file.txt")
 			},
@@ -233,6 +251,8 @@ func TestEngineCopyToFrom(t *testing.T) {
 
 				created, err := eng.Create(ctx, cfg)
 				require.NoError(t, err)
+				err = eng.Start(ctx, created.ID)
+				require.NoError(t, err)
 
 				return eng.CopyFrom(ctx, created.ID, "/remote/file.txt", "/local/file.txt")
 			},
@@ -248,6 +268,8 @@ func TestEngineCopyToFrom(t *testing.T) {
 				}
 
 				created, err := eng.Create(ctx, cfg)
+				require.NoError(t, err)
+				err = eng.Start(ctx, created.ID)
 				require.NoError(t, err)
 
 				err = eng.Stop(ctx, created.ID)
@@ -267,6 +289,8 @@ func TestEngineCopyToFrom(t *testing.T) {
 				}
 
 				created, err := eng.Create(ctx, cfg)
+				require.NoError(t, err)
+				err = eng.Start(ctx, created.ID)
 				require.NoError(t, err)
 
 				err = eng.Stop(ctx, created.ID)

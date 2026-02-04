@@ -291,6 +291,21 @@ func TestStartStopCommands(t *testing.T) {
 				assert.Equal(t, model.SandboxStatusRunning, sandbox.Status)
 			},
 		},
+		"Start created sandbox succeeds": {
+			setupSandbox: func(t *testing.T, dbPath string) string {
+				// Only create, don't start - sandbox should be in "created" status.
+				createSandboxOnly(t, dbPath, "created-test")
+				return "created-test"
+			},
+			command: "start",
+			expStdout: []string{
+				"Started sandbox: created-test",
+			},
+			validateDB: func(t *testing.T, dbPath, sandboxName string) {
+				sandbox := getSandboxByName(t, dbPath, sandboxName)
+				assert.Equal(t, model.SandboxStatusRunning, sandbox.Status)
+			},
+		},
 		"Stop already stopped sandbox fails": {
 			setupSandbox: func(t *testing.T, dbPath string) string {
 				createAndStopSandbox(t, dbPath, "already-stopped")
@@ -461,15 +476,15 @@ func TestCompleteLifecycle(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
-	configPath := filepath.Join("..", "..", "testdata", "sandbox.yaml")
 
-	// Create
-	cmd := exec.Command("./sbx-test", "create", "-f", configPath, "--db-path", dbPath, "--no-log", "--name", "lifecycle-test")
+	// Create (sandbox is in "created" status, container exists but not running).
+	cmd := exec.Command("./sbx-test", "create", "--name", "lifecycle-test", "--engine", "docker", "--docker-image", "ubuntu:22.04", "--db-path", dbPath, "--no-log")
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	err = cmd.Run()
 	require.NoError(t, err)
 	assert.Contains(t, stdout.String(), "lifecycle-test")
+	assert.Contains(t, stdout.String(), "Status: created")
 
 	// Get sandbox ID for Docker verification
 	repo := getRepository(t, dbPath)
@@ -477,23 +492,34 @@ func TestCompleteLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	containerName := getContainerName(sandbox.ID)
 
-	// Verify Docker container exists and is running
+	// Verify Docker container exists but is NOT running yet (create only provisions).
 	docker.requireContainerExists(t, containerName)
-	docker.requireContainerRunning(t, containerName)
+	docker.requireContainerStopped(t, containerName)
 
 	// Register cleanup
 	t.Cleanup(func() {
 		docker.cleanupContainer(t, containerName)
 	})
 
-	// List - should show as running
+	// List - should show as created
 	cmd = exec.Command("./sbx-test", "list", "--db-path", dbPath, "--no-log")
 	stdout.Reset()
 	cmd.Stdout = &stdout
 	err = cmd.Run()
 	require.NoError(t, err)
 	assert.Contains(t, stdout.String(), "lifecycle-test")
-	assert.Contains(t, stdout.String(), "running")
+	assert.Contains(t, stdout.String(), "created")
+
+	// Start (transitions from created -> running).
+	cmd = exec.Command("./sbx-test", "start", "lifecycle-test", "--db-path", dbPath, "--no-log")
+	stdout.Reset()
+	cmd.Stdout = &stdout
+	err = cmd.Run()
+	require.NoError(t, err)
+	assert.Contains(t, stdout.String(), "Started sandbox: lifecycle-test")
+
+	// Verify Docker container is running
+	docker.requireContainerRunning(t, containerName)
 
 	// Status
 	cmd = exec.Command("./sbx-test", "status", "lifecycle-test", "--db-path", dbPath, "--no-log")
@@ -527,7 +553,7 @@ func TestCompleteLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, stdout.String(), "lifecycle-test")
 
-	// Start
+	// Start (from stopped)
 	cmd = exec.Command("./sbx-test", "start", "lifecycle-test", "--db-path", dbPath, "--no-log")
 	stdout.Reset()
 	cmd.Stdout = &stdout
@@ -563,15 +589,50 @@ func TestCompleteLifecycle(t *testing.T) {
 
 // Helper functions.
 
-func createSandbox(t *testing.T, dbPath, name string) string {
+// createSandboxOnly creates a sandbox without starting it (remains in "created" status).
+func createSandboxOnly(t *testing.T, dbPath, name string) string {
 	docker := newDockerHelper(t)
 
-	configPath := filepath.Join("..", "..", "testdata", "sandbox.yaml")
-	cmd := exec.Command("./sbx-test", "create", "-f", configPath, "--db-path", dbPath, "--no-log", "--name", name)
+	cmd := exec.Command("./sbx-test", "create", "--name", name, "--engine", "docker", "--docker-image", "ubuntu:22.04", "--db-path", dbPath, "--no-log")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	require.NoError(t, err, "Failed to create sandbox: %s", stderr.String())
+
+	// Get the sandbox to return its ID
+	repo := getRepository(t, dbPath)
+	sandbox, err := repo.GetSandboxByName(context.Background(), name)
+	require.NoError(t, err)
+
+	// Verify Docker container was created (but not running).
+	containerName := getContainerName(sandbox.ID)
+	docker.requireContainerExists(t, containerName)
+
+	// Register cleanup to remove container when test finishes
+	t.Cleanup(func() {
+		docker.cleanupContainer(t, containerName)
+	})
+
+	return sandbox.ID
+}
+
+// createSandbox creates and starts a sandbox (ends in "running" status).
+func createSandbox(t *testing.T, dbPath, name string) string {
+	docker := newDockerHelper(t)
+
+	// Create.
+	cmd := exec.Command("./sbx-test", "create", "--name", name, "--engine", "docker", "--docker-image", "ubuntu:22.04", "--db-path", dbPath, "--no-log")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	require.NoError(t, err, "Failed to create sandbox: %s", stderr.String())
+
+	// Start.
+	cmd = exec.Command("./sbx-test", "start", name, "--db-path", dbPath, "--no-log")
+	stderr.Reset()
+	cmd.Stderr = &stderr
+	err = cmd.Run()
+	require.NoError(t, err, "Failed to start sandbox: %s", stderr.String())
 
 	// Get the sandbox to return its ID
 	repo := getRepository(t, dbPath)

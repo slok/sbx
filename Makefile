@@ -40,5 +40,5 @@ check: ## Run linters
 	go fmt ./...
 
 .PHONY: run
-run: ## Run with example config (go run)
-	go run ./cmd/sbx create -f testdata/sandbox.yaml
+run: ## Run with example flags (go run)
+	go run ./cmd/sbx create --name example-sandbox --engine docker --docker-image ubuntu:22.04 --cpu 2 --mem 2048 --disk 10

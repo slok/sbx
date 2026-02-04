@@ -3,17 +3,15 @@ package commands
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/alecthomas/kingpin/v2"
 
 	"github.com/slok/sbx/internal/app/create"
+	"github.com/slok/sbx/internal/model"
 	"github.com/slok/sbx/internal/sandbox"
 	"github.com/slok/sbx/internal/sandbox/docker"
 	"github.com/slok/sbx/internal/sandbox/fake"
 	"github.com/slok/sbx/internal/sandbox/firecracker"
-	"github.com/slok/sbx/internal/storage/io"
 	"github.com/slok/sbx/internal/storage/sqlite"
 )
 
@@ -21,8 +19,21 @@ type CreateCommand struct {
 	Cmd     *kingpin.CmdClause
 	rootCmd *RootCommand
 
-	configFile   string
-	nameOverride string
+	// Required flags.
+	name   string
+	engine string
+
+	// Resource flags.
+	cpu  int
+	mem  int
+	disk int
+
+	// Docker-specific flags.
+	dockerImage string
+
+	// Firecracker-specific flags.
+	firecrackerRootFS string
+	firecrackerKernel string
 }
 
 // NewCreateCommand returns the create command.
@@ -30,8 +41,22 @@ func NewCreateCommand(rootCmd *RootCommand, app *kingpin.Application) *CreateCom
 	c := &CreateCommand{rootCmd: rootCmd}
 
 	c.Cmd = app.Command("create", "Create a new sandbox.")
-	c.Cmd.Flag("file", "Path to the sandbox configuration YAML file.").Short('f').Required().StringVar(&c.configFile)
-	c.Cmd.Flag("name", "Override the sandbox name from the config file.").Short('n').StringVar(&c.nameOverride)
+
+	// Required flags.
+	c.Cmd.Flag("name", "Name for the sandbox.").Short('n').Required().StringVar(&c.name)
+	c.Cmd.Flag("engine", "Engine type (docker, firecracker, fake).").Required().EnumVar(&c.engine, "docker", "firecracker", "fake")
+
+	// Resource flags.
+	c.Cmd.Flag("cpu", "Number of VCPUs.").Default("2").IntVar(&c.cpu)
+	c.Cmd.Flag("mem", "Memory in MB.").Default("2048").IntVar(&c.mem)
+	c.Cmd.Flag("disk", "Disk in GB.").Default("10").IntVar(&c.disk)
+
+	// Docker-specific flags.
+	c.Cmd.Flag("docker-image", "Docker image to use (required for docker engine).").StringVar(&c.dockerImage)
+
+	// Firecracker-specific flags.
+	c.Cmd.Flag("firecracker-root-fs", "Path to rootfs image (required for firecracker engine).").StringVar(&c.firecrackerRootFS)
+	c.Cmd.Flag("firecracker-kernel", "Path to kernel image (required for firecracker engine).").StringVar(&c.firecrackerKernel)
 
 	return c
 }
@@ -41,28 +66,41 @@ func (c CreateCommand) Name() string { return c.Cmd.FullCommand() }
 func (c CreateCommand) Run(ctx context.Context) error {
 	logger := c.rootCmd.Logger
 
-	// Convert config file path to absolute path.
-	configPath := c.configFile
-	if !filepath.IsAbs(configPath) {
-		absPath, err := filepath.Abs(configPath)
-		if err != nil {
-			return fmt.Errorf("could not resolve config path: %w", err)
+	// Build SandboxConfig from CLI flags.
+	cfg := model.SandboxConfig{
+		Name: c.name,
+		Resources: model.Resources{
+			VCPUs:    c.cpu,
+			MemoryMB: c.mem,
+			DiskGB:   c.disk,
+		},
+	}
+
+	switch c.engine {
+	case "docker":
+		if c.dockerImage == "" {
+			return fmt.Errorf("--docker-image is required when using docker engine")
 		}
-		configPath = absPath
-	}
-
-	// Load configuration from YAML file using ConfigYAMLRepository.
-	// We use absolute paths so DirFS("/") works correctly.
-	configRepo := io.NewConfigYAMLRepository(os.DirFS("/"))
-	// Remove leading "/" for fs.FS which expects relative paths.
-	cfg, err := configRepo.GetConfig(ctx, configPath[1:])
-	if err != nil {
-		return fmt.Errorf("could not load config: %w", err)
-	}
-
-	// Apply name override if provided.
-	if c.nameOverride != "" {
-		cfg.Name = c.nameOverride
+		cfg.DockerEngine = &model.DockerEngineConfig{
+			Image: c.dockerImage,
+		}
+	case "firecracker":
+		if c.firecrackerRootFS == "" {
+			return fmt.Errorf("--firecracker-root-fs is required when using firecracker engine")
+		}
+		if c.firecrackerKernel == "" {
+			return fmt.Errorf("--firecracker-kernel is required when using firecracker engine")
+		}
+		cfg.FirecrackerEngine = &model.FirecrackerEngineConfig{
+			RootFS:      c.firecrackerRootFS,
+			KernelImage: c.firecrackerKernel,
+		}
+	case "fake":
+		// Fake engine needs at least one engine config to pass validation.
+		// Use Docker as a placeholder.
+		cfg.DockerEngine = &model.DockerEngineConfig{
+			Image: "fake:latest",
+		}
 	}
 
 	// Initialize storage (SQLite).
@@ -85,18 +123,19 @@ func (c CreateCommand) Run(ctx context.Context) error {
 
 	// Initialize engine based on config.
 	var eng sandbox.Engine
-	if cfg.DockerEngine != nil {
+	switch c.engine {
+	case "docker":
 		eng, err = docker.NewEngine(docker.EngineConfig{
 			TaskRepo: taskRepo,
 			Logger:   logger,
 		})
-	} else if cfg.FirecrackerEngine != nil {
+	case "firecracker":
 		eng, err = firecracker.NewEngine(firecracker.EngineConfig{
-			TaskRepo: taskRepo,
-			Logger:   logger,
+			Repository: repo,
+			TaskRepo:   taskRepo,
+			Logger:     logger,
 		})
-	} else {
-		// Fallback to fake engine for testing
+	case "fake":
 		eng, err = fake.NewEngine(fake.EngineConfig{
 			TaskRepo: taskRepo,
 			Logger:   logger,
@@ -117,7 +156,7 @@ func (c CreateCommand) Run(ctx context.Context) error {
 	}
 
 	// Execute create.
-	sandbox, err := svc.Create(ctx, create.CreateOptions{
+	sb, err := svc.Create(ctx, create.CreateOptions{
 		Config: cfg,
 	})
 	if err != nil {
@@ -126,13 +165,13 @@ func (c CreateCommand) Run(ctx context.Context) error {
 
 	// Output success message.
 	fmt.Fprintf(c.rootCmd.Stdout, "Sandbox created successfully!\n")
-	fmt.Fprintf(c.rootCmd.Stdout, "  ID:     %s\n", sandbox.ID)
-	fmt.Fprintf(c.rootCmd.Stdout, "  Name:   %s\n", sandbox.Name)
-	fmt.Fprintf(c.rootCmd.Stdout, "  Status: %s\n", sandbox.Status)
-	if sandbox.Config.DockerEngine != nil {
+	fmt.Fprintf(c.rootCmd.Stdout, "  ID:     %s\n", sb.ID)
+	fmt.Fprintf(c.rootCmd.Stdout, "  Name:   %s\n", sb.Name)
+	fmt.Fprintf(c.rootCmd.Stdout, "  Status: %s\n", sb.Status)
+	if sb.Config.DockerEngine != nil {
 		fmt.Fprintf(c.rootCmd.Stdout, "  Engine: docker\n")
-		fmt.Fprintf(c.rootCmd.Stdout, "  Image:  %s\n", sandbox.Config.DockerEngine.Image)
-	} else if sandbox.Config.FirecrackerEngine != nil {
+		fmt.Fprintf(c.rootCmd.Stdout, "  Image:  %s\n", sb.Config.DockerEngine.Image)
+	} else if sb.Config.FirecrackerEngine != nil {
 		fmt.Fprintf(c.rootCmd.Stdout, "  Engine: firecracker\n")
 	}
 

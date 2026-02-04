@@ -103,6 +103,24 @@ func TestService_Run(t *testing.T) {
 			req:        start.Request{NameOrID: "my-sandbox"},
 			expErr:     true,
 		},
+		"start created sandbox": {
+			mockRepo: func(m *storagemock.MockRepository) {
+				m.On("GetSandboxByName", mock.Anything, "my-sandbox").Once().Return(&model.Sandbox{
+					ID:        "01H2QWERTYASDFGZXCVBNMLKJH",
+					Name:      "my-sandbox",
+					Status:    model.SandboxStatusCreated,
+					CreatedAt: createdAt,
+				}, nil)
+				m.On("UpdateSandbox", mock.Anything, mock.MatchedBy(func(s model.Sandbox) bool {
+					return s.Status == model.SandboxStatusRunning && s.StartedAt != nil
+				})).Once().Return(nil)
+			},
+			mockEngine: func(m *sandboxmock.MockEngine) {
+				m.On("Start", mock.Anything, "01H2QWERTYASDFGZXCVBNMLKJH").Once().Return(nil)
+			},
+			req:    start.Request{NameOrID: "my-sandbox"},
+			expErr: false,
+		},
 		"cannot start pending sandbox": {
 			mockRepo: func(m *storagemock.MockRepository) {
 				m.On("GetSandboxByName", mock.Anything, "my-sandbox").Once().Return(&model.Sandbox{

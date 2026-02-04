@@ -225,18 +225,17 @@ func TestSandboxConfigValidate(t *testing.T) {
 			expErr: true,
 		},
 
-		"Config with optional fields should not fail": {
+		"Firecracker config with all resources should not fail": {
 			config: model.SandboxConfig{
 				Name: "test",
-				DockerEngine: &model.DockerEngineConfig{
-					Image: "ubuntu:22.04",
+				FirecrackerEngine: &model.FirecrackerEngineConfig{
+					RootFS:      "/path/to/rootfs.ext4",
+					KernelImage: "/path/to/vmlinux",
 				},
-				Packages: []string{"git", "curl"},
-				Env:      map[string]string{"EDITOR": "vim"},
 				Resources: model.Resources{
-					VCPUs:    2,
-					MemoryMB: 2048,
-					DiskGB:   10,
+					VCPUs:    4,
+					MemoryMB: 4096,
+					DiskGB:   20,
 				},
 			},
 			expErr: false,

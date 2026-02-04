@@ -93,11 +93,11 @@ func TestServiceCreate(t *testing.T) {
 				repo.On("GetSandboxByName", mock.Anything, "test-sandbox").
 					Return((*model.Sandbox)(nil), model.ErrNotFound)
 
-				// Engine creates sandbox
+				// Engine creates sandbox in "created" status
 				expSandbox := &model.Sandbox{
 					ID:     "01HRW9YZTEST000000000000",
 					Name:   "test-sandbox",
-					Status: model.SandboxStatusRunning,
+					Status: model.SandboxStatusCreated,
 					Config: model.SandboxConfig{
 						Name:         "test-sandbox",
 						DockerEngine: &model.DockerEngineConfig{Image: "ubuntu:22.04"},
@@ -120,7 +120,7 @@ func TestServiceCreate(t *testing.T) {
 			validateRes: func(t *testing.T, sb *model.Sandbox) {
 				assert.NotNil(t, sb)
 				assert.Equal(t, "test-sandbox", sb.Name)
-				assert.Equal(t, model.SandboxStatusRunning, sb.Status)
+				assert.Equal(t, model.SandboxStatusCreated, sb.Status)
 			},
 		},
 		"Name conflict returns error": {
