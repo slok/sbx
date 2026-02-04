@@ -7,6 +7,17 @@ packages:
       outpkg: "sandboxmock"
     interfaces:
       Engine:
+  github.com/slok/sbx/internal/provision:
+    config:
+      dir: "{{.InterfaceDir}}/provisionmock"
+      outpkg: "provisionmock"
+    interfaces:
+      Provisioner:
+        config:
+          filename: "mock_provisioner.go"
+      SandboxAccessor:
+        config:
+          filename: "mock_sandbox_accessor.go"
   github.com/slok/sbx/internal/storage:
     config:
       dir: "{{.InterfaceDir}}/storagemock"
