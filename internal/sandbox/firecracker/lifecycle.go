@@ -61,6 +61,11 @@ func (e *Engine) Start(ctx context.Context, id string) error {
 
 	// Setup tasks if task repository is available
 	if e.taskRepo != nil {
+		// Clear any previous incomplete start tasks (from failed attempts)
+		if err := e.taskRepo.ClearOperation(ctx, id, "start"); err != nil {
+			return fmt.Errorf("failed to clear previous start tasks: %w", err)
+		}
+
 		taskNames := []string{
 			"ensure_networking",
 			"spawn_firecracker",
@@ -179,6 +184,11 @@ func (e *Engine) Stop(ctx context.Context, id string) error {
 
 	// Setup tasks if task repository is available
 	if e.taskRepo != nil {
+		// Clear any previous incomplete stop tasks
+		if err := e.taskRepo.ClearOperation(ctx, id, "stop"); err != nil {
+			return fmt.Errorf("failed to clear previous stop tasks: %w", err)
+		}
+
 		taskNames := []string{"shutdown_vm", "kill_process"}
 		if err := e.taskRepo.AddTasks(ctx, id, "stop", taskNames); err != nil {
 			return fmt.Errorf("failed to add tasks: %w", err)
@@ -216,6 +226,11 @@ func (e *Engine) Remove(ctx context.Context, id string) error {
 
 	// Setup tasks if task repository is available
 	if e.taskRepo != nil {
+		// Clear any previous incomplete remove tasks
+		if err := e.taskRepo.ClearOperation(ctx, id, "remove"); err != nil {
+			return fmt.Errorf("failed to clear previous remove tasks: %w", err)
+		}
+
 		taskNames := []string{"kill_process", "cleanup_iptables", "delete_tap", "delete_files"}
 		if err := e.taskRepo.AddTasks(ctx, id, "remove", taskNames); err != nil {
 			return fmt.Errorf("failed to add tasks: %w", err)

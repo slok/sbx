@@ -356,6 +356,11 @@ func (e *Engine) Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sa
 
 	// Setup tasks if task repository is available
 	if e.taskRepo != nil {
+		// Clear any previous incomplete create tasks (shouldn't happen but be defensive)
+		if err := e.taskRepo.ClearOperation(ctx, id, "create"); err != nil {
+			return nil, fmt.Errorf("failed to clear previous create tasks: %w", err)
+		}
+
 		taskNames := []string{
 			"ensure_ssh_keys",
 			"copy_rootfs",
