@@ -235,13 +235,14 @@ func (e *Engine) patchRootFSInit(vmDir string) error {
 		return fmt.Errorf("debugfs not found (install e2fsprogs): %w", err)
 	}
 
-	// Use debugfs to inject /sbin/sbx-init into the rootfs.
+	// Use debugfs to inject /usr/sbin/sbx-init into the rootfs.
+	// Note: /sbin is typically a symlink to usr/sbin in modern distros.
 	// 1. rm existing sbx-init (may not exist, that's ok)
 	// 2. write the init script
 	// 3. set permissions to 755 (regular file + rwxr-xr-x: 0100755)
-	commands := fmt.Sprintf(`rm /sbin/sbx-init
-write %s /sbin/sbx-init
-set_inode_field /sbin/sbx-init mode 0100755
+	commands := fmt.Sprintf(`rm /usr/sbin/sbx-init
+write %s /usr/sbin/sbx-init
+set_inode_field /usr/sbin/sbx-init mode 0100755
 `, tmpPath)
 
 	cmd := exec.Command("debugfs", "-w", rootfsPath)
@@ -251,10 +252,12 @@ set_inode_field /sbin/sbx-init mode 0100755
 
 	e.logger.Debugf("debugfs init output: %s", outStr)
 
-	if err != nil {
-		if strings.Contains(outStr, "write:") && strings.Contains(outStr, "error") {
-			return fmt.Errorf("debugfs write failed: %w, output: %s", err, outStr)
-		}
+	// Check for write errors in output (debugfs may not set exit code properly)
+	if strings.Contains(outStr, "Ext2 inode is not a directory") {
+		return fmt.Errorf("debugfs write failed: parent directory not found, output: %s", outStr)
+	}
+	if err != nil && (strings.Contains(outStr, "write:") && strings.Contains(outStr, "error")) {
+		return fmt.Errorf("debugfs write failed: %w, output: %s", err, outStr)
 	}
 
 	e.logger.Debugf("Patched rootfs with sbx-init script at %s", rootfsPath)
