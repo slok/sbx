@@ -366,9 +366,6 @@ func (e *Engine) Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sa
 			"copy_rootfs",
 			"resize_rootfs",
 			"patch_rootfs_ssh",
-			"patch_rootfs_dns",
-			"patch_rootfs_init",
-			"patch_rootfs_session_hooks",
 		}
 		if err := e.taskRepo.AddTasks(ctx, id, "create", taskNames); err != nil {
 			return nil, fmt.Errorf("failed to add tasks: %w", err)
@@ -379,7 +376,7 @@ func (e *Engine) Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sa
 
 	// Task 1: Ensure SSH keys exist
 	if err := e.executeTask(ctx, id, "create", "ensure_ssh_keys", func() error {
-		e.logger.Infof("[1/6] Ensuring SSH keys exist")
+		e.logger.Infof("[1/4] Ensuring SSH keys exist")
 		_, err := e.sshKeyManager.EnsureKeys()
 		return err
 	}); err != nil {
@@ -389,7 +386,7 @@ func (e *Engine) Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sa
 
 	// Task 2: Copy rootfs
 	if err := e.executeTask(ctx, id, "create", "copy_rootfs", func() error {
-		e.logger.Infof("[2/6] Copying rootfs to VM directory")
+		e.logger.Infof("[2/4] Copying rootfs to VM directory")
 		return e.copyRootFS(rootfsPath, vmDir)
 	}); err != nil {
 		createErr = err
@@ -398,7 +395,7 @@ func (e *Engine) Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sa
 
 	// Task 3: Resize rootfs to configured disk_gb
 	if err := e.executeTask(ctx, id, "create", "resize_rootfs", func() error {
-		e.logger.Infof("[3/6] Resizing rootfs to %d GB", cfg.Resources.DiskGB)
+		e.logger.Infof("[3/4] Resizing rootfs to %d GB", cfg.Resources.DiskGB)
 		return e.resizeRootFS(vmDir, cfg.Resources.DiskGB, rootfsPath)
 	}); err != nil {
 		createErr = err
@@ -407,35 +404,8 @@ func (e *Engine) Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sa
 
 	// Task 4: Patch rootfs with SSH key
 	if err := e.executeTask(ctx, id, "create", "patch_rootfs_ssh", func() error {
-		e.logger.Infof("[4/6] Patching rootfs with SSH public key")
+		e.logger.Infof("[4/4] Patching rootfs with SSH public key")
 		return e.patchRootFSSSH(vmDir)
-	}); err != nil {
-		createErr = err
-		goto cleanup
-	}
-
-	// Task 5: Patch rootfs with DNS configuration
-	if err := e.executeTask(ctx, id, "create", "patch_rootfs_dns", func() error {
-		e.logger.Infof("[5/6] Patching rootfs with DNS configuration")
-		return e.patchRootFSDNS(vmDir)
-	}); err != nil {
-		createErr = err
-		goto cleanup
-	}
-
-	// Task 6: Patch rootfs with init wrapper (devpts mount for PTY support)
-	if err := e.executeTask(ctx, id, "create", "patch_rootfs_init", func() error {
-		e.logger.Infof("[6/7] Patching rootfs with init wrapper")
-		return e.patchRootFSInit(vmDir)
-	}); err != nil {
-		createErr = err
-		goto cleanup
-	}
-
-	// Task 7: Patch rootfs with session env hooks for start-time population
-	if err := e.executeTask(ctx, id, "create", "patch_rootfs_session_hooks", func() error {
-		e.logger.Infof("[7/7] Patching rootfs with session environment hooks")
-		return e.patchRootFSSessionHooks(vmDir)
 	}); err != nil {
 		createErr = err
 		goto cleanup
