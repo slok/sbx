@@ -30,6 +30,9 @@ func TestRepositoryCRUD(t *testing.T) {
 					Status:    model.SandboxStatusRunning,
 					CreatedAt: now,
 					StartedAt: &now,
+					SessionConfig: model.SessionConfig{Env: map[string]string{
+						"FOO": "bar",
+					}},
 					Config: model.SandboxConfig{
 						Name:         "test",
 						DockerEngine: &model.DockerEngineConfig{Image: "ubuntu-22.04"},
@@ -50,6 +53,7 @@ func TestRepositoryCRUD(t *testing.T) {
 				assert.Equal(t, "test-id", retrieved.ID)
 				assert.Equal(t, "test", retrieved.Name)
 				assert.Equal(t, model.SandboxStatusRunning, retrieved.Status)
+				assert.Equal(t, "bar", retrieved.SessionConfig.Env["FOO"])
 
 				return nil
 			},

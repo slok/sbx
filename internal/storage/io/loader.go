@@ -41,11 +41,13 @@ func (r *SessionYAMLRepository) GetSessionConfig(ctx context.Context, path strin
 
 // SessionConfig represents the YAML structure for session configuration.
 type SessionConfig struct {
-	Name string `yaml:"name"`
+	Name string            `yaml:"name"`
+	Env  map[string]string `yaml:"env"`
 }
 
 func (c SessionConfig) toModel() model.SessionConfig {
 	return model.SessionConfig{
 		Name: c.Name,
+		Env:  c.Env,
 	}
 }

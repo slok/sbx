@@ -18,6 +18,18 @@ const (
 	AuthorizedKeysPath = "/root/.ssh/authorized_keys"
 )
 
+const defaultSessionEnvScript = `#!/bin/sh
+# Managed by sbx.
+`
+
+const rootFSProfileHookScript = `#!/bin/sh
+[ -f /etc/sbx/session-env.sh ] && . /etc/sbx/session-env.sh
+`
+
+const rootFSSSHRCScript = `#!/bin/sh
+[ -f /etc/sbx/session-env.sh ] && . /etc/sbx/session-env.sh
+`
+
 // copyRootFS copies the base rootfs to the VM directory.
 func (e *Engine) copyRootFS(srcPath, vmDir string) error {
 	dstPath := filepath.Join(vmDir, RootFSFile)
@@ -261,6 +273,90 @@ set_inode_field /usr/sbin/sbx-init mode 0100755
 	}
 
 	e.logger.Debugf("Patched rootfs with sbx-init script at %s", rootfsPath)
+	return nil
+}
+
+// patchRootFSSessionHooks injects session environment hooks into the rootfs.
+// These hooks are populated with concrete values at sandbox start time.
+func (e *Engine) patchRootFSSessionHooks(vmDir string) error {
+	rootfsPath := filepath.Join(vmDir, RootFSFile)
+
+	if _, err := os.Stat(rootfsPath); err != nil {
+		return fmt.Errorf("rootfs not found at %s: %w", rootfsPath, err)
+	}
+
+	if _, err := exec.LookPath("debugfs"); err != nil {
+		return fmt.Errorf("debugfs not found (install e2fsprogs): %w", err)
+	}
+
+	tmpSessionFile, err := os.CreateTemp("", "sbx-session-env-*.sh")
+	if err != nil {
+		return fmt.Errorf("could not create temp file: %w", err)
+	}
+	tmpSessionPath := tmpSessionFile.Name()
+	defer os.Remove(tmpSessionPath)
+
+	if _, err := tmpSessionFile.WriteString(defaultSessionEnvScript); err != nil {
+		tmpSessionFile.Close()
+		return fmt.Errorf("could not write session env script temp file: %w", err)
+	}
+	tmpSessionFile.Close()
+
+	tmpProfileHookFile, err := os.CreateTemp("", "sbx-profile-hook-*.sh")
+	if err != nil {
+		return fmt.Errorf("could not create temp file: %w", err)
+	}
+	tmpProfileHookPath := tmpProfileHookFile.Name()
+	defer os.Remove(tmpProfileHookPath)
+
+	if _, err := tmpProfileHookFile.WriteString(rootFSProfileHookScript); err != nil {
+		tmpProfileHookFile.Close()
+		return fmt.Errorf("could not write profile hook temp file: %w", err)
+	}
+	tmpProfileHookFile.Close()
+
+	tmpSSHRCFile, err := os.CreateTemp("", "sbx-sshrc-*")
+	if err != nil {
+		return fmt.Errorf("could not create temp file: %w", err)
+	}
+	tmpSSHRCPath := tmpSSHRCFile.Name()
+	defer os.Remove(tmpSSHRCPath)
+
+	if _, err := tmpSSHRCFile.WriteString(rootFSSSHRCScript); err != nil {
+		tmpSSHRCFile.Close()
+		return fmt.Errorf("could not write ssh rc temp file: %w", err)
+	}
+	tmpSSHRCFile.Close()
+
+	commands := fmt.Sprintf(`mkdir /etc/sbx
+rm /etc/sbx/session-env.sh
+write %s /etc/sbx/session-env.sh
+set_inode_field /etc/sbx/session-env.sh mode 0100644
+mkdir /etc/profile.d
+rm /etc/profile.d/sbx-session-env.sh
+write %s /etc/profile.d/sbx-session-env.sh
+set_inode_field /etc/profile.d/sbx-session-env.sh mode 0100644
+mkdir /root/.ssh
+rm /root/.ssh/rc
+write %s /root/.ssh/rc
+set_inode_field /root/.ssh/rc mode 0100700
+`, tmpSessionPath, tmpProfileHookPath, tmpSSHRCPath)
+
+	cmd := exec.Command("debugfs", "-w", rootfsPath)
+	cmd.Stdin = strings.NewReader(commands)
+	output, err := cmd.CombinedOutput()
+	outStr := string(output)
+
+	e.logger.Debugf("debugfs session hooks output: %s", outStr)
+
+	if strings.Contains(outStr, "Ext2 inode is not a directory") {
+		return fmt.Errorf("debugfs write failed: parent directory not found, output: %s", outStr)
+	}
+	if err != nil && (strings.Contains(outStr, "write:") && strings.Contains(outStr, "error")) {
+		return fmt.Errorf("debugfs write failed: %w, output: %s", err, outStr)
+	}
+
+	e.logger.Debugf("Patched rootfs with session environment hooks at %s", rootfsPath)
 	return nil
 }
 

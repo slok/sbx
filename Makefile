@@ -42,3 +42,21 @@ check: ## Run linters
 .PHONY: run
 run: ## Run with example flags (go run)
 	go run ./cmd/sbx create --name example-sandbox --engine docker --docker-image ubuntu:22.04 --cpu 2 --mem 2048 --disk 10
+
+ALPINE_ROOTFS_SCRIPT := ./scripts/images/alpine/build-rootfs.sh
+
+.PHONY: image-alpine
+image-alpine: ## Build Alpine rootfs image (balanced profile)
+	@$(ALPINE_ROOTFS_SCRIPT)
+
+.PHONY: image-alpine-minimal
+image-alpine-minimal: ## Build Alpine rootfs image (minimal profile)
+	@$(ALPINE_ROOTFS_SCRIPT) --profile minimal
+
+.PHONY: image-alpine-balanced
+image-alpine-balanced: ## Build Alpine rootfs image (balanced profile)
+	@$(ALPINE_ROOTFS_SCRIPT) --profile balanced
+
+.PHONY: image-alpine-heavy
+image-alpine-heavy: ## Build Alpine rootfs image (heavy profile)
+	@$(ALPINE_ROOTFS_SCRIPT) --profile heavy

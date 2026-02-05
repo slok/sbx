@@ -96,6 +96,11 @@ func (r *Repository) CreateSandbox(ctx context.Context, s model.Sandbox) error {
 		return fmt.Errorf("could not marshal config: %w", err)
 	}
 
+	sessionConfigJSON, err := json.Marshal(s.SessionConfig)
+	if err != nil {
+		return fmt.Errorf("could not marshal session config: %w", err)
+	}
+
 	// Convert nullable times to SQL-friendly format
 	var startedAt, stoppedAt *int64
 	if s.StartedAt != nil {
@@ -108,8 +113,8 @@ func (r *Repository) CreateSandbox(ctx context.Context, s model.Sandbox) error {
 	}
 
 	query := `
-		INSERT INTO sandboxes (id, name, status, config_json, container_id, created_at, started_at, stopped_at, error, pid, socket_path, tap_device, internal_ip)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO sandboxes (id, name, status, config_json, session_config_json, container_id, created_at, started_at, stopped_at, error, pid, socket_path, tap_device, internal_ip)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err = r.db.ExecContext(ctx, query,
@@ -117,6 +122,7 @@ func (r *Repository) CreateSandbox(ctx context.Context, s model.Sandbox) error {
 		s.Name,
 		s.Status,
 		string(configJSON),
+		string(sessionConfigJSON),
 		s.ContainerID,
 		s.CreatedAt.Unix(),
 		startedAt,
@@ -143,13 +149,13 @@ func (r *Repository) CreateSandbox(ctx context.Context, s model.Sandbox) error {
 // GetSandbox retrieves a sandbox by ID.
 func (r *Repository) GetSandbox(ctx context.Context, id string) (*model.Sandbox, error) {
 	query := `
-		SELECT id, name, status, config_json, container_id, created_at, started_at, stopped_at, error, pid, socket_path, tap_device, internal_ip
+		SELECT id, name, status, config_json, session_config_json, container_id, created_at, started_at, stopped_at, error, pid, socket_path, tap_device, internal_ip
 		FROM sandboxes
 		WHERE id = ?
 	`
 
 	var sandbox model.Sandbox
-	var configJSON string
+	var configJSON, sessionConfigJSON string
 	var createdAt, startedAt, stoppedAt sql.NullInt64
 	var pid sql.NullInt64
 	var socketPath, tapDevice, internalIP sql.NullString
@@ -159,6 +165,7 @@ func (r *Repository) GetSandbox(ctx context.Context, id string) (*model.Sandbox,
 		&sandbox.Name,
 		&sandbox.Status,
 		&configJSON,
+		&sessionConfigJSON,
 		&sandbox.ContainerID,
 		&createdAt,
 		&startedAt,
@@ -179,6 +186,9 @@ func (r *Repository) GetSandbox(ctx context.Context, id string) (*model.Sandbox,
 	// Unmarshal config
 	if err := json.Unmarshal([]byte(configJSON), &sandbox.Config); err != nil {
 		return nil, fmt.Errorf("could not unmarshal config: %w", err)
+	}
+	if err := json.Unmarshal([]byte(sessionConfigJSON), &sandbox.SessionConfig); err != nil {
+		return nil, fmt.Errorf("could not unmarshal session config: %w", err)
 	}
 
 	// Convert timestamps
@@ -206,13 +216,13 @@ func (r *Repository) GetSandbox(ctx context.Context, id string) (*model.Sandbox,
 // GetSandboxByName retrieves a sandbox by name.
 func (r *Repository) GetSandboxByName(ctx context.Context, name string) (*model.Sandbox, error) {
 	query := `
-		SELECT id, name, status, config_json, container_id, created_at, started_at, stopped_at, error, pid, socket_path, tap_device, internal_ip
+		SELECT id, name, status, config_json, session_config_json, container_id, created_at, started_at, stopped_at, error, pid, socket_path, tap_device, internal_ip
 		FROM sandboxes
 		WHERE name = ?
 	`
 
 	var sandbox model.Sandbox
-	var configJSON string
+	var configJSON, sessionConfigJSON string
 	var createdAt, startedAt, stoppedAt sql.NullInt64
 	var pid sql.NullInt64
 	var socketPath, tapDevice, internalIP sql.NullString
@@ -222,6 +232,7 @@ func (r *Repository) GetSandboxByName(ctx context.Context, name string) (*model.
 		&sandbox.Name,
 		&sandbox.Status,
 		&configJSON,
+		&sessionConfigJSON,
 		&sandbox.ContainerID,
 		&createdAt,
 		&startedAt,
@@ -242,6 +253,9 @@ func (r *Repository) GetSandboxByName(ctx context.Context, name string) (*model.
 	// Unmarshal config
 	if err := json.Unmarshal([]byte(configJSON), &sandbox.Config); err != nil {
 		return nil, fmt.Errorf("could not unmarshal config: %w", err)
+	}
+	if err := json.Unmarshal([]byte(sessionConfigJSON), &sandbox.SessionConfig); err != nil {
+		return nil, fmt.Errorf("could not unmarshal session config: %w", err)
 	}
 
 	// Convert timestamps
@@ -269,7 +283,7 @@ func (r *Repository) GetSandboxByName(ctx context.Context, name string) (*model.
 // ListSandboxes returns all sandboxes.
 func (r *Repository) ListSandboxes(ctx context.Context) ([]model.Sandbox, error) {
 	query := `
-		SELECT id, name, status, config_json, container_id, created_at, started_at, stopped_at, error, pid, socket_path, tap_device, internal_ip
+		SELECT id, name, status, config_json, session_config_json, container_id, created_at, started_at, stopped_at, error, pid, socket_path, tap_device, internal_ip
 		FROM sandboxes
 		ORDER BY created_at DESC
 	`
@@ -283,7 +297,7 @@ func (r *Repository) ListSandboxes(ctx context.Context) ([]model.Sandbox, error)
 	var sandboxes []model.Sandbox
 	for rows.Next() {
 		var sandbox model.Sandbox
-		var configJSON string
+		var configJSON, sessionConfigJSON string
 		var createdAt, startedAt, stoppedAt sql.NullInt64
 		var pid sql.NullInt64
 		var socketPath, tapDevice, internalIP sql.NullString
@@ -293,6 +307,7 @@ func (r *Repository) ListSandboxes(ctx context.Context) ([]model.Sandbox, error)
 			&sandbox.Name,
 			&sandbox.Status,
 			&configJSON,
+			&sessionConfigJSON,
 			&sandbox.ContainerID,
 			&createdAt,
 			&startedAt,
@@ -310,6 +325,9 @@ func (r *Repository) ListSandboxes(ctx context.Context) ([]model.Sandbox, error)
 		// Unmarshal config
 		if err := json.Unmarshal([]byte(configJSON), &sandbox.Config); err != nil {
 			return nil, fmt.Errorf("could not unmarshal config: %w", err)
+		}
+		if err := json.Unmarshal([]byte(sessionConfigJSON), &sandbox.SessionConfig); err != nil {
+			return nil, fmt.Errorf("could not unmarshal session config: %w", err)
 		}
 
 		// Convert timestamps
@@ -349,6 +367,11 @@ func (r *Repository) UpdateSandbox(ctx context.Context, s model.Sandbox) error {
 		return fmt.Errorf("could not marshal config: %w", err)
 	}
 
+	sessionConfigJSON, err := json.Marshal(s.SessionConfig)
+	if err != nil {
+		return fmt.Errorf("could not marshal session config: %w", err)
+	}
+
 	// Convert nullable times
 	var startedAt, stoppedAt *int64
 	if s.StartedAt != nil {
@@ -362,7 +385,7 @@ func (r *Repository) UpdateSandbox(ctx context.Context, s model.Sandbox) error {
 
 	query := `
 		UPDATE sandboxes
-		SET name = ?, status = ?, config_json = ?, container_id = ?, created_at = ?, started_at = ?, stopped_at = ?, error = ?, pid = ?, socket_path = ?, tap_device = ?, internal_ip = ?
+		SET name = ?, status = ?, config_json = ?, session_config_json = ?, container_id = ?, created_at = ?, started_at = ?, stopped_at = ?, error = ?, pid = ?, socket_path = ?, tap_device = ?, internal_ip = ?
 		WHERE id = ?
 	`
 
@@ -370,6 +393,7 @@ func (r *Repository) UpdateSandbox(ctx context.Context, s model.Sandbox) error {
 		s.Name,
 		s.Status,
 		string(configJSON),
+		string(sessionConfigJSON),
 		s.ContainerID,
 		s.CreatedAt.Unix(),
 		startedAt,

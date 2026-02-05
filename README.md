@@ -281,6 +281,11 @@ The project uses GitHub Actions for continuous integration:
 - `scripts/check/unit-test.sh` - Runs unit tests with race detector and coverage
 - `scripts/check/integration-test.sh` - Runs integration tests
 
+#### Image Scripts
+
+- `scripts/setup-firecracker-images.sh` - Downloads Firecracker kernel/rootfs test artifacts
+- `scripts/images/alpine/build-rootfs.sh` - Builds Alpine rootfs images for SBX Firecracker sandboxes
+
 #### Test Coverage
 
 Current coverage by layer:
@@ -333,7 +338,7 @@ sbx/
 │       └── remove/       # Remove sandbox service
 ├── test/integration/     # End-to-end tests
 ├── testdata/             # Example configs
-└── scripts/check/        # CI scripts
+└── scripts/              # CI and image scripts
 ```
 
 ## Architecture

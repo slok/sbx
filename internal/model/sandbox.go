@@ -23,15 +23,16 @@ const (
 
 // Sandbox represents a sandbox instance.
 type Sandbox struct {
-	ID          string
-	Name        string
-	Status      SandboxStatus
-	Config      SandboxConfig
-	ContainerID string // Docker container ID (empty for non-Docker engines)
-	CreatedAt   time.Time
-	StartedAt   *time.Time
-	StoppedAt   *time.Time
-	Error       string
+	ID            string
+	Name          string
+	Status        SandboxStatus
+	Config        SandboxConfig
+	SessionConfig SessionConfig
+	ContainerID   string // Docker container ID (empty for non-Docker engines)
+	CreatedAt     time.Time
+	StartedAt     *time.Time
+	StoppedAt     *time.Time
+	Error         string
 
 	// Firecracker-specific fields
 	PID        int    // Firecracker process ID
@@ -54,6 +55,7 @@ type SandboxConfig struct {
 // env vars, file copies, etc. in the future.
 type SessionConfig struct {
 	Name string
+	Env  map[string]string
 }
 
 // DockerEngineConfig contains Docker-specific engine configuration.
