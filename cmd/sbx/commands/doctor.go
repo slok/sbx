@@ -7,7 +7,6 @@ import (
 	"github.com/alecthomas/kingpin/v2"
 
 	"github.com/slok/sbx/internal/model"
-	"github.com/slok/sbx/internal/sandbox/docker"
 	"github.com/slok/sbx/internal/sandbox/firecracker"
 )
 
@@ -23,7 +22,7 @@ func NewDoctorCommand(rootCmd *RootCommand, app *kingpin.Application) *DoctorCom
 	c := &DoctorCommand{rootCmd: rootCmd}
 
 	c.Cmd = app.Command("doctor", "Run preflight checks for sandbox engines.")
-	c.Cmd.Flag("engine", "Engine to check (docker, firecracker, all).").Default("all").EnumVar(&c.engine, "docker", "firecracker", "all")
+	c.Cmd.Flag("engine", "Engine to check (firecracker, all).").Default("all").EnumVar(&c.engine, "firecracker", "all")
 
 	return c
 }
@@ -35,22 +34,6 @@ func (c DoctorCommand) Run(ctx context.Context) error {
 	out := c.rootCmd.Stdout
 
 	var allResults []engineCheckResults
-
-	// Check Docker engine
-	if c.engine == "docker" || c.engine == "all" {
-		dockerEngine, err := docker.NewEngine(docker.EngineConfig{
-			Logger: logger,
-		})
-		if err != nil {
-			return fmt.Errorf("could not create docker engine: %w", err)
-		}
-
-		results := dockerEngine.Check(ctx)
-		allResults = append(allResults, engineCheckResults{
-			name:    "docker",
-			results: results,
-		})
-	}
 
 	// Check Firecracker engine
 	if c.engine == "firecracker" || c.engine == "all" {

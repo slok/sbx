@@ -43,8 +43,7 @@ type statusOutput struct {
 
 // engineOutput represents engine configuration output.
 type engineOutput struct {
-	Type        string `json:"type"` // "docker" or "firecracker"
-	Image       string `json:"image,omitempty"`
+	Type        string `json:"type"`
 	RootFS      string `json:"root_fs,omitempty"`
 	KernelImage string `json:"kernel_image,omitempty"`
 }
@@ -87,12 +86,7 @@ func (j *JSONPrinter) PrintStatus(sandbox model.Sandbox) error {
 	}
 
 	// Add engine info
-	if sandbox.Config.DockerEngine != nil {
-		output.Engine = &engineOutput{
-			Type:  "docker",
-			Image: sandbox.Config.DockerEngine.Image,
-		}
-	} else if sandbox.Config.FirecrackerEngine != nil {
+	if sandbox.Config.FirecrackerEngine != nil {
 		output.Engine = &engineOutput{
 			Type:        "firecracker",
 			RootFS:      sandbox.Config.FirecrackerEngine.RootFS,

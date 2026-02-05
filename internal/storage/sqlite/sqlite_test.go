@@ -34,8 +34,11 @@ func TestRepositoryCRUD(t *testing.T) {
 						"FOO": "bar",
 					}},
 					Config: model.SandboxConfig{
-						Name:         "test",
-						DockerEngine: &model.DockerEngineConfig{Image: "ubuntu-22.04"},
+						Name: "test",
+						FirecrackerEngine: &model.FirecrackerEngineConfig{
+							RootFS:      "/images/rootfs.ext4",
+							KernelImage: "/images/vmlinux",
+						},
 						Resources: model.Resources{
 							VCPUs:    2,
 							MemoryMB: 2048,

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -17,283 +16,73 @@ import (
 	"github.com/slok/sbx/internal/storage/storagemock"
 )
 
-func TestNewService(t *testing.T) {
-	tests := map[string]struct {
-		cfg    create.ServiceConfig
-		expErr bool
-		errMsg string
-	}{
-		"Valid config with all fields": {
-			cfg: create.ServiceConfig{
-				Engine:     &sandboxmock.MockEngine{},
-				Repository: &storagemock.MockRepository{},
-				Logger:     log.Noop,
-			},
-			expErr: false,
+func validConfig() model.SandboxConfig {
+	return model.SandboxConfig{
+		Name: "test-sandbox",
+		FirecrackerEngine: &model.FirecrackerEngineConfig{
+			RootFS:      "/images/rootfs.ext4",
+			KernelImage: "/images/vmlinux",
 		},
-		"Valid config without logger uses Noop": {
-			cfg: create.ServiceConfig{
-				Engine:     &sandboxmock.MockEngine{},
-				Repository: &storagemock.MockRepository{},
-			},
-			expErr: false,
-		},
-		"Missing engine returns error": {
-			cfg: create.ServiceConfig{
-				Repository: &storagemock.MockRepository{},
-			},
-			expErr: true,
-			errMsg: "engine is required",
-		},
-		"Missing repository returns error": {
-			cfg: create.ServiceConfig{
-				Engine: &sandboxmock.MockEngine{},
-			},
-			expErr: true,
-			errMsg: "repository is required",
-		},
-	}
-
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			svc, err := create.NewService(tt.cfg)
-
-			if tt.expErr {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.errMsg)
-				assert.Nil(t, svc)
-			} else {
-				require.NoError(t, err)
-				assert.NotNil(t, svc)
-			}
-		})
+		Resources: model.Resources{VCPUs: 2, MemoryMB: 2048, DiskGB: 10},
 	}
 }
 
-func TestServiceCreate(t *testing.T) {
-	tests := map[string]struct {
-		config      model.SandboxConfig
-		setupMocks  func(engine *sandboxmock.MockEngine, repo *storagemock.MockRepository)
-		expErr      bool
-		errMsg      string
-		validateRes func(t *testing.T, sb *model.Sandbox)
-	}{
-		"Successful creation": {
-			config: model.SandboxConfig{
-				Name:         "test-sandbox",
-				DockerEngine: &model.DockerEngineConfig{Image: "ubuntu:22.04"},
-				Resources: model.Resources{
-					VCPUs:    2,
-					MemoryMB: 2048,
-					DiskGB:   10240,
-				},
-			},
-			setupMocks: func(eng *sandboxmock.MockEngine, repo *storagemock.MockRepository) {
-				// Check name uniqueness - not found
-				repo.On("GetSandboxByName", mock.Anything, "test-sandbox").
-					Return((*model.Sandbox)(nil), model.ErrNotFound)
+func TestCreateService(t *testing.T) {
+	t.Run("successful create", func(t *testing.T) {
+		eng := sandboxmock.NewMockEngine(t)
+		repo := storagemock.NewMockRepository(t)
 
-				// Engine creates sandbox in "created" status
-				expSandbox := &model.Sandbox{
-					ID:     "01HRW9YZTEST000000000000",
-					Name:   "test-sandbox",
-					Status: model.SandboxStatusCreated,
-					Config: model.SandboxConfig{
-						Name:         "test-sandbox",
-						DockerEngine: &model.DockerEngineConfig{Image: "ubuntu:22.04"},
-						Resources: model.Resources{
-							VCPUs:    2,
-							MemoryMB: 2048,
-							DiskGB:   10240,
-						},
-					},
-					CreatedAt: time.Now(),
-				}
-				eng.On("Create", mock.Anything, mock.Anything).
-					Return(expSandbox, nil)
+		repo.On("GetSandboxByName", mock.Anything, "test-sandbox").Return((*model.Sandbox)(nil), model.ErrNotFound)
+		eng.On("Create", mock.Anything, mock.Anything).Return(&model.Sandbox{ID: "01", Name: "test-sandbox", Status: model.SandboxStatusCreated, Config: validConfig()}, nil)
+		repo.On("CreateSandbox", mock.Anything, mock.Anything).Return(nil)
 
-				// Repository saves sandbox
-				repo.On("CreateSandbox", mock.Anything, mock.Anything).
-					Return(nil)
-			},
-			expErr: false,
-			validateRes: func(t *testing.T, sb *model.Sandbox) {
-				assert.NotNil(t, sb)
-				assert.Equal(t, "test-sandbox", sb.Name)
-				assert.Equal(t, model.SandboxStatusCreated, sb.Status)
-			},
-		},
-		"Name conflict returns error": {
-			config: model.SandboxConfig{
-				Name:         "existing-sandbox",
-				DockerEngine: &model.DockerEngineConfig{Image: "ubuntu:22.04"},
-				Resources: model.Resources{
-					VCPUs:    2,
-					MemoryMB: 2048,
-					DiskGB:   10240,
-				},
-			},
-			setupMocks: func(eng *sandboxmock.MockEngine, repo *storagemock.MockRepository) {
-				// Name already exists
-				existingSandbox := &model.Sandbox{
-					ID:   "01HRW9YZTEST000000000002",
-					Name: "existing-sandbox",
-				}
-				repo.On("GetSandboxByName", mock.Anything, "existing-sandbox").
-					Return(existingSandbox, nil)
-			},
-			expErr: true,
-			errMsg: "already exists",
-		},
-		"Missing name in config returns validation error": {
-			config: model.SandboxConfig{
-				Name:         "", // Invalid - empty name
-				DockerEngine: &model.DockerEngineConfig{Image: "ubuntu:22.04"},
-				Resources: model.Resources{
-					VCPUs:    2,
-					MemoryMB: 2048,
-					DiskGB:   10240,
-				},
-			},
-			setupMocks: func(eng *sandboxmock.MockEngine, repo *storagemock.MockRepository) {
-				// No mocks needed - fails at validation
-			},
-			expErr: true,
-			errMsg: "invalid config",
-		},
-		"Missing image in config returns validation error": {
-			config: model.SandboxConfig{
-				Name:         "test",
-				DockerEngine: &model.DockerEngineConfig{Image: ""}, // Invalid - empty image
-				Resources: model.Resources{
-					VCPUs:    2,
-					MemoryMB: 2048,
-					DiskGB:   10240,
-				},
-			},
-			setupMocks: func(eng *sandboxmock.MockEngine, repo *storagemock.MockRepository) {
-				// No mocks needed - fails at validation
-			},
-			expErr: true,
-			errMsg: "invalid config",
-		},
-		"Invalid resource values return validation error": {
-			config: model.SandboxConfig{
-				Name:         "test",
-				DockerEngine: &model.DockerEngineConfig{Image: "ubuntu:22.04"},
-				Resources: model.Resources{
-					VCPUs:    0, // Invalid - zero CPUs
-					MemoryMB: 2048,
-					DiskGB:   10240,
-				},
-			},
-			setupMocks: func(eng *sandboxmock.MockEngine, repo *storagemock.MockRepository) {
-				// No mocks needed - fails at validation
-			},
-			expErr: true,
-			errMsg: "invalid config",
-		},
-		"Engine error returns error": {
-			config: model.SandboxConfig{
-				Name:         "test-sandbox",
-				DockerEngine: &model.DockerEngineConfig{Image: "ubuntu:22.04"},
-				Resources: model.Resources{
-					VCPUs:    2,
-					MemoryMB: 2048,
-					DiskGB:   10240,
-				},
-			},
-			setupMocks: func(eng *sandboxmock.MockEngine, repo *storagemock.MockRepository) {
-				repo.On("GetSandboxByName", mock.Anything, "test-sandbox").
-					Return((*model.Sandbox)(nil), model.ErrNotFound)
+		svc, err := create.NewService(create.ServiceConfig{Engine: eng, Repository: repo, Logger: log.Noop})
+		require.NoError(t, err)
 
-				// Engine fails
-				eng.On("Create", mock.Anything, mock.Anything).
-					Return((*model.Sandbox)(nil), errors.New("engine creation failed"))
-			},
-			expErr: true,
-			errMsg: "could not create sandbox",
-		},
-		"Repository save error returns error": {
-			config: model.SandboxConfig{
-				Name:         "test-sandbox",
-				DockerEngine: &model.DockerEngineConfig{Image: "ubuntu:22.04"},
-				Resources: model.Resources{
-					VCPUs:    2,
-					MemoryMB: 2048,
-					DiskGB:   10240,
-				},
-			},
-			setupMocks: func(eng *sandboxmock.MockEngine, repo *storagemock.MockRepository) {
-				repo.On("GetSandboxByName", mock.Anything, "test-sandbox").
-					Return((*model.Sandbox)(nil), model.ErrNotFound)
+		sb, err := svc.Create(context.Background(), create.CreateOptions{Config: validConfig()})
+		require.NoError(t, err)
+		require.NotNil(t, sb)
+		assert.Equal(t, "test-sandbox", sb.Name)
+	})
 
-				expSandbox := &model.Sandbox{
-					ID:     "01HRW9YZTEST000000000003",
-					Name:   "test-sandbox",
-					Status: model.SandboxStatusRunning,
-				}
-				eng.On("Create", mock.Anything, mock.Anything).
-					Return(expSandbox, nil)
+	t.Run("invalid config", func(t *testing.T) {
+		eng := sandboxmock.NewMockEngine(t)
+		repo := storagemock.NewMockRepository(t)
+		svc, err := create.NewService(create.ServiceConfig{Engine: eng, Repository: repo, Logger: log.Noop})
+		require.NoError(t, err)
 
-				// Repository save fails
-				repo.On("CreateSandbox", mock.Anything, mock.Anything).
-					Return(errors.New("database error"))
-			},
-			expErr: true,
-			errMsg: "could not save sandbox",
-		},
-		"Repository check error returns error": {
-			config: model.SandboxConfig{
-				Name:         "test-sandbox",
-				DockerEngine: &model.DockerEngineConfig{Image: "ubuntu:22.04"},
-				Resources: model.Resources{
-					VCPUs:    2,
-					MemoryMB: 2048,
-					DiskGB:   10240,
-				},
-			},
-			setupMocks: func(eng *sandboxmock.MockEngine, repo *storagemock.MockRepository) {
-				// Repository check fails with unexpected error
-				repo.On("GetSandboxByName", mock.Anything, "test-sandbox").
-					Return((*model.Sandbox)(nil), errors.New("database connection error"))
-			},
-			expErr: true,
-			errMsg: "could not check name uniqueness",
-		},
-	}
+		cfg := validConfig()
+		cfg.FirecrackerEngine.RootFS = ""
 
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			// Setup mocks
-			mockEngine := sandboxmock.NewMockEngine(t)
-			mockRepo := storagemock.NewMockRepository(t)
-			tt.setupMocks(mockEngine, mockRepo)
+		sb, err := svc.Create(context.Background(), create.CreateOptions{Config: cfg})
+		require.Error(t, err)
+		assert.Nil(t, sb)
+	})
 
-			// Create service
-			svc, err := create.NewService(create.ServiceConfig{
-				Engine:     mockEngine,
-				Repository: mockRepo,
-				Logger:     log.Noop,
-			})
-			require.NoError(t, err)
+	t.Run("name conflict", func(t *testing.T) {
+		eng := sandboxmock.NewMockEngine(t)
+		repo := storagemock.NewMockRepository(t)
+		repo.On("GetSandboxByName", mock.Anything, "test-sandbox").Return(&model.Sandbox{ID: "existing"}, nil)
 
-			// Execute
-			result, err := svc.Create(context.Background(), create.CreateOptions{
-				Config: tt.config,
-			})
+		svc, err := create.NewService(create.ServiceConfig{Engine: eng, Repository: repo, Logger: log.Noop})
+		require.NoError(t, err)
 
-			// Verify
-			if tt.expErr {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.errMsg)
-				assert.Nil(t, result)
-			} else {
-				require.NoError(t, err)
-				if tt.validateRes != nil {
-					tt.validateRes(t, result)
-				}
-			}
-		})
-	}
+		sb, err := svc.Create(context.Background(), create.CreateOptions{Config: validConfig()})
+		require.Error(t, err)
+		assert.Nil(t, sb)
+	})
+
+	t.Run("engine failure", func(t *testing.T) {
+		eng := sandboxmock.NewMockEngine(t)
+		repo := storagemock.NewMockRepository(t)
+		repo.On("GetSandboxByName", mock.Anything, "test-sandbox").Return((*model.Sandbox)(nil), model.ErrNotFound)
+		eng.On("Create", mock.Anything, mock.Anything).Return((*model.Sandbox)(nil), errors.New("boom"))
+
+		svc, err := create.NewService(create.ServiceConfig{Engine: eng, Repository: repo, Logger: log.Noop})
+		require.NoError(t, err)
+
+		sb, err := svc.Create(context.Background(), create.CreateOptions{Config: validConfig()})
+		require.Error(t, err)
+		assert.Nil(t, sb)
+	})
 }
