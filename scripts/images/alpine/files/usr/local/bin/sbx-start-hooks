@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+
+HOOK_DIR="/etc/sbx/hooks/start.d"
+
+[ -d "${HOOK_DIR}" ] || exit 0
+
+for hook in "${HOOK_DIR}"/*; do
+    [ -e "${hook}" ] || continue
+    [ -x "${hook}" ] || continue
+    "${hook}"
+done

@@ -1,0 +1,9 @@
+#!/bin/sh
+# sbx-init: Pre-init setup for SBX Firecracker VMs.
+
+if ! mountpoint -q /dev/pts 2>/dev/null; then
+    mkdir -p /dev/pts
+    mount -t devpts devpts /dev/pts
+fi
+
+exec /sbin/init

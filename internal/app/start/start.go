@@ -134,7 +134,7 @@ func normalizeSessionConfig(cfg model.SessionConfig) model.SessionConfig {
 }
 
 func (s *Service) applySessionEnvToSandbox(ctx context.Context, sandboxID string, env map[string]string) error {
-	if _, err := s.engine.Exec(ctx, sandboxID, []string{"mkdir", "-p", "/etc/sbx", "/etc/profile.d", "/root/.ssh"}, model.ExecOpts{}); err != nil {
+	if _, err := s.engine.Exec(ctx, sandboxID, []string{"mkdir", "-p", "/etc/sbx"}, model.ExecOpts{}); err != nil {
 		return fmt.Errorf("could not create session env directories: %w", err)
 	}
 
@@ -153,54 +153,12 @@ func (s *Service) applySessionEnvToSandbox(ctx context.Context, sandboxID string
 		return fmt.Errorf("could not close temporary session env file: %w", err)
 	}
 
-	tmpProfileHookFile, err := os.CreateTemp("", "sbx-profile-hook-*.sh")
-	if err != nil {
-		return fmt.Errorf("could not create temporary profile hook file: %w", err)
-	}
-	tmpProfileHookPath := tmpProfileHookFile.Name()
-	defer os.Remove(tmpProfileHookPath)
-
-	if _, err := tmpProfileHookFile.WriteString(profileHookScript); err != nil {
-		tmpProfileHookFile.Close()
-		return fmt.Errorf("could not write temporary profile hook file: %w", err)
-	}
-	if err := tmpProfileHookFile.Close(); err != nil {
-		return fmt.Errorf("could not close temporary profile hook file: %w", err)
-	}
-
-	tmpSSHRCFile, err := os.CreateTemp("", "sbx-sshrc-*")
-	if err != nil {
-		return fmt.Errorf("could not create temporary ssh rc file: %w", err)
-	}
-	tmpSSHRCPath := tmpSSHRCFile.Name()
-	defer os.Remove(tmpSSHRCPath)
-
-	if _, err := tmpSSHRCFile.WriteString(sshRCScript); err != nil {
-		tmpSSHRCFile.Close()
-		return fmt.Errorf("could not write temporary ssh rc file: %w", err)
-	}
-	if err := tmpSSHRCFile.Close(); err != nil {
-		return fmt.Errorf("could not close temporary ssh rc file: %w", err)
-	}
-
 	if err := s.engine.CopyTo(ctx, sandboxID, tmpSessionPath, "/etc/sbx/session-env.sh"); err != nil {
 		return fmt.Errorf("could not copy session env script: %w", err)
 	}
 
-	if err := s.engine.CopyTo(ctx, sandboxID, tmpProfileHookPath, "/etc/profile.d/sbx-session-env.sh"); err != nil {
-		return fmt.Errorf("could not copy profile hook script: %w", err)
-	}
-
-	if err := s.engine.CopyTo(ctx, sandboxID, tmpSSHRCPath, "/root/.ssh/rc"); err != nil {
-		return fmt.Errorf("could not copy ssh rc script: %w", err)
-	}
-
-	if _, err := s.engine.Exec(ctx, sandboxID, []string{"chmod", "644", "/etc/sbx/session-env.sh", "/etc/profile.d/sbx-session-env.sh"}, model.ExecOpts{}); err != nil {
+	if _, err := s.engine.Exec(ctx, sandboxID, []string{"chmod", "644", "/etc/sbx/session-env.sh"}, model.ExecOpts{}); err != nil {
 		return fmt.Errorf("could not set session env script permissions: %w", err)
-	}
-
-	if _, err := s.engine.Exec(ctx, sandboxID, []string{"chmod", "700", "/root/.ssh/rc"}, model.ExecOpts{}); err != nil {
-		return fmt.Errorf("could not set ssh rc permissions: %w", err)
 	}
 
 	return nil
@@ -231,14 +189,6 @@ func renderSessionEnvScript(env map[string]string) string {
 func escapeShellSingleQuoted(v string) string {
 	return strings.ReplaceAll(v, "'", `'"'"'`)
 }
-
-const profileHookScript = `#!/bin/sh
-[ -f /etc/sbx/session-env.sh ] && . /etc/sbx/session-env.sh
-`
-
-const sshRCScript = `#!/bin/sh
-[ -f /etc/sbx/session-env.sh ] && . /etc/sbx/session-env.sh
-`
 
 // looksLikeULID checks if a string looks like a ULID (26 characters, alphanumeric uppercase).
 func looksLikeULID(s string) bool {

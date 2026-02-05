@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 PROFILES_DIR="${ROOT_DIR}/scripts/images/alpine/profiles"
+FILES_DIR="${ROOT_DIR}/scripts/images/alpine/files"
 
 PROFILE="balanced"
 ALPINE_BRANCH="v3.23"
@@ -191,6 +192,16 @@ append_if_missing() {
   fi
 }
 
+install_image_file() {
+  local src="$1"
+  local dst_rel="$2"
+  local mode="$3"
+  local dst="${MOUNT_DIR}/${dst_rel}"
+
+  ${SUDO} install -d -m 0755 "$(dirname "${dst}")"
+  ${SUDO} install -m "${mode}" "${src}" "${dst}"
+}
+
 maybe_shrink_image() {
   local image_path="$1"
   if [[ "${SHRINK_IMAGE}" != "true" ]]; then
@@ -281,24 +292,17 @@ append_if_missing '^PermitRootLogin[[:space:]]+yes$' 'PermitRootLogin yes' "${SS
 append_if_missing '^PermitEmptyPasswords[[:space:]]+yes$' 'PermitEmptyPasswords yes' "${SSHD_CONFIG}"
 append_if_missing '^PermitUserRC[[:space:]]+yes$' 'PermitUserRC yes' "${SSHD_CONFIG}"
 
+if [[ ! -d "${FILES_DIR}" ]]; then
+  die "Missing image files directory: ${FILES_DIR}"
+fi
+
+install_image_file "${FILES_DIR}/etc/resolv.conf" "etc/resolv.conf" 0644
+install_image_file "${FILES_DIR}/usr/sbin/sbx-init" "usr/sbin/sbx-init" 0755
+install_image_file "${FILES_DIR}/etc/sbx/session-env.sh" "etc/sbx/session-env.sh" 0644
+install_image_file "${FILES_DIR}/etc/profile.d/sbx-session-env.sh" "etc/profile.d/sbx-session-env.sh" 0644
+install_image_file "${FILES_DIR}/root/.ssh/rc" "root/.ssh/rc" 0700
+install_image_file "${FILES_DIR}/usr/local/bin/sbx-start-hooks" "usr/local/bin/sbx-start-hooks" 0755
 ${SUDO} mkdir -p "${MOUNT_DIR}/etc/sbx/hooks/start.d"
-${SUDO} install -d -m 0755 "${MOUNT_DIR}/usr/local/bin"
-
-${SUDO} tee "${MOUNT_DIR}/usr/local/bin/sbx-start-hooks" >/dev/null <<'EOF'
-#!/bin/sh
-set -eu
-
-HOOK_DIR="/etc/sbx/hooks/start.d"
-
-[ -d "${HOOK_DIR}" ] || exit 0
-
-for hook in "${HOOK_DIR}"/*; do
-    [ -e "${hook}" ] || continue
-    [ -x "${hook}" ] || continue
-    "${hook}"
-done
-EOF
-${SUDO} chmod 0755 "${MOUNT_DIR}/usr/local/bin/sbx-start-hooks"
 
 ${SUDO} umount "${MOUNT_DIR}"
 

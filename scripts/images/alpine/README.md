@@ -2,6 +2,8 @@
 
 This directory contains SBX-owned scripts for building Alpine rootfs images for Firecracker.
 
+Static files copied into the image live under `scripts/images/alpine/files/`.
+
 ## Build
 
 ```bash
