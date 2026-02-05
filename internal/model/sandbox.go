@@ -11,6 +11,8 @@ type SandboxStatus string
 const (
 	// SandboxStatusPending indicates the sandbox is being created.
 	SandboxStatusPending SandboxStatus = "pending"
+	// SandboxStatusCreated indicates the sandbox infrastructure is provisioned but not started.
+	SandboxStatusCreated SandboxStatus = "created"
 	// SandboxStatusRunning indicates the sandbox is running.
 	SandboxStatusRunning SandboxStatus = "running"
 	// SandboxStatusStopped indicates the sandbox is stopped.
@@ -19,7 +21,7 @@ const (
 	SandboxStatusFailed SandboxStatus = "failed"
 )
 
-// Sandbox represents a microVM sandbox instance.
+// Sandbox represents a sandbox instance.
 type Sandbox struct {
 	ID          string
 	Name        string
@@ -38,14 +40,20 @@ type Sandbox struct {
 	InternalIP string // VM's IP address (e.g., 10.163.242.2)
 }
 
-// SandboxConfig is the configuration for creating a sandbox.
+// SandboxConfig is the static configuration for creating a sandbox.
+// These settings are immutable after creation.
 type SandboxConfig struct {
 	Name              string
 	DockerEngine      *DockerEngineConfig
 	FirecrackerEngine *FirecrackerEngineConfig
-	Packages          []string
-	Env               map[string]string
 	Resources         Resources
+}
+
+// SessionConfig is the dynamic configuration applied when starting a sandbox.
+// These settings can change between starts and will be extended with
+// env vars, file copies, etc. in the future.
+type SessionConfig struct {
+	Name string
 }
 
 // DockerEngineConfig contains Docker-specific engine configuration.
@@ -61,7 +69,7 @@ type FirecrackerEngineConfig struct {
 
 // Resources defines the compute resources for a sandbox.
 type Resources struct {
-	VCPUs    int
+	VCPUs    float64 // Number of VCPUs (can be fractional for Docker, whole numbers for Firecracker)
 	MemoryMB int
 	DiskGB   int
 }

@@ -61,11 +61,17 @@ func (e *Engine) Start(ctx context.Context, id string) error {
 
 	// Setup tasks if task repository is available
 	if e.taskRepo != nil {
+		// Clear any previous incomplete start tasks (from failed attempts)
+		if err := e.taskRepo.ClearOperation(ctx, id, "start"); err != nil {
+			return fmt.Errorf("failed to clear previous start tasks: %w", err)
+		}
+
 		taskNames := []string{
 			"ensure_networking",
 			"spawn_firecracker",
 			"configure_vm",
 			"boot_vm",
+			"expand_filesystem",
 		}
 		if err := e.taskRepo.AddTasks(ctx, id, "start", taskNames); err != nil {
 			return fmt.Errorf("failed to add tasks: %w", err)
@@ -78,7 +84,7 @@ func (e *Engine) Start(ctx context.Context, id string) error {
 	// Task 1: Ensure networking resources exist (TAP + iptables)
 	// If TAP is missing (e.g., after system reboot), recreate it
 	if err := e.executeTask(ctx, id, "start", "ensure_networking", func() error {
-		e.logger.Infof("[1/4] Ensuring network resources exist")
+		e.logger.Infof("[1/5] Ensuring network resources exist")
 		return e.ensureNetworking(tapDevice, gateway, vmIP)
 	}); err != nil {
 		startErr = err
@@ -87,7 +93,7 @@ func (e *Engine) Start(ctx context.Context, id string) error {
 
 	// Task 2: Spawn Firecracker process
 	if err := e.executeTask(ctx, id, "start", "spawn_firecracker", func() error {
-		e.logger.Infof("[2/4] Spawning Firecracker process")
+		e.logger.Infof("[2/5] Spawning Firecracker process")
 		var err error
 		pid, err = e.spawnFirecracker(vmDir, socketPath)
 		return err
@@ -98,7 +104,7 @@ func (e *Engine) Start(ctx context.Context, id string) error {
 
 	// Task 3: Configure VM via API (includes network config via kernel ip= parameter)
 	if err := e.executeTask(ctx, id, "start", "configure_vm", func() error {
-		e.logger.Infof("[3/4] Configuring VM via Firecracker API")
+		e.logger.Infof("[3/5] Configuring VM via Firecracker API")
 		return e.configureVM(ctx, socketPath, kernelPath, vmDir, mac, tapDevice, vmIP, gateway, sandbox.Config.Resources)
 	}); err != nil {
 		startErr = err
@@ -107,8 +113,17 @@ func (e *Engine) Start(ctx context.Context, id string) error {
 
 	// Task 4: Boot VM
 	if err := e.executeTask(ctx, id, "start", "boot_vm", func() error {
-		e.logger.Infof("[4/4] Booting VM")
+		e.logger.Infof("[4/5] Booting VM")
 		return e.bootVM(ctx, socketPath)
+	}); err != nil {
+		startErr = err
+		goto cleanup
+	}
+
+	// Task 5: Expand filesystem inside VM to fill resized disk
+	if err := e.executeTask(ctx, id, "start", "expand_filesystem", func() error {
+		e.logger.Infof("[5/5] Expanding filesystem inside VM")
+		return e.expandFilesystem(ctx, vmIP)
 	}); err != nil {
 		startErr = err
 		goto cleanup
@@ -169,6 +184,11 @@ func (e *Engine) Stop(ctx context.Context, id string) error {
 
 	// Setup tasks if task repository is available
 	if e.taskRepo != nil {
+		// Clear any previous incomplete stop tasks
+		if err := e.taskRepo.ClearOperation(ctx, id, "stop"); err != nil {
+			return fmt.Errorf("failed to clear previous stop tasks: %w", err)
+		}
+
 		taskNames := []string{"shutdown_vm", "kill_process"}
 		if err := e.taskRepo.AddTasks(ctx, id, "stop", taskNames); err != nil {
 			return fmt.Errorf("failed to add tasks: %w", err)
@@ -206,6 +226,11 @@ func (e *Engine) Remove(ctx context.Context, id string) error {
 
 	// Setup tasks if task repository is available
 	if e.taskRepo != nil {
+		// Clear any previous incomplete remove tasks
+		if err := e.taskRepo.ClearOperation(ctx, id, "remove"); err != nil {
+			return fmt.Errorf("failed to clear previous remove tasks: %w", err)
+		}
+
 		taskNames := []string{"kill_process", "cleanup_iptables", "delete_tap", "delete_files"}
 		if err := e.taskRepo.AddTasks(ctx, id, "remove", taskNames); err != nil {
 			return fmt.Errorf("failed to add tasks: %w", err)

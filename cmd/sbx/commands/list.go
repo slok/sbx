@@ -43,10 +43,10 @@ func (c ListCommand) Run(ctx context.Context) error {
 		status := model.SandboxStatus(strings.ToLower(c.statusFilter))
 		// Validate status value.
 		switch status {
-		case model.SandboxStatusPending, model.SandboxStatusRunning, model.SandboxStatusStopped, model.SandboxStatusFailed:
+		case model.SandboxStatusPending, model.SandboxStatusCreated, model.SandboxStatusRunning, model.SandboxStatusStopped, model.SandboxStatusFailed:
 			statusFilter = &status
 		default:
-			return fmt.Errorf("invalid status filter: %s (must be: running, stopped, pending, failed)", c.statusFilter)
+			return fmt.Errorf("invalid status filter: %s (must be: running, stopped, created, pending, failed)", c.statusFilter)
 		}
 	}
 

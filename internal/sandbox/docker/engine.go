@@ -145,7 +145,8 @@ func (e *Engine) Check(ctx context.Context) []model.CheckResult {
 	return results
 }
 
-// Create creates and starts a new Docker container sandbox.
+// Create creates a new Docker container sandbox without starting it.
+// The sandbox is left in "created" status. Use Start to run it.
 func (e *Engine) Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sandbox, error) {
 	// Validate that we have Docker engine config
 	if cfg.DockerEngine == nil {
@@ -158,7 +159,7 @@ func (e *Engine) Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sa
 
 	// Setup tasks if task manager is available
 	if e.taskRepo != nil {
-		taskNames := []string{"pull_image", "create_container", "start_container"}
+		taskNames := []string{"pull_image", "create_container"}
 		if err := e.taskRepo.AddTasks(ctx, id, "create", taskNames); err != nil {
 			return nil, fmt.Errorf("failed to add tasks: %w", err)
 		}
@@ -170,7 +171,7 @@ func (e *Engine) Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sa
 
 	// Task 1: Pull the image
 	if err := e.executeTask(ctx, id, "create", "pull_image", func() error {
-		e.logger.Infof("[1/3] Pulling image: %s", cfg.DockerEngine.Image)
+		e.logger.Infof("[1/2] Pulling image: %s", cfg.DockerEngine.Image)
 		pullResp, err := e.client.ImagePull(ctx, cfg.DockerEngine.Image, image.PullOptions{})
 		if err != nil {
 			return fmt.Errorf("failed to pull image %s: %w", cfg.DockerEngine.Image, err)
@@ -184,20 +185,13 @@ func (e *Engine) Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sa
 		goto cleanup
 	}
 
-	// Task 2: Create container
+	// Task 2: Create container (without starting it)
 	if err := e.executeTask(ctx, id, "create", "create_container", func() error {
-		e.logger.Infof("[2/3] Creating container: %s", containerName)
-
-		// Prepare environment variables
-		var envVars []string
-		for k, v := range cfg.Env {
-			envVars = append(envVars, fmt.Sprintf("%s=%s", k, v))
-		}
+		e.logger.Infof("[2/2] Creating container: %s", containerName)
 
 		// Create container config
 		containerConfig := &container.Config{
 			Image: cfg.DockerEngine.Image,
-			Env:   envVars,
 			Cmd:   []string{"tail", "-f", "/dev/null"}, // Keep container running
 		}
 
@@ -222,34 +216,21 @@ func (e *Engine) Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sa
 		goto cleanup
 	}
 
-	// Task 3: Start the container
-	if err := e.executeTask(ctx, id, "create", "start_container", func() error {
-		e.logger.Infof("[3/3] Starting container: %s", containerID)
-		if err := e.client.ContainerStart(ctx, containerID, container.StartOptions{}); err != nil {
-			return fmt.Errorf("failed to start container: %w", err)
-		}
-		return nil
-	}); err != nil {
-		createErr = err
-		goto cleanup
-	}
-
 cleanup:
 	// If we have an error, return it
 	if createErr != nil {
 		return nil, createErr
 	}
 
-	// Create sandbox model
+	// Create sandbox model in "created" status (not running yet)
 	now := time.Now().UTC()
 	sandbox := &model.Sandbox{
 		ID:          id,
 		Name:        cfg.Name,
-		Status:      model.SandboxStatusRunning,
+		Status:      model.SandboxStatusCreated,
 		Config:      cfg,
 		ContainerID: containerID,
 		CreatedAt:   now,
-		StartedAt:   &now,
 	}
 
 	e.logger.Infof("Created Docker sandbox: %s (container: %s)", id, containerID)

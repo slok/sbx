@@ -59,10 +59,12 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 type Request struct {
 	// NameOrID is the sandbox name or ID to start.
 	NameOrID string
+	// SessionConfig is the optional session configuration applied at start time.
+	SessionConfig model.SessionConfig
 }
 
 // Run starts a sandbox by name or ID.
-// It validates the sandbox is stopped before attempting to start it.
+// It validates the sandbox is created or stopped before attempting to start it.
 func (s *Service) Run(ctx context.Context, req Request) (*model.Sandbox, error) {
 	s.logger.Debugf("starting sandbox: %s", req.NameOrID)
 
@@ -78,9 +80,9 @@ func (s *Service) Run(ctx context.Context, req Request) (*model.Sandbox, error) 
 		return nil, fmt.Errorf("could not get sandbox: %w", err)
 	}
 
-	// Validate sandbox is stopped.
-	if sandbox.Status != model.SandboxStatusStopped {
-		return nil, fmt.Errorf("cannot start sandbox: not stopped (current status: %s): %w", sandbox.Status, model.ErrNotValid)
+	// Validate sandbox is in a startable state (created or stopped).
+	if sandbox.Status != model.SandboxStatusCreated && sandbox.Status != model.SandboxStatusStopped {
+		return nil, fmt.Errorf("cannot start sandbox: not in startable state (current status: %s): %w", sandbox.Status, model.ErrNotValid)
 	}
 
 	// Start the sandbox via engine.

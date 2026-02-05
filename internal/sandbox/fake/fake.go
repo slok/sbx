@@ -92,10 +92,9 @@ func (e *Engine) Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sa
 	sandbox := &model.Sandbox{
 		ID:        id,
 		Name:      cfg.Name,
-		Status:    model.SandboxStatusRunning, // Fake engine goes directly to running
+		Status:    model.SandboxStatusCreated, // Created but not started
 		Config:    cfg,
 		CreatedAt: now,
-		StartedAt: &now,
 	}
 
 	e.sandboxes[id] = sandbox
@@ -138,6 +137,10 @@ func (e *Engine) Start(ctx context.Context, id string) error {
 	if sandbox.Status == model.SandboxStatusRunning {
 		e.logger.Debugf("Sandbox %s is already running", id)
 		return nil // Idempotent
+	}
+
+	if sandbox.Status != model.SandboxStatusCreated && sandbox.Status != model.SandboxStatusStopped {
+		return fmt.Errorf("sandbox %s cannot be started (status: %s): %w", id, sandbox.Status, model.ErrNotValid)
 	}
 
 	now := time.Now().UTC()

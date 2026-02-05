@@ -54,7 +54,7 @@ func (t *TablePrinter) PrintStatus(sandbox model.Sandbox) error {
 		fmt.Fprintf(t.writer, "Kernel:     %s\n", sandbox.Config.FirecrackerEngine.KernelImage)
 	}
 
-	fmt.Fprintf(t.writer, "VCPUs:      %d\n", sandbox.Config.Resources.VCPUs)
+	fmt.Fprintf(t.writer, "VCPUs:      %.2f\n", sandbox.Config.Resources.VCPUs)
 	fmt.Fprintf(t.writer, "Memory:     %d MB\n", sandbox.Config.Resources.MemoryMB)
 	fmt.Fprintf(t.writer, "Disk:       %d GB\n", sandbox.Config.Resources.DiskGB)
 	fmt.Fprintf(t.writer, "Created:    %s\n", FormatTimestamp(sandbox.CreatedAt))

@@ -146,7 +146,8 @@ func (e *Engine) configureVM(ctx context.Context, socketPath, kernelPath, vmDir,
 	// 1. Configure boot source with network config via kernel ip= parameter
 	// Format: ip=<client-ip>:<server-ip>:<gateway>:<netmask>:<hostname>:<device>:<autoconf>
 	// This configures networking before init runs, works for any distro
-	bootArgs := fmt.Sprintf("console=ttyS0 reboot=k panic=1 pci=off init=/sbin/sbx-init ip=%s::%s:255.255.255.0::eth0:off", vmIP, gateway)
+	// Note: init uses /usr/sbin/sbx-init since /sbin is typically a symlink to usr/sbin
+	bootArgs := fmt.Sprintf("console=ttyS0 reboot=k panic=1 pci=off init=/usr/sbin/sbx-init ip=%s::%s:255.255.255.0::eth0:off", vmIP, gateway)
 	bootSource := BootSource{
 		KernelImagePath: kernelPath,
 		BootArgs:        bootArgs,
@@ -168,8 +169,13 @@ func (e *Engine) configureVM(ctx context.Context, socketPath, kernelPath, vmDir,
 	}
 
 	// 3. Configure machine
+	// Note: Firecracker only supports whole VCPUs, so we round to nearest integer
+	vcpuCount := int(resources.VCPUs + 0.5) // Round to nearest
+	if vcpuCount < 1 {
+		vcpuCount = 1 // Minimum 1 vCPU
+	}
 	machineConfig := MachineConfig{
-		VCPUCount:  resources.VCPUs,
+		VCPUCount:  vcpuCount,
 		MemSizeMib: resources.MemoryMB,
 	}
 	if err := e.apiPUT(ctx, client, "/machine-config", machineConfig); err != nil {

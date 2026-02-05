@@ -17,22 +17,18 @@ import (
 
 func TestCreateCommand(t *testing.T) {
 	tests := map[string]struct {
-		setupConfig  func(t *testing.T) string
 		args         []string
 		expErr       bool
 		expStdout    []string
 		expNotStdout []string
 		validateDB   func(t *testing.T, dbPath string)
 	}{
-		"Successful creation with example config": {
-			setupConfig: func(t *testing.T) string {
-				return filepath.Join("..", "..", "testdata", "sandbox.yaml")
-			},
-			args: []string{},
+		"Successful creation with docker engine": {
+			args: []string{"--name", "example-sandbox", "--engine", "docker", "--docker-image", "ubuntu:22.04"},
 			expStdout: []string{
 				"Sandbox created successfully!",
 				"Name:   example-sandbox",
-				"Status: running",
+				"Status: created",
 				"Engine: docker",
 				"Image:  ubuntu:22.04",
 			},
@@ -49,11 +45,8 @@ func TestCreateCommand(t *testing.T) {
 				assert.Equal(t, "ubuntu:22.04", sandbox.Config.DockerEngine.Image)
 			},
 		},
-		"Name override works": {
-			setupConfig: func(t *testing.T) string {
-				return filepath.Join("..", "..", "testdata", "sandbox.yaml")
-			},
-			args: []string{"--name", "custom-name"},
+		"Custom resource flags work": {
+			args: []string{"--name", "custom-name", "--engine", "docker", "--docker-image", "ubuntu:22.04", "--cpu", "0.5", "--mem", "1024", "--disk", "20"},
 			expStdout: []string{
 				"Sandbox created successfully!",
 				"Name:   custom-name",
@@ -73,31 +66,11 @@ func TestCreateCommand(t *testing.T) {
 			},
 		},
 		"Duplicate name fails": {
-			setupConfig: func(t *testing.T) string {
-				// Create first sandbox
-				configPath := filepath.Join("..", "..", "testdata", "sandbox.yaml")
-
-				return configPath
-			},
-			args:   []string{},
+			args:   []string{"--name", "example-sandbox", "--engine", "docker", "--docker-image", "ubuntu:22.04"},
 			expErr: true,
 		},
-		"Missing config file fails": {
-			setupConfig: func(t *testing.T) string {
-				return "/nonexistent/path/config.yaml"
-			},
-			args:   []string{},
-			expErr: true,
-		},
-		"Invalid YAML fails": {
-			setupConfig: func(t *testing.T) string {
-				tmpDir := t.TempDir()
-				configPath := filepath.Join(tmpDir, "invalid.yaml")
-				err := os.WriteFile(configPath, []byte("invalid: [yaml"), 0644)
-				require.NoError(t, err)
-				return configPath
-			},
-			args:   []string{},
+		"Missing required flags fails": {
+			args:   []string{"--name", "test"},
 			expErr: true,
 		},
 	}
@@ -116,13 +89,10 @@ func TestCreateCommand(t *testing.T) {
 			tmpDir := t.TempDir()
 			dbPath := filepath.Join(tmpDir, "test.db")
 
-			// Setup config
-			configPath := tt.setupConfig(t)
-
 			// If test name is "Duplicate name fails", create the first sandbox
 			var firstContainerName string
 			if strings.Contains(name, "Duplicate") {
-				cmd := exec.Command("./sbx-test", "create", "-f", configPath, "--db-path", dbPath)
+				cmd := exec.Command("./sbx-test", "create", "--name", "example-sandbox", "--engine", "docker", "--docker-image", "ubuntu:22.04", "--db-path", dbPath, "--no-log")
 				err := cmd.Run()
 				require.NoError(t, err)
 
@@ -142,7 +112,7 @@ func TestCreateCommand(t *testing.T) {
 			}
 
 			// Build command args
-			cmdArgs := []string{"create", "-f", configPath, "--db-path", dbPath, "--no-log"}
+			cmdArgs := []string{"create", "--db-path", dbPath, "--no-log"}
 			cmdArgs = append(cmdArgs, tt.args...)
 
 			// Execute
@@ -172,7 +142,7 @@ func TestCreateCommand(t *testing.T) {
 					tt.validateDB(t, dbPath)
 				}
 
-				// Validate Docker container was created and is running
+				// Validate Docker container was created (but NOT started - create only provisions).
 				repo, err := sqlite.NewRepository(context.Background(), sqlite.RepositoryConfig{
 					DBPath: dbPath,
 				})
@@ -191,9 +161,9 @@ func TestCreateCommand(t *testing.T) {
 				require.NoError(t, err)
 				containerName := getContainerName(sandbox.ID)
 
-				// Verify Docker container exists and is running
+				// Verify Docker container exists but is NOT running (create only).
 				docker.requireContainerExists(t, containerName)
-				docker.requireContainerRunning(t, containerName)
+				docker.requireContainerStopped(t, containerName)
 
 				// Register cleanup
 				t.Cleanup(func() {
