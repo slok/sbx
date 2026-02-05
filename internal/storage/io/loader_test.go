@@ -32,6 +32,26 @@ func TestSessionYAMLRepository_GetSessionConfig(t *testing.T) {
 			},
 			expErr: false,
 		},
+		"Valid session config with env should load successfully": {
+			fs: fstest.MapFS{
+				"session.yaml": &fstest.MapFile{
+					Data: []byte(`name: dev-session
+env:
+  FOO: bar
+  BAZ: qux
+`),
+				},
+			},
+			path: "session.yaml",
+			expCfg: model.SessionConfig{
+				Name: "dev-session",
+				Env: map[string]string{
+					"FOO": "bar",
+					"BAZ": "qux",
+				},
+			},
+			expErr: false,
+		},
 		"Empty session config should load successfully": {
 			fs: fstest.MapFS{
 				"empty.yaml": &fstest.MapFile{

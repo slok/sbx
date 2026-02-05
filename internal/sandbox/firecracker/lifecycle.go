@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -355,12 +356,30 @@ func (e *Engine) Exec(ctx context.Context, id string, command []string, opts mod
 	// Add target
 	args = append(args, fmt.Sprintf("root@%s", vmIP))
 
-	// Build command string
-	var cmdStr string
+	quotedCommand := make([]string, 0, len(command))
+	for _, part := range command {
+		quotedCommand = append(quotedCommand, shellSingleQuote(part))
+	}
+
+	cmdStr := strings.Join(quotedCommand, " ")
+
 	if opts.WorkingDir != "" {
-		cmdStr = fmt.Sprintf("cd %s && %s", opts.WorkingDir, strings.Join(command, " "))
-	} else {
-		cmdStr = strings.Join(command, " ")
+		cmdStr = fmt.Sprintf("cd %s && %s", shellSingleQuote(opts.WorkingDir), cmdStr)
+	}
+
+	if len(opts.Env) > 0 {
+		keys := make([]string, 0, len(opts.Env))
+		for k := range opts.Env {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+
+		envParts := make([]string, 0, len(keys))
+		for _, k := range keys {
+			envParts = append(envParts, fmt.Sprintf("export %s=%s", k, shellSingleQuote(opts.Env[k])))
+		}
+
+		cmdStr = fmt.Sprintf("%s; %s", strings.Join(envParts, "; "), cmdStr)
 	}
 	args = append(args, cmdStr)
 
@@ -396,6 +415,10 @@ func (e *Engine) Exec(ctx context.Context, id string, command []string, opts mod
 	return &model.ExecResult{
 		ExitCode: exitCode,
 	}, nil
+}
+
+func shellSingleQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "'"
 }
 
 // CopyTo copies a file or directory from the local host to the Firecracker VM via SCP.

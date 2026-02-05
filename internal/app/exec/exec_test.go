@@ -156,16 +156,41 @@ func TestServiceRun(t *testing.T) {
 			},
 			mock: func(mEngine *sandboxmock.MockEngine, mRepo *storagemock.MockRepository) {
 				sandbox := &model.Sandbox{
-					ID:     "test-id",
-					Name:   "test-sandbox",
-					Status: model.SandboxStatusRunning,
+					ID:            "test-id",
+					Name:          "test-sandbox",
+					Status:        model.SandboxStatusRunning,
+					SessionConfig: model.SessionConfig{Env: map[string]string{"BASE": "base"}},
 				}
 				mRepo.On("GetSandboxByName", mock.Anything, "test-sandbox").Once().Return(sandbox, nil)
 
 				result := &model.ExecResult{ExitCode: 0}
 				// Verify env vars are passed
 				mEngine.On("Exec", mock.Anything, "test-id", []string{"env"}, mock.MatchedBy(func(opts model.ExecOpts) bool {
-					return opts.Env["FOO"] == "bar"
+					return opts.Env["FOO"] == "bar" && opts.Env["BASE"] == "base"
+				})).Once().Return(result, nil)
+			},
+			expRes: &model.ExecResult{ExitCode: 0},
+			expErr: false,
+		},
+
+		"Command env should override session env": {
+			req: Request{
+				NameOrID: "test-sandbox",
+				Command:  []string{"env"},
+				Opts:     model.ExecOpts{Env: map[string]string{"SAME": "override"}},
+			},
+			mock: func(mEngine *sandboxmock.MockEngine, mRepo *storagemock.MockRepository) {
+				sandbox := &model.Sandbox{
+					ID:            "test-id",
+					Name:          "test-sandbox",
+					Status:        model.SandboxStatusRunning,
+					SessionConfig: model.SessionConfig{Env: map[string]string{"SAME": "base", "BASE": "ok"}},
+				}
+				mRepo.On("GetSandboxByName", mock.Anything, "test-sandbox").Once().Return(sandbox, nil)
+
+				result := &model.ExecResult{ExitCode: 0}
+				mEngine.On("Exec", mock.Anything, "test-id", []string{"env"}, mock.MatchedBy(func(opts model.ExecOpts) bool {
+					return opts.Env["SAME"] == "override" && opts.Env["BASE"] == "ok"
 				})).Once().Return(result, nil)
 			},
 			expRes: &model.ExecResult{ExitCode: 0},

@@ -17,6 +17,7 @@ type ShellCommand struct {
 	rootCmd *RootCommand
 
 	nameOrID string
+	envSpecs []string
 }
 
 // NewShellCommand returns the shell command.
@@ -25,6 +26,7 @@ func NewShellCommand(rootCmd *RootCommand, app *kingpin.Application) *ShellComma
 
 	c.Cmd = app.Command("shell", "Open an interactive shell in a running sandbox.")
 	c.Cmd.Arg("name-or-id", "Sandbox name or ID.").Required().StringVar(&c.nameOrID)
+	c.Cmd.Flag("env", "Environment variables (KEY=VALUE or KEY from current environment). Can be repeated.").Short('e').StringsVar(&c.envSpecs)
 
 	return c
 }
@@ -33,6 +35,11 @@ func (c ShellCommand) Name() string { return c.Cmd.FullCommand() }
 
 func (c ShellCommand) Run(ctx context.Context) error {
 	logger := c.rootCmd.Logger
+
+	cmdEnv, err := parseEnvSpecs(c.envSpecs)
+	if err != nil {
+		return fmt.Errorf("invalid --env value: %w", err)
+	}
 
 	// Initialize storage (SQLite).
 	repo, err := sqlite.NewRepository(ctx, sqlite.RepositoryConfig{
@@ -86,6 +93,7 @@ func (c ShellCommand) Run(ctx context.Context) error {
 			Stdin:  os.Stdin,
 			Stdout: os.Stdout,
 			Stderr: os.Stderr,
+			Env:    cmdEnv,
 			Tty:    true,
 		},
 	})

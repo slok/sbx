@@ -225,6 +225,25 @@ func TestEngine_patchRootFSInit_missingRootfs(t *testing.T) {
 	assert.Contains(err.Error(), "rootfs not found")
 }
 
+func TestEngine_patchRootFSSessionHooks_missingRootfs(t *testing.T) {
+	assert := assert.New(t)
+	require := require.New(t)
+
+	tmpDir, err := os.MkdirTemp("", "sbx-session-hooks-test-*")
+	require.NoError(err)
+	defer os.RemoveAll(tmpDir)
+
+	vmDir := filepath.Join(tmpDir, "vm")
+	err = os.MkdirAll(vmDir, 0755)
+	require.NoError(err)
+
+	e := &Engine{logger: log.Noop}
+
+	err = e.patchRootFSSessionHooks(vmDir)
+	assert.Error(err)
+	assert.Contains(err.Error(), "rootfs not found")
+}
+
 func TestSbxInitScript(t *testing.T) {
 	assert := assert.New(t)
 
@@ -233,6 +252,14 @@ func TestSbxInitScript(t *testing.T) {
 	assert.Contains(sbxInitScript, "/dev/pts", "must mount devpts")
 	assert.Contains(sbxInitScript, "mount -t devpts", "must mount devpts filesystem")
 	assert.Contains(sbxInitScript, "exec /sbin/init", "must exec real init")
+}
+
+func TestSessionHookScripts(t *testing.T) {
+	assert := assert.New(t)
+
+	assert.Contains(defaultSessionEnvScript, "#!/bin/sh")
+	assert.Contains(rootFSProfileHookScript, "/etc/sbx/session-env.sh")
+	assert.Contains(rootFSSSHRCScript, "/etc/sbx/session-env.sh")
 }
 
 // Helper functions

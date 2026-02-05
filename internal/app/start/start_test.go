@@ -80,11 +80,20 @@ func TestService_Run(t *testing.T) {
 					StoppedAt: &stoppedAt,
 				}, nil)
 				m.On("UpdateSandbox", mock.Anything, mock.MatchedBy(func(s model.Sandbox) bool {
+					return s.Status == model.SandboxStatusStopped && s.SessionConfig.Env != nil
+				})).Once().Return(nil)
+				m.On("UpdateSandbox", mock.Anything, mock.MatchedBy(func(s model.Sandbox) bool {
 					return s.Status == model.SandboxStatusRunning && s.StartedAt != nil
 				})).Once().Return(nil)
 			},
 			mockEngine: func(m *sandboxmock.MockEngine) {
 				m.On("Start", mock.Anything, "01H2QWERTYASDFGZXCVBNMLKJH").Once().Return(nil)
+				m.On("Exec", mock.Anything, "01H2QWERTYASDFGZXCVBNMLKJH", []string{"mkdir", "-p", "/etc/sbx", "/etc/profile.d", "/root/.ssh"}, mock.Anything).Once().Return(&model.ExecResult{}, nil)
+				m.On("CopyTo", mock.Anything, "01H2QWERTYASDFGZXCVBNMLKJH", mock.Anything, "/etc/sbx/session-env.sh").Once().Return(nil)
+				m.On("CopyTo", mock.Anything, "01H2QWERTYASDFGZXCVBNMLKJH", mock.Anything, "/etc/profile.d/sbx-session-env.sh").Once().Return(nil)
+				m.On("CopyTo", mock.Anything, "01H2QWERTYASDFGZXCVBNMLKJH", mock.Anything, "/root/.ssh/rc").Once().Return(nil)
+				m.On("Exec", mock.Anything, "01H2QWERTYASDFGZXCVBNMLKJH", []string{"chmod", "644", "/etc/sbx/session-env.sh", "/etc/profile.d/sbx-session-env.sh"}, mock.Anything).Once().Return(&model.ExecResult{}, nil)
+				m.On("Exec", mock.Anything, "01H2QWERTYASDFGZXCVBNMLKJH", []string{"chmod", "700", "/root/.ssh/rc"}, mock.Anything).Once().Return(&model.ExecResult{}, nil)
 			},
 			req:    start.Request{NameOrID: "my-sandbox"},
 			expErr: false,
@@ -112,11 +121,20 @@ func TestService_Run(t *testing.T) {
 					CreatedAt: createdAt,
 				}, nil)
 				m.On("UpdateSandbox", mock.Anything, mock.MatchedBy(func(s model.Sandbox) bool {
+					return s.Status == model.SandboxStatusCreated && s.SessionConfig.Env != nil
+				})).Once().Return(nil)
+				m.On("UpdateSandbox", mock.Anything, mock.MatchedBy(func(s model.Sandbox) bool {
 					return s.Status == model.SandboxStatusRunning && s.StartedAt != nil
 				})).Once().Return(nil)
 			},
 			mockEngine: func(m *sandboxmock.MockEngine) {
 				m.On("Start", mock.Anything, "01H2QWERTYASDFGZXCVBNMLKJH").Once().Return(nil)
+				m.On("Exec", mock.Anything, "01H2QWERTYASDFGZXCVBNMLKJH", []string{"mkdir", "-p", "/etc/sbx", "/etc/profile.d", "/root/.ssh"}, mock.Anything).Once().Return(&model.ExecResult{}, nil)
+				m.On("CopyTo", mock.Anything, "01H2QWERTYASDFGZXCVBNMLKJH", mock.Anything, "/etc/sbx/session-env.sh").Once().Return(nil)
+				m.On("CopyTo", mock.Anything, "01H2QWERTYASDFGZXCVBNMLKJH", mock.Anything, "/etc/profile.d/sbx-session-env.sh").Once().Return(nil)
+				m.On("CopyTo", mock.Anything, "01H2QWERTYASDFGZXCVBNMLKJH", mock.Anything, "/root/.ssh/rc").Once().Return(nil)
+				m.On("Exec", mock.Anything, "01H2QWERTYASDFGZXCVBNMLKJH", []string{"chmod", "644", "/etc/sbx/session-env.sh", "/etc/profile.d/sbx-session-env.sh"}, mock.Anything).Once().Return(&model.ExecResult{}, nil)
+				m.On("Exec", mock.Anything, "01H2QWERTYASDFGZXCVBNMLKJH", []string{"chmod", "700", "/root/.ssh/rc"}, mock.Anything).Once().Return(&model.ExecResult{}, nil)
 			},
 			req:    start.Request{NameOrID: "my-sandbox"},
 			expErr: false,
@@ -151,6 +169,9 @@ func TestService_Run(t *testing.T) {
 					CreatedAt: createdAt,
 					StoppedAt: &stoppedAt,
 				}, nil)
+				m.On("UpdateSandbox", mock.Anything, mock.MatchedBy(func(s model.Sandbox) bool {
+					return s.Status == model.SandboxStatusStopped && s.SessionConfig.Env != nil
+				})).Once().Return(nil)
 			},
 			mockEngine: func(m *sandboxmock.MockEngine) {
 				m.On("Start", mock.Anything, "01H2QWERTYASDFGZXCVBNMLKJH").Once().Return(fmt.Errorf("engine error"))

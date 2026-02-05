@@ -21,6 +21,7 @@ type StartCommand struct {
 
 	nameOrID   string
 	configFile string
+	envSpecs   []string
 }
 
 // NewStartCommand returns the start command.
@@ -30,6 +31,7 @@ func NewStartCommand(rootCmd *RootCommand, app *kingpin.Application) *StartComma
 	c.Cmd = app.Command("start", "Start a created or stopped sandbox.")
 	c.Cmd.Arg("name-or-id", "Sandbox name or ID.").Required().StringVar(&c.nameOrID)
 	c.Cmd.Flag("file", "Path to a session configuration YAML file.").Short('f').StringVar(&c.configFile)
+	c.Cmd.Flag("env", "Environment variables (KEY=VALUE or KEY from current environment). Can be repeated.").Short('e').StringsVar(&c.envSpecs)
 
 	return c
 }
@@ -58,6 +60,12 @@ func (c StartCommand) Run(ctx context.Context) error {
 			return fmt.Errorf("could not load session config: %w", err)
 		}
 	}
+
+	cliEnv, err := parseEnvSpecs(c.envSpecs)
+	if err != nil {
+		return fmt.Errorf("invalid --env value: %w", err)
+	}
+	sessionCfg.Env = mergeEnvMaps(sessionCfg.Env, cliEnv)
 
 	// Initialize storage (SQLite).
 	repo, err := sqlite.NewRepository(ctx, sqlite.RepositoryConfig{

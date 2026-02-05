@@ -19,22 +19,19 @@ type ExecCommand struct {
 	nameOrID   string
 	command    []string
 	workingDir string
-	env        map[string]string
+	envSpecs   []string
 	tty        bool
 }
 
 // NewExecCommand returns the exec command.
 func NewExecCommand(rootCmd *RootCommand, app *kingpin.Application) *ExecCommand {
-	c := &ExecCommand{
-		rootCmd: rootCmd,
-		env:     make(map[string]string), // Initialize the map
-	}
+	c := &ExecCommand{rootCmd: rootCmd}
 
 	c.Cmd = app.Command("exec", "Execute a command in a running sandbox.")
 	c.Cmd.Arg("name-or-id", "Sandbox name or ID.").Required().StringVar(&c.nameOrID)
 	c.Cmd.Arg("command", "Command to execute (use -- before command).").Required().StringsVar(&c.command)
 	c.Cmd.Flag("workdir", "Working directory for command execution.").Short('w').StringVar(&c.workingDir)
-	c.Cmd.Flag("env", "Environment variables (key=value format).").Short('e').StringMapVar(&c.env)
+	c.Cmd.Flag("env", "Environment variables (KEY=VALUE or KEY from current environment). Can be repeated.").Short('e').StringsVar(&c.envSpecs)
 	c.Cmd.Flag("tty", "Allocate a pseudo-TTY.").Short('t').BoolVar(&c.tty)
 
 	return c
@@ -44,6 +41,11 @@ func (c ExecCommand) Name() string { return c.Cmd.FullCommand() }
 
 func (c ExecCommand) Run(ctx context.Context) error {
 	logger := c.rootCmd.Logger
+
+	cmdEnv, err := parseEnvSpecs(c.envSpecs)
+	if err != nil {
+		return fmt.Errorf("invalid --env value: %w", err)
+	}
 
 	// Initialize storage (SQLite).
 	repo, err := sqlite.NewRepository(ctx, sqlite.RepositoryConfig{
@@ -95,7 +97,7 @@ func (c ExecCommand) Run(ctx context.Context) error {
 		Command:  c.command,
 		Opts: model.ExecOpts{
 			WorkingDir: c.workingDir,
-			Env:        c.env,
+			Env:        cmdEnv,
 			Stdin:      os.Stdin,
 			Stdout:     os.Stdout,
 			Stderr:     os.Stderr,

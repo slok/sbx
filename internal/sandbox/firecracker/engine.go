@@ -368,6 +368,7 @@ func (e *Engine) Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sa
 			"patch_rootfs_ssh",
 			"patch_rootfs_dns",
 			"patch_rootfs_init",
+			"patch_rootfs_session_hooks",
 		}
 		if err := e.taskRepo.AddTasks(ctx, id, "create", taskNames); err != nil {
 			return nil, fmt.Errorf("failed to add tasks: %w", err)
@@ -424,8 +425,17 @@ func (e *Engine) Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sa
 
 	// Task 6: Patch rootfs with init wrapper (devpts mount for PTY support)
 	if err := e.executeTask(ctx, id, "create", "patch_rootfs_init", func() error {
-		e.logger.Infof("[6/6] Patching rootfs with init wrapper")
+		e.logger.Infof("[6/7] Patching rootfs with init wrapper")
 		return e.patchRootFSInit(vmDir)
+	}); err != nil {
+		createErr = err
+		goto cleanup
+	}
+
+	// Task 7: Patch rootfs with session env hooks for start-time population
+	if err := e.executeTask(ctx, id, "create", "patch_rootfs_session_hooks", func() error {
+		e.logger.Infof("[7/7] Patching rootfs with session environment hooks")
+		return e.patchRootFSSessionHooks(vmDir)
 	}); err != nil {
 		createErr = err
 		goto cleanup
