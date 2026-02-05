@@ -1,4 +1,4 @@
-package commands
+package env
 
 import (
 	"testing"
@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestParseEnvSpecs(t *testing.T) {
+func TestParseSpecs(t *testing.T) {
 	t.Setenv("FROM_HOST", "host-value")
 
 	tests := map[string]struct {
@@ -39,7 +39,7 @@ func TestParseEnvSpecs(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			env, err := parseEnvSpecs(tc.specs)
+			env, err := ParseSpecs(tc.specs)
 
 			if tc.expErr {
 				require.Error(t, err)

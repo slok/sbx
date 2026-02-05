@@ -13,6 +13,7 @@ import (
 	"github.com/slok/sbx/internal/printer"
 	"github.com/slok/sbx/internal/storage/io"
 	"github.com/slok/sbx/internal/storage/sqlite"
+	utilsenv "github.com/slok/sbx/internal/utils/env"
 )
 
 type StartCommand struct {
@@ -61,11 +62,11 @@ func (c StartCommand) Run(ctx context.Context) error {
 		}
 	}
 
-	cliEnv, err := parseEnvSpecs(c.envSpecs)
+	cliEnv, err := utilsenv.ParseSpecs(c.envSpecs)
 	if err != nil {
 		return fmt.Errorf("invalid --env value: %w", err)
 	}
-	sessionCfg.Env = mergeEnvMaps(sessionCfg.Env, cliEnv)
+	sessionCfg.Env = utilsenv.MergeMaps(sessionCfg.Env, cliEnv)
 
 	// Initialize storage (SQLite).
 	repo, err := sqlite.NewRepository(ctx, sqlite.RepositoryConfig{

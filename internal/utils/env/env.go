@@ -1,4 +1,4 @@
-package commands
+package env
 
 import (
 	"fmt"
@@ -9,7 +9,7 @@ import (
 
 var envKeyRegexp = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-func parseEnvSpecs(specs []string) (map[string]string, error) {
+func ParseSpecs(specs []string) (map[string]string, error) {
 	env := make(map[string]string, len(specs))
 
 	for _, spec := range specs {
@@ -18,7 +18,7 @@ func parseEnvSpecs(specs []string) (map[string]string, error) {
 		}
 
 		if key, value, ok := strings.Cut(spec, "="); ok {
-			if !isValidEnvKey(key) {
+			if !isValidKey(key) {
 				return nil, fmt.Errorf("invalid environment variable key %q", key)
 			}
 
@@ -26,7 +26,7 @@ func parseEnvSpecs(specs []string) (map[string]string, error) {
 			continue
 		}
 
-		if !isValidEnvKey(spec) {
+		if !isValidKey(spec) {
 			return nil, fmt.Errorf("invalid environment variable key %q", spec)
 		}
 
@@ -41,11 +41,7 @@ func parseEnvSpecs(specs []string) (map[string]string, error) {
 	return env, nil
 }
 
-func isValidEnvKey(k string) bool {
-	return envKeyRegexp.MatchString(k)
-}
-
-func mergeEnvMaps(base map[string]string, override map[string]string) map[string]string {
+func MergeMaps(base map[string]string, override map[string]string) map[string]string {
 	if len(base) == 0 && len(override) == 0 {
 		return map[string]string{}
 	}
@@ -59,4 +55,8 @@ func mergeEnvMaps(base map[string]string, override map[string]string) map[string
 	}
 
 	return merged
+}
+
+func isValidKey(k string) bool {
+	return envKeyRegexp.MatchString(k)
 }

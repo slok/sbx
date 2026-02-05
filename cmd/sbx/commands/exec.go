@@ -10,6 +10,7 @@ import (
 	"github.com/slok/sbx/internal/app/exec"
 	"github.com/slok/sbx/internal/model"
 	"github.com/slok/sbx/internal/storage/sqlite"
+	utilsenv "github.com/slok/sbx/internal/utils/env"
 )
 
 type ExecCommand struct {
@@ -42,7 +43,7 @@ func (c ExecCommand) Name() string { return c.Cmd.FullCommand() }
 func (c ExecCommand) Run(ctx context.Context) error {
 	logger := c.rootCmd.Logger
 
-	cmdEnv, err := parseEnvSpecs(c.envSpecs)
+	cmdEnv, err := utilsenv.ParseSpecs(c.envSpecs)
 	if err != nil {
 		return fmt.Errorf("invalid --env value: %w", err)
 	}
