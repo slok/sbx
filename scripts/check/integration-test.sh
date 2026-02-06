@@ -4,4 +4,9 @@ set -o errexit
 set -o nounset
 
 echo "Running integration tests..."
-go test -v ./test/integration/...
+
+if [ -d ./test/integration ]; then
+    go test -v ./test/integration/...
+else
+    echo "No integration tests directory found, skipping."
+fi

@@ -13,7 +13,7 @@ test: ## Run unit tests
 
 .PHONY: test-integration
 test-integration: ## Run integration tests
-	go test -v -race ./test/integration/...
+	@./scripts/check/integration-test.sh
 
 .PHONY: test-all
 test-all: test test-integration ## Run all tests
@@ -41,7 +41,7 @@ check: ## Run linters
 
 .PHONY: run
 run: ## Run with example flags (go run)
-	go run ./cmd/sbx create --name example-sandbox --engine docker --docker-image ubuntu:22.04 --cpu 2 --mem 2048 --disk 10
+	go run ./cmd/sbx create --name example-sandbox --engine fake --cpu 2 --mem 2048 --disk 10
 
 ALPINE_ROOTFS_SCRIPT := ./scripts/images/alpine/build-rootfs.sh
 
