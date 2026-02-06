@@ -196,10 +196,36 @@ func TestEngine_Start(t *testing.T) {
 					ID:   "test-sandbox",
 					Name: "test",
 					Config: model.SandboxConfig{
-						Name: "test",
-						DockerEngine: &model.DockerEngineConfig{
-							Image: "ubuntu:22.04",
-						},
+						Name:      "test",
+						Resources: model.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 1},
+					},
+				}, nil)
+				return m
+			},
+			expErr:         true,
+			expErrContains: "not a firecracker sandbox",
+		},
+
+		"Sandbox with missing firecracker config should return error.": {
+			setup: func(t *testing.T, e *Engine) string {
+				sandboxID := "test-sandbox"
+				vmDir := e.VMDir(sandboxID)
+				if err := os.MkdirAll(vmDir, 0755); err != nil {
+					t.Fatalf("failed to create vm dir: %v", err)
+				}
+				rootfsPath := e.RootFSPath(vmDir)
+				if err := os.WriteFile(rootfsPath, []byte("dummy"), 0644); err != nil {
+					t.Fatalf("failed to create rootfs: %v", err)
+				}
+				return sandboxID
+			},
+			mockRepo: func() *storagemock.MockRepository {
+				m := &storagemock.MockRepository{}
+				m.On("GetSandbox", mock.Anything, "test-sandbox").Return(&model.Sandbox{
+					ID:   "test-sandbox",
+					Name: "test",
+					Config: model.SandboxConfig{
+						Name:      "test",
 						Resources: model.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 1},
 					},
 				}, nil)

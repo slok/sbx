@@ -6,16 +6,15 @@ A CLI tool for creating and managing microVM sandboxes.
 
 - Create sandboxes from YAML configuration
 - Multiple sandbox engines:
-  - **Docker**: Real containers for testing and development
+  - **Firecracker**: MicroVM sandboxes
   - **Fake**: Simulated engine for unit testing
-  - Firecracker support planned for future releases
 - SQLite-based persistent storage
 - Comprehensive test coverage with integration tests
 
 ## Requirements
 
 - Go 1.24+ (for building from source)
-- Docker (for Docker engine support)
+- Firecracker host requirements (KVM, networking tools)
 
 ## Installation
 
@@ -54,8 +53,9 @@ Example configuration (`sandbox.yaml`):
 ```yaml
 name: example-sandbox
 engine:
-  docker:
-    image: ubuntu:22.04
+  firecracker:
+    kernel_image: /path/to/vmlinux
+    root_fs: /path/to/rootfs.ext4
 packages:
   - curl
   - git
@@ -73,14 +73,7 @@ resources:
 
 Currently supported engines:
 
-- **Docker Engine**: Runs sandboxes as Docker containers
-  ```yaml
-  engine:
-    docker:
-      image: ubuntu:22.04  # Any Docker image
-  ```
-
-- **Firecracker Engine** (planned for future release):
+- **Firecracker Engine**:
   ```yaml
   engine:
     firecracker:
@@ -137,8 +130,9 @@ Example output:
 Name:       example-sandbox
 ID:         01JQYXZ2ABCDEFGH1234567890
 Status:     running
-Engine:     docker
-Image:      ubuntu:22.04
+Engine:     firecracker
+RootFS:     /path/to/rootfs.ext4
+Kernel:     /path/to/vmlinux
 VCPUs:      2
 Memory:     2048 MB
 Disk:       10 GB
@@ -245,7 +239,6 @@ sbx list
 ### Prerequisites
 
 - Go 1.24+
-- Docker (for integration tests)
 - make
 - mockery (for generating mocks)
 
@@ -358,7 +351,6 @@ The project follows a clean architecture pattern:
 - `github.com/oklog/ulid/v2` - ULID generation
 - `modernc.org/sqlite` - Pure Go SQLite (no CGO)
 - `github.com/golang-migrate/migrate/v4` - Database migrations
-- `github.com/docker/docker` - Docker SDK for engine support
 - `github.com/sirupsen/logrus` - Structured logging
 - `github.com/stretchr/testify` - Testing utilities
 

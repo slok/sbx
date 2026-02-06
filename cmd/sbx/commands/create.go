@@ -9,7 +9,6 @@ import (
 	"github.com/slok/sbx/internal/app/create"
 	"github.com/slok/sbx/internal/model"
 	"github.com/slok/sbx/internal/sandbox"
-	"github.com/slok/sbx/internal/sandbox/docker"
 	"github.com/slok/sbx/internal/sandbox/fake"
 	"github.com/slok/sbx/internal/sandbox/firecracker"
 	"github.com/slok/sbx/internal/storage/sqlite"
@@ -28,9 +27,6 @@ type CreateCommand struct {
 	mem  int
 	disk int
 
-	// Docker-specific flags.
-	dockerImage string
-
 	// Firecracker-specific flags.
 	firecrackerRootFS string
 	firecrackerKernel string
@@ -44,15 +40,12 @@ func NewCreateCommand(rootCmd *RootCommand, app *kingpin.Application) *CreateCom
 
 	// Required flags.
 	c.Cmd.Flag("name", "Name for the sandbox.").Short('n').Required().StringVar(&c.name)
-	c.Cmd.Flag("engine", "Engine type (docker, firecracker, fake).").Required().EnumVar(&c.engine, "docker", "firecracker", "fake")
+	c.Cmd.Flag("engine", "Engine type (firecracker, fake).").Required().EnumVar(&c.engine, "firecracker", "fake")
 
 	// Resource flags.
 	c.Cmd.Flag("cpu", "Number of VCPUs (can be fractional, e.g., 0.5, 1.5).").Default("2").Float64Var(&c.cpu)
 	c.Cmd.Flag("mem", "Memory in MB.").Default("2048").IntVar(&c.mem)
 	c.Cmd.Flag("disk", "Disk in GB.").Default("10").IntVar(&c.disk)
-
-	// Docker-specific flags.
-	c.Cmd.Flag("docker-image", "Docker image to use (required for docker engine).").StringVar(&c.dockerImage)
 
 	// Firecracker-specific flags.
 	c.Cmd.Flag("firecracker-root-fs", "Path to rootfs image (required for firecracker engine).").StringVar(&c.firecrackerRootFS)
@@ -77,13 +70,6 @@ func (c CreateCommand) Run(ctx context.Context) error {
 	}
 
 	switch c.engine {
-	case "docker":
-		if c.dockerImage == "" {
-			return fmt.Errorf("--docker-image is required when using docker engine")
-		}
-		cfg.DockerEngine = &model.DockerEngineConfig{
-			Image: c.dockerImage,
-		}
 	case "firecracker":
 		if c.firecrackerRootFS == "" {
 			return fmt.Errorf("--firecracker-root-fs is required when using firecracker engine")
@@ -96,10 +82,9 @@ func (c CreateCommand) Run(ctx context.Context) error {
 			KernelImage: c.firecrackerKernel,
 		}
 	case "fake":
-		// Fake engine needs at least one engine config to pass validation.
-		// Use Docker as a placeholder.
-		cfg.DockerEngine = &model.DockerEngineConfig{
-			Image: "fake:latest",
+		cfg.FirecrackerEngine = &model.FirecrackerEngineConfig{
+			RootFS:      "/fake/rootfs.ext4",
+			KernelImage: "/fake/vmlinux",
 		}
 	}
 
@@ -124,11 +109,6 @@ func (c CreateCommand) Run(ctx context.Context) error {
 	// Initialize engine based on config.
 	var eng sandbox.Engine
 	switch c.engine {
-	case "docker":
-		eng, err = docker.NewEngine(docker.EngineConfig{
-			TaskRepo: taskRepo,
-			Logger:   logger,
-		})
 	case "firecracker":
 		eng, err = firecracker.NewEngine(firecracker.EngineConfig{
 			Repository: repo,
@@ -168,10 +148,7 @@ func (c CreateCommand) Run(ctx context.Context) error {
 	fmt.Fprintf(c.rootCmd.Stdout, "  ID:     %s\n", sb.ID)
 	fmt.Fprintf(c.rootCmd.Stdout, "  Name:   %s\n", sb.Name)
 	fmt.Fprintf(c.rootCmd.Stdout, "  Status: %s\n", sb.Status)
-	if sb.Config.DockerEngine != nil {
-		fmt.Fprintf(c.rootCmd.Stdout, "  Engine: docker\n")
-		fmt.Fprintf(c.rootCmd.Stdout, "  Image:  %s\n", sb.Config.DockerEngine.Image)
-	} else if sb.Config.FirecrackerEngine != nil {
+	if sb.Config.FirecrackerEngine != nil {
 		fmt.Fprintf(c.rootCmd.Stdout, "  Engine: firecracker\n")
 	}
 

@@ -73,8 +73,9 @@ func TestTaskTracking(t *testing.T) {
 					MemoryMB: 512,
 					DiskGB:   10,
 				},
-				DockerEngine: &model.DockerEngineConfig{
-					Image: "ubuntu:22.04",
+				FirecrackerEngine: &model.FirecrackerEngineConfig{
+					RootFS:      "/fake/rootfs.ext4",
+					KernelImage: "/fake/vmlinux",
 				},
 			}
 
@@ -199,8 +200,9 @@ func TestTaskPendingOperation(t *testing.T) {
 						MemoryMB: 512,
 						DiskGB:   10,
 					},
-					DockerEngine: &model.DockerEngineConfig{
-						Image: "ubuntu:22.04",
+					FirecrackerEngine: &model.FirecrackerEngineConfig{
+						RootFS:      "/fake/rootfs.ext4",
+						KernelImage: "/fake/vmlinux",
 					},
 				},
 			}

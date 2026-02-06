@@ -45,10 +45,7 @@ func (t *TablePrinter) PrintStatus(sandbox model.Sandbox) error {
 	fmt.Fprintf(t.writer, "Status:     %s\n", sandbox.Status)
 
 	// Print engine-specific info
-	if sandbox.Config.DockerEngine != nil {
-		fmt.Fprintf(t.writer, "Engine:     docker\n")
-		fmt.Fprintf(t.writer, "Image:      %s\n", sandbox.Config.DockerEngine.Image)
-	} else if sandbox.Config.FirecrackerEngine != nil {
+	if sandbox.Config.FirecrackerEngine != nil {
 		fmt.Fprintf(t.writer, "Engine:     firecracker\n")
 		fmt.Fprintf(t.writer, "RootFS:     %s\n", sandbox.Config.FirecrackerEngine.RootFS)
 		fmt.Fprintf(t.writer, "Kernel:     %s\n", sandbox.Config.FirecrackerEngine.KernelImage)
