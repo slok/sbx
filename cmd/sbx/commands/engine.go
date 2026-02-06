@@ -10,18 +10,16 @@ import (
 )
 
 // newEngineFromConfig creates an engine based on the sandbox configuration.
-func newEngineFromConfig(cfg model.SandboxConfig, repo storage.Repository, taskRepo storage.TaskRepository, logger log.Logger) (sandbox.Engine, error) {
+func newEngineFromConfig(cfg model.SandboxConfig, repo storage.Repository, logger log.Logger) (sandbox.Engine, error) {
 	if cfg.FirecrackerEngine != nil {
 		return firecracker.NewEngine(firecracker.EngineConfig{
 			Repository: repo,
-			TaskRepo:   taskRepo,
 			Logger:     logger,
 		})
 	}
 
 	// Fallback to fake engine (for backward compatibility or testing)
 	return fake.NewEngine(fake.EngineConfig{
-		TaskRepo: taskRepo,
-		Logger:   logger,
+		Logger: logger,
 	})
 }

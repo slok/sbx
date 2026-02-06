@@ -37,8 +37,6 @@ type EngineConfig struct {
 	FirecrackerBinary string
 	// Repository is the sandbox storage repository (required for Start to read sandbox config).
 	Repository storage.Repository
-	// TaskRepo is the repository for task tracking.
-	TaskRepo storage.TaskRepository
 	// Logger for logging.
 	Logger log.Logger
 }
@@ -63,7 +61,6 @@ type Engine struct {
 	dataDir           string
 	firecrackerBinary string
 	repo              storage.Repository
-	taskRepo          storage.TaskRepository
 	sshKeyManager     *ssh.KeyManager
 	logger            log.Logger
 }
@@ -82,7 +79,6 @@ func NewEngine(cfg EngineConfig) (*Engine, error) {
 		dataDir:           cfg.DataDir,
 		firecrackerBinary: cfg.FirecrackerBinary,
 		repo:              cfg.Repository,
-		taskRepo:          cfg.TaskRepo,
 		sshKeyManager:     sshKeyManager,
 		logger:            cfg.Logger,
 	}, nil
@@ -354,59 +350,32 @@ func (e *Engine) Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sa
 	e.logger.Debugf("Network: MAC=%s, Gateway=%s, VM IP=%s, TAP=%s", mac, gateway, vmIP, tapDevice)
 	e.logger.Debugf("Kernel: %s, RootFS: %s", kernelPath, rootfsPath)
 
-	// Setup tasks if task repository is available
-	if e.taskRepo != nil {
-		// Clear any previous incomplete create tasks (shouldn't happen but be defensive)
-		if err := e.taskRepo.ClearOperation(ctx, id, "create"); err != nil {
-			return nil, fmt.Errorf("failed to clear previous create tasks: %w", err)
-		}
-
-		taskNames := []string{
-			"ensure_ssh_keys",
-			"copy_rootfs",
-			"resize_rootfs",
-			"patch_rootfs_ssh",
-		}
-		if err := e.taskRepo.AddTasks(ctx, id, "create", taskNames); err != nil {
-			return nil, fmt.Errorf("failed to add tasks: %w", err)
-		}
-	}
-
 	var createErr error
 
 	// Task 1: Ensure SSH keys exist
-	if err := e.executeTask(ctx, id, "create", "ensure_ssh_keys", func() error {
-		e.logger.Infof("[1/4] Ensuring SSH keys exist")
-		_, err := e.sshKeyManager.EnsureKeys()
-		return err
-	}); err != nil {
+	e.logger.Infof("[1/4] Ensuring SSH keys exist")
+	if _, err := e.sshKeyManager.EnsureKeys(); err != nil {
 		createErr = err
 		goto cleanup
 	}
 
 	// Task 2: Copy rootfs
-	if err := e.executeTask(ctx, id, "create", "copy_rootfs", func() error {
-		e.logger.Infof("[2/4] Copying rootfs to VM directory")
-		return e.copyRootFS(rootfsPath, vmDir)
-	}); err != nil {
+	e.logger.Infof("[2/4] Copying rootfs to VM directory")
+	if err := e.copyRootFS(rootfsPath, vmDir); err != nil {
 		createErr = err
 		goto cleanup
 	}
 
 	// Task 3: Resize rootfs to configured disk_gb
-	if err := e.executeTask(ctx, id, "create", "resize_rootfs", func() error {
-		e.logger.Infof("[3/4] Resizing rootfs to %d GB", cfg.Resources.DiskGB)
-		return e.resizeRootFS(vmDir, cfg.Resources.DiskGB, rootfsPath)
-	}); err != nil {
+	e.logger.Infof("[3/4] Resizing rootfs to %d GB", cfg.Resources.DiskGB)
+	if err := e.resizeRootFS(vmDir, cfg.Resources.DiskGB, rootfsPath); err != nil {
 		createErr = err
 		goto cleanup
 	}
 
 	// Task 4: Patch rootfs with SSH key
-	if err := e.executeTask(ctx, id, "create", "patch_rootfs_ssh", func() error {
-		e.logger.Infof("[4/4] Patching rootfs with SSH public key")
-		return e.patchRootFSSSH(vmDir)
-	}); err != nil {
+	e.logger.Infof("[4/4] Patching rootfs with SSH public key")
+	if err := e.patchRootFSSSH(vmDir); err != nil {
 		createErr = err
 		goto cleanup
 	}
@@ -436,41 +405,4 @@ cleanup:
 	e.logger.Infof("Created Firecracker sandbox: %s (IP: %s)", id, vmIP)
 
 	return sandbox, nil
-}
-
-// executeTask executes a task function and tracks its completion.
-func (e *Engine) executeTask(ctx context.Context, sandboxID, operation, taskName string, fn func() error) error {
-	// If no task manager, just execute the function
-	if e.taskRepo == nil {
-		return fn()
-	}
-
-	// Get the next task - should be the one with this name
-	tsk, err := e.taskRepo.NextTask(ctx, sandboxID, operation)
-	if err != nil {
-		return fmt.Errorf("failed to get next task: %w", err)
-	}
-	if tsk == nil {
-		return fmt.Errorf("no pending task found for operation %s", operation)
-	}
-	if tsk.Name != taskName {
-		return fmt.Errorf("expected task %s, got %s", taskName, tsk.Name)
-	}
-
-	// Execute the task function
-	err = fn()
-	if err != nil {
-		// Mark task as failed
-		if failErr := e.taskRepo.FailTask(ctx, tsk.ID, err); failErr != nil {
-			e.logger.Errorf("Failed to mark task as failed: %v", failErr)
-		}
-		return err
-	}
-
-	// Mark task as completed
-	if err := e.taskRepo.CompleteTask(ctx, tsk.ID); err != nil {
-		return fmt.Errorf("failed to mark task as completed: %w", err)
-	}
-
-	return nil
 }
