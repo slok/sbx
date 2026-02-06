@@ -97,28 +97,17 @@ func (c CreateCommand) Run(ctx context.Context) error {
 		return fmt.Errorf("could not create repository: %w", err)
 	}
 
-	// Initialize task repository with the same database connection.
-	taskRepo, err := sqlite.NewTaskRepository(sqlite.TaskRepositoryConfig{
-		DB:     repo.DB(),
-		Logger: logger,
-	})
-	if err != nil {
-		return fmt.Errorf("could not create task repository: %w", err)
-	}
-
 	// Initialize engine based on config.
 	var eng sandbox.Engine
 	switch c.engine {
 	case "firecracker":
 		eng, err = firecracker.NewEngine(firecracker.EngineConfig{
 			Repository: repo,
-			TaskRepo:   taskRepo,
 			Logger:     logger,
 		})
 	case "fake":
 		eng, err = fake.NewEngine(fake.EngineConfig{
-			TaskRepo: taskRepo,
-			Logger:   logger,
+			Logger: logger,
 		})
 	}
 	if err != nil {
