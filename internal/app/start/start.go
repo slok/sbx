@@ -88,18 +88,14 @@ func (s *Service) Run(ctx context.Context, req Request) (*model.Sandbox, error) 
 		return nil, fmt.Errorf("cannot start sandbox: not in startable state (current status: %s): %w", sandbox.Status, model.ErrNotValid)
 	}
 
-	// Persist session config requested for this start.
-	sandbox.SessionConfig = normalizeSessionConfig(req.SessionConfig)
-	if err := s.repo.UpdateSandbox(ctx, *sandbox); err != nil {
-		return nil, fmt.Errorf("could not persist session config: %w", err)
-	}
+	sessionCfg := normalizeSessionConfig(req.SessionConfig)
 
 	// Start the sandbox via engine.
 	if err := s.engine.Start(ctx, sandbox.ID); err != nil {
 		return nil, fmt.Errorf("could not start sandbox: %w", err)
 	}
 
-	if err := s.applySessionEnvToSandbox(ctx, sandbox.ID, sandbox.SessionConfig.Env); err != nil {
+	if err := s.applySessionEnvToSandbox(ctx, sandbox.ID, sessionCfg.Env); err != nil {
 		if stopErr := s.engine.Stop(ctx, sandbox.ID); stopErr != nil {
 			s.logger.Warningf("could not stop sandbox after env setup failure: %v", stopErr)
 		}

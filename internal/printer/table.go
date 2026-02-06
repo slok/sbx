@@ -64,10 +64,6 @@ func (t *TablePrinter) PrintStatus(sandbox model.Sandbox) error {
 		fmt.Fprintf(t.writer, "Stopped:    %s\n", FormatTimestamp(*sandbox.StoppedAt))
 	}
 
-	if sandbox.Error != "" {
-		fmt.Fprintf(t.writer, "Error:      %s\n", sandbox.Error)
-	}
-
 	return nil
 }
 

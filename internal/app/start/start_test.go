@@ -80,9 +80,6 @@ func TestService_Run(t *testing.T) {
 					StoppedAt: &stoppedAt,
 				}, nil)
 				m.On("UpdateSandbox", mock.Anything, mock.MatchedBy(func(s model.Sandbox) bool {
-					return s.Status == model.SandboxStatusStopped && s.SessionConfig.Env != nil
-				})).Once().Return(nil)
-				m.On("UpdateSandbox", mock.Anything, mock.MatchedBy(func(s model.Sandbox) bool {
 					return s.Status == model.SandboxStatusRunning && s.StartedAt != nil
 				})).Once().Return(nil)
 			},
@@ -117,9 +114,6 @@ func TestService_Run(t *testing.T) {
 					Status:    model.SandboxStatusCreated,
 					CreatedAt: createdAt,
 				}, nil)
-				m.On("UpdateSandbox", mock.Anything, mock.MatchedBy(func(s model.Sandbox) bool {
-					return s.Status == model.SandboxStatusCreated && s.SessionConfig.Env != nil
-				})).Once().Return(nil)
 				m.On("UpdateSandbox", mock.Anything, mock.MatchedBy(func(s model.Sandbox) bool {
 					return s.Status == model.SandboxStatusRunning && s.StartedAt != nil
 				})).Once().Return(nil)
@@ -163,9 +157,6 @@ func TestService_Run(t *testing.T) {
 					CreatedAt: createdAt,
 					StoppedAt: &stoppedAt,
 				}, nil)
-				m.On("UpdateSandbox", mock.Anything, mock.MatchedBy(func(s model.Sandbox) bool {
-					return s.Status == model.SandboxStatusStopped && s.SessionConfig.Env != nil
-				})).Once().Return(nil)
 			},
 			mockEngine: func(m *sandboxmock.MockEngine) {
 				m.On("Start", mock.Anything, "01H2QWERTYASDFGZXCVBNMLKJH").Once().Return(fmt.Errorf("engine error"))

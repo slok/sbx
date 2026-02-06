@@ -1,1 +1,0 @@
-ALTER TABLE sandboxes ADD COLUMN container_id TEXT NOT NULL DEFAULT '';

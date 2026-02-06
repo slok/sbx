@@ -83,8 +83,6 @@ func (s *Service) Run(ctx context.Context, req Request) (*model.ExecResult, erro
 		return nil, fmt.Errorf("sandbox %s is not running (status: %s): %w", sandbox.Name, sandbox.Status, model.ErrNotValid)
 	}
 
-	req.Opts.Env = mergeEnvs(sandbox.SessionConfig.Env, req.Opts.Env)
-
 	// 4. Execute command via engine
 	result, err := s.engine.Exec(ctx, sandbox.ID, req.Command, req.Opts)
 	if err != nil {
@@ -94,20 +92,4 @@ func (s *Service) Run(ctx context.Context, req Request) (*model.ExecResult, erro
 	s.logger.Infof("Executed command in sandbox %s (%s): exit code %d", sandbox.Name, sandbox.ID, result.ExitCode)
 
 	return result, nil
-}
-
-func mergeEnvs(base, override map[string]string) map[string]string {
-	if len(base) == 0 && len(override) == 0 {
-		return map[string]string{}
-	}
-
-	merged := make(map[string]string, len(base)+len(override))
-	for k, v := range base {
-		merged[k] = v
-	}
-	for k, v := range override {
-		merged[k] = v
-	}
-
-	return merged
 }

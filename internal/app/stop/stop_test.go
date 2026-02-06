@@ -161,7 +161,6 @@ func TestService_Run(t *testing.T) {
 					Name:      "my-sandbox",
 					Status:    model.SandboxStatusFailed,
 					CreatedAt: createdAt,
-					Error:     "provisioning failed",
 				}, nil)
 			},
 			mockEngine: func(m *sandboxmock.MockEngine) {

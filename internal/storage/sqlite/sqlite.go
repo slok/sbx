@@ -3,11 +3,11 @@ package sqlite
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -46,20 +46,17 @@ func NewRepository(ctx context.Context, cfg RepositoryConfig) (*Repository, erro
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
-	// Ensure directory exists
 	dir := filepath.Dir(cfg.DBPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, fmt.Errorf("could not create db directory: %w", err)
 	}
 
-	// Open SQLite with WAL mode and foreign keys enabled
 	dsn := fmt.Sprintf("%s?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)", cfg.DBPath)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("could not open database: %w", err)
 	}
 
-	// Run migrations
 	migrator, err := migrations.NewMigrator(db, cfg.Logger)
 	if err != nil {
 		db.Close()
@@ -72,71 +69,57 @@ func NewRepository(ctx context.Context, cfg RepositoryConfig) (*Repository, erro
 
 	cfg.Logger.Infof("SQLite repository initialized at %s", cfg.DBPath)
 
-	return &Repository{
-		db:     db,
-		logger: cfg.Logger,
-	}, nil
+	return &Repository{db: db, logger: cfg.Logger}, nil
 }
 
 // Close closes the database connection.
-func (r *Repository) Close() error {
-	return r.db.Close()
-}
-
-// DB returns the underlying database connection.
-func (r *Repository) DB() *sql.DB {
-	return r.db
-}
+func (r *Repository) Close() error { return r.db.Close() }
 
 // CreateSandbox creates a new sandbox in the repository.
 func (r *Repository) CreateSandbox(ctx context.Context, s model.Sandbox) error {
-	// Marshal config to JSON
-	configJSON, err := json.Marshal(s.Config)
-	if err != nil {
-		return fmt.Errorf("could not marshal config: %w", err)
+	if s.Config.FirecrackerEngine == nil {
+		return fmt.Errorf("firecracker engine config is required: %w", model.ErrNotValid)
 	}
 
-	sessionConfigJSON, err := json.Marshal(s.SessionConfig)
-	if err != nil {
-		return fmt.Errorf("could not marshal session config: %w", err)
-	}
-
-	// Convert nullable times to SQL-friendly format
 	var startedAt, stoppedAt *int64
 	if s.StartedAt != nil {
-		unix := s.StartedAt.Unix()
-		startedAt = &unix
+		u := s.StartedAt.Unix()
+		startedAt = &u
 	}
 	if s.StoppedAt != nil {
-		unix := s.StoppedAt.Unix()
-		stoppedAt = &unix
+		u := s.StoppedAt.Unix()
+		stoppedAt = &u
 	}
 
 	query := `
-		INSERT INTO sandboxes (id, name, status, config_json, session_config_json, container_id, created_at, started_at, stopped_at, error, pid, socket_path, tap_device, internal_ip)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO sandboxes (
+			id, name, status,
+			rootfs_path, kernel_image_path,
+			vcpus, memory_mb, disk_gb,
+			internal_ip,
+			created_at, started_at, stopped_at
+		)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
-	_, err = r.db.ExecContext(ctx, query,
+	_, err := r.db.ExecContext(
+		ctx,
+		query,
 		s.ID,
 		s.Name,
 		s.Status,
-		string(configJSON),
-		string(sessionConfigJSON),
-		s.ContainerID,
+		s.Config.FirecrackerEngine.RootFS,
+		s.Config.FirecrackerEngine.KernelImage,
+		s.Config.Resources.VCPUs,
+		s.Config.Resources.MemoryMB,
+		s.Config.Resources.DiskGB,
+		s.InternalIP,
 		s.CreatedAt.Unix(),
 		startedAt,
 		stoppedAt,
-		s.Error,
-		s.PID,
-		s.SocketPath,
-		s.TapDevice,
-		s.InternalIP,
 	)
 	if err != nil {
-		// Check for unique constraint violation
-		if err.Error() == "UNIQUE constraint failed: sandboxes.id" ||
-			err.Error() == "UNIQUE constraint failed: sandboxes.name" {
+		if strings.Contains(err.Error(), "UNIQUE constraint failed: sandboxes.") {
 			return fmt.Errorf("sandbox already exists: %w", model.ErrAlreadyExists)
 		}
 		return fmt.Errorf("could not insert sandbox: %w", err)
@@ -149,33 +132,17 @@ func (r *Repository) CreateSandbox(ctx context.Context, s model.Sandbox) error {
 // GetSandbox retrieves a sandbox by ID.
 func (r *Repository) GetSandbox(ctx context.Context, id string) (*model.Sandbox, error) {
 	query := `
-		SELECT id, name, status, config_json, session_config_json, container_id, created_at, started_at, stopped_at, error, pid, socket_path, tap_device, internal_ip
+		SELECT
+			id, name, status,
+			rootfs_path, kernel_image_path,
+			vcpus, memory_mb, disk_gb,
+			internal_ip,
+			created_at, started_at, stopped_at
 		FROM sandboxes
 		WHERE id = ?
 	`
 
-	var sandbox model.Sandbox
-	var configJSON, sessionConfigJSON string
-	var createdAt, startedAt, stoppedAt sql.NullInt64
-	var pid sql.NullInt64
-	var socketPath, tapDevice, internalIP sql.NullString
-
-	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&sandbox.ID,
-		&sandbox.Name,
-		&sandbox.Status,
-		&configJSON,
-		&sessionConfigJSON,
-		&sandbox.ContainerID,
-		&createdAt,
-		&startedAt,
-		&stoppedAt,
-		&sandbox.Error,
-		&pid,
-		&socketPath,
-		&tapDevice,
-		&internalIP,
-	)
+	sandbox, err := r.scanOne(ctx, query, id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("sandbox %s: %w", id, model.ErrNotFound)
@@ -183,66 +150,23 @@ func (r *Repository) GetSandbox(ctx context.Context, id string) (*model.Sandbox,
 		return nil, fmt.Errorf("could not query sandbox: %w", err)
 	}
 
-	// Unmarshal config
-	if err := json.Unmarshal([]byte(configJSON), &sandbox.Config); err != nil {
-		return nil, fmt.Errorf("could not unmarshal config: %w", err)
-	}
-	if err := json.Unmarshal([]byte(sessionConfigJSON), &sandbox.SessionConfig); err != nil {
-		return nil, fmt.Errorf("could not unmarshal session config: %w", err)
-	}
-
-	// Convert timestamps
-	if err := r.setTimestamps(&sandbox, createdAt, startedAt, stoppedAt); err != nil {
-		return nil, err
-	}
-
-	// Set Firecracker fields
-	if pid.Valid {
-		sandbox.PID = int(pid.Int64)
-	}
-	if socketPath.Valid {
-		sandbox.SocketPath = socketPath.String
-	}
-	if tapDevice.Valid {
-		sandbox.TapDevice = tapDevice.String
-	}
-	if internalIP.Valid {
-		sandbox.InternalIP = internalIP.String
-	}
-
-	return &sandbox, nil
+	return sandbox, nil
 }
 
 // GetSandboxByName retrieves a sandbox by name.
 func (r *Repository) GetSandboxByName(ctx context.Context, name string) (*model.Sandbox, error) {
 	query := `
-		SELECT id, name, status, config_json, session_config_json, container_id, created_at, started_at, stopped_at, error, pid, socket_path, tap_device, internal_ip
+		SELECT
+			id, name, status,
+			rootfs_path, kernel_image_path,
+			vcpus, memory_mb, disk_gb,
+			internal_ip,
+			created_at, started_at, stopped_at
 		FROM sandboxes
 		WHERE name = ?
 	`
 
-	var sandbox model.Sandbox
-	var configJSON, sessionConfigJSON string
-	var createdAt, startedAt, stoppedAt sql.NullInt64
-	var pid sql.NullInt64
-	var socketPath, tapDevice, internalIP sql.NullString
-
-	err := r.db.QueryRowContext(ctx, query, name).Scan(
-		&sandbox.ID,
-		&sandbox.Name,
-		&sandbox.Status,
-		&configJSON,
-		&sessionConfigJSON,
-		&sandbox.ContainerID,
-		&createdAt,
-		&startedAt,
-		&stoppedAt,
-		&sandbox.Error,
-		&pid,
-		&socketPath,
-		&tapDevice,
-		&internalIP,
-	)
+	sandbox, err := r.scanOne(ctx, query, name)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("sandbox with name %s: %w", name, model.ErrNotFound)
@@ -250,40 +174,18 @@ func (r *Repository) GetSandboxByName(ctx context.Context, name string) (*model.
 		return nil, fmt.Errorf("could not query sandbox: %w", err)
 	}
 
-	// Unmarshal config
-	if err := json.Unmarshal([]byte(configJSON), &sandbox.Config); err != nil {
-		return nil, fmt.Errorf("could not unmarshal config: %w", err)
-	}
-	if err := json.Unmarshal([]byte(sessionConfigJSON), &sandbox.SessionConfig); err != nil {
-		return nil, fmt.Errorf("could not unmarshal session config: %w", err)
-	}
-
-	// Convert timestamps
-	if err := r.setTimestamps(&sandbox, createdAt, startedAt, stoppedAt); err != nil {
-		return nil, err
-	}
-
-	// Set Firecracker fields
-	if pid.Valid {
-		sandbox.PID = int(pid.Int64)
-	}
-	if socketPath.Valid {
-		sandbox.SocketPath = socketPath.String
-	}
-	if tapDevice.Valid {
-		sandbox.TapDevice = tapDevice.String
-	}
-	if internalIP.Valid {
-		sandbox.InternalIP = internalIP.String
-	}
-
-	return &sandbox, nil
+	return sandbox, nil
 }
 
 // ListSandboxes returns all sandboxes.
 func (r *Repository) ListSandboxes(ctx context.Context) ([]model.Sandbox, error) {
 	query := `
-		SELECT id, name, status, config_json, session_config_json, container_id, created_at, started_at, stopped_at, error, pid, socket_path, tap_device, internal_ip
+		SELECT
+			id, name, status,
+			rootfs_path, kernel_image_path,
+			vcpus, memory_mb, disk_gb,
+			internal_ip,
+			created_at, started_at, stopped_at
 		FROM sandboxes
 		ORDER BY created_at DESC
 	`
@@ -296,59 +198,10 @@ func (r *Repository) ListSandboxes(ctx context.Context) ([]model.Sandbox, error)
 
 	var sandboxes []model.Sandbox
 	for rows.Next() {
-		var sandbox model.Sandbox
-		var configJSON, sessionConfigJSON string
-		var createdAt, startedAt, stoppedAt sql.NullInt64
-		var pid sql.NullInt64
-		var socketPath, tapDevice, internalIP sql.NullString
-
-		err := rows.Scan(
-			&sandbox.ID,
-			&sandbox.Name,
-			&sandbox.Status,
-			&configJSON,
-			&sessionConfigJSON,
-			&sandbox.ContainerID,
-			&createdAt,
-			&startedAt,
-			&stoppedAt,
-			&sandbox.Error,
-			&pid,
-			&socketPath,
-			&tapDevice,
-			&internalIP,
-		)
+		sandbox, err := r.scanRow(rows)
 		if err != nil {
 			return nil, fmt.Errorf("could not scan row: %w", err)
 		}
-
-		// Unmarshal config
-		if err := json.Unmarshal([]byte(configJSON), &sandbox.Config); err != nil {
-			return nil, fmt.Errorf("could not unmarshal config: %w", err)
-		}
-		if err := json.Unmarshal([]byte(sessionConfigJSON), &sandbox.SessionConfig); err != nil {
-			return nil, fmt.Errorf("could not unmarshal session config: %w", err)
-		}
-
-		// Convert timestamps
-		if err := r.setTimestamps(&sandbox, createdAt, startedAt, stoppedAt); err != nil {
-			return nil, err
-		}
-
-		// Set Firecracker fields
-		if pid.Valid {
-			sandbox.PID = int(pid.Int64)
-		}
-		if socketPath.Valid {
-			sandbox.SocketPath = socketPath.String
-		}
-		if tapDevice.Valid {
-			sandbox.TapDevice = tapDevice.String
-		}
-		if internalIP.Valid {
-			sandbox.InternalIP = internalIP.String
-		}
-
 		sandboxes = append(sandboxes, sandbox)
 	}
 
@@ -361,48 +214,51 @@ func (r *Repository) ListSandboxes(ctx context.Context) ([]model.Sandbox, error)
 
 // UpdateSandbox updates an existing sandbox.
 func (r *Repository) UpdateSandbox(ctx context.Context, s model.Sandbox) error {
-	// Marshal config to JSON
-	configJSON, err := json.Marshal(s.Config)
-	if err != nil {
-		return fmt.Errorf("could not marshal config: %w", err)
+	if s.Config.FirecrackerEngine == nil {
+		return fmt.Errorf("firecracker engine config is required: %w", model.ErrNotValid)
 	}
 
-	sessionConfigJSON, err := json.Marshal(s.SessionConfig)
-	if err != nil {
-		return fmt.Errorf("could not marshal session config: %w", err)
-	}
-
-	// Convert nullable times
 	var startedAt, stoppedAt *int64
 	if s.StartedAt != nil {
-		unix := s.StartedAt.Unix()
-		startedAt = &unix
+		u := s.StartedAt.Unix()
+		startedAt = &u
 	}
 	if s.StoppedAt != nil {
-		unix := s.StoppedAt.Unix()
-		stoppedAt = &unix
+		u := s.StoppedAt.Unix()
+		stoppedAt = &u
 	}
 
 	query := `
 		UPDATE sandboxes
-		SET name = ?, status = ?, config_json = ?, session_config_json = ?, container_id = ?, created_at = ?, started_at = ?, stopped_at = ?, error = ?, pid = ?, socket_path = ?, tap_device = ?, internal_ip = ?
+		SET
+			name = ?,
+			status = ?,
+			rootfs_path = ?,
+			kernel_image_path = ?,
+			vcpus = ?,
+			memory_mb = ?,
+			disk_gb = ?,
+			internal_ip = ?,
+			created_at = ?,
+			started_at = ?,
+			stopped_at = ?
 		WHERE id = ?
 	`
 
-	result, err := r.db.ExecContext(ctx, query,
+	result, err := r.db.ExecContext(
+		ctx,
+		query,
 		s.Name,
 		s.Status,
-		string(configJSON),
-		string(sessionConfigJSON),
-		s.ContainerID,
+		s.Config.FirecrackerEngine.RootFS,
+		s.Config.FirecrackerEngine.KernelImage,
+		s.Config.Resources.VCPUs,
+		s.Config.Resources.MemoryMB,
+		s.Config.Resources.DiskGB,
+		s.InternalIP,
 		s.CreatedAt.Unix(),
 		startedAt,
 		stoppedAt,
-		s.Error,
-		s.PID,
-		s.SocketPath,
-		s.TapDevice,
-		s.InternalIP,
 		s.ID,
 	)
 	if err != nil {
@@ -413,7 +269,6 @@ func (r *Repository) UpdateSandbox(ctx context.Context, s model.Sandbox) error {
 	if err != nil {
 		return fmt.Errorf("could not get rows affected: %w", err)
 	}
-
 	if rows == 0 {
 		return fmt.Errorf("sandbox %s: %w", s.ID, model.ErrNotFound)
 	}
@@ -424,9 +279,7 @@ func (r *Repository) UpdateSandbox(ctx context.Context, s model.Sandbox) error {
 
 // DeleteSandbox deletes a sandbox.
 func (r *Repository) DeleteSandbox(ctx context.Context, id string) error {
-	query := `DELETE FROM sandboxes WHERE id = ?`
-
-	result, err := r.db.ExecContext(ctx, query, id)
+	result, err := r.db.ExecContext(ctx, `DELETE FROM sandboxes WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("could not delete sandbox: %w", err)
 	}
@@ -435,7 +288,6 @@ func (r *Repository) DeleteSandbox(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("could not get rows affected: %w", err)
 	}
-
 	if rows == 0 {
 		return fmt.Errorf("sandbox %s: %w", id, model.ErrNotFound)
 	}
@@ -444,7 +296,62 @@ func (r *Repository) DeleteSandbox(ctx context.Context, id string) error {
 	return nil
 }
 
-// setTimestamps is a helper to convert SQL timestamps to Go time.Time.
+func (r *Repository) scanOne(ctx context.Context, query string, arg any) (*model.Sandbox, error) {
+	row := r.db.QueryRowContext(ctx, query, arg)
+	sandbox, err := r.scanRow(row)
+	if err != nil {
+		return nil, err
+	}
+	return &sandbox, nil
+}
+
+type scanner interface {
+	Scan(dest ...any) error
+}
+
+func (r *Repository) scanRow(s scanner) (model.Sandbox, error) {
+	var sandbox model.Sandbox
+	var rootFSPath, kernelImagePath string
+	var vcpus float64
+	var memoryMB, diskGB int
+	var internalIP string
+	var createdAt, startedAt, stoppedAt sql.NullInt64
+
+	err := s.Scan(
+		&sandbox.ID,
+		&sandbox.Name,
+		&sandbox.Status,
+		&rootFSPath,
+		&kernelImagePath,
+		&vcpus,
+		&memoryMB,
+		&diskGB,
+		&internalIP,
+		&createdAt,
+		&startedAt,
+		&stoppedAt,
+	)
+	if err != nil {
+		return model.Sandbox{}, err
+	}
+
+	sandbox.Config = model.SandboxConfig{
+		Name: sandbox.Name,
+		FirecrackerEngine: &model.FirecrackerEngineConfig{
+			RootFS:      rootFSPath,
+			KernelImage: kernelImagePath,
+		},
+		Resources: model.Resources{VCPUs: vcpus, MemoryMB: memoryMB, DiskGB: diskGB},
+	}
+	sandbox.InternalIP = internalIP
+
+	if err := r.setTimestamps(&sandbox, createdAt, startedAt, stoppedAt); err != nil {
+		return model.Sandbox{}, err
+	}
+
+	return sandbox, nil
+}
+
 func (r *Repository) setTimestamps(s *model.Sandbox, createdAt, startedAt, stoppedAt sql.NullInt64) error {
 	if !createdAt.Valid {
 		return fmt.Errorf("created_at is required")
@@ -455,7 +362,6 @@ func (r *Repository) setTimestamps(s *model.Sandbox, createdAt, startedAt, stopp
 		t := timeFromUnix(startedAt.Int64)
 		s.StartedAt = &t
 	}
-
 	if stoppedAt.Valid {
 		t := timeFromUnix(stoppedAt.Int64)
 		s.StoppedAt = &t
@@ -464,7 +370,4 @@ func (r *Repository) setTimestamps(s *model.Sandbox, createdAt, startedAt, stopp
 	return nil
 }
 
-// timeFromUnix converts a Unix timestamp to UTC time.
-func timeFromUnix(unix int64) time.Time {
-	return time.Unix(unix, 0).UTC()
-}
+func timeFromUnix(unix int64) time.Time { return time.Unix(unix, 0).UTC() }
