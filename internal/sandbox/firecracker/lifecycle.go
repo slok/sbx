@@ -299,6 +299,8 @@ func (e *Engine) Exec(ctx context.Context, id string, command []string, opts mod
 		cmdStr = fmt.Sprintf("cd %s && %s", shellSingleQuote(opts.WorkingDir), cmdStr)
 	}
 
+	cmdStr = fmt.Sprintf("[ -f /etc/sbx/session-env.sh ] && . /etc/sbx/session-env.sh; %s", cmdStr)
+
 	if len(opts.Env) > 0 {
 		keys := make([]string, 0, len(opts.Env))
 		for k := range opts.Env {
