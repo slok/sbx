@@ -157,14 +157,3 @@ func RunSnapshotRm(ctx context.Context, config Config, dbPath, nameOrID string) 
 func RunForward(ctx context.Context, config Config, dbPath, name, ports string) (stdout, stderr []byte, err error) {
 	return RunSBXCmd(ctx, config, dbPath, fmt.Sprintf("forward %s %s", name, ports))
 }
-
-func joinArgs(args []string) string {
-	result := ""
-	for i, a := range args {
-		if i > 0 {
-			result += " "
-		}
-		result += a
-	}
-	return result
-}

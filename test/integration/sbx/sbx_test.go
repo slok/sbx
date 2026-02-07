@@ -356,7 +356,7 @@ func TestPortForward(t *testing.T) {
 
 	go func() {
 		// Run the listener script (blocks until a client connects).
-		intsbx.RunExec(listenerCtx, config, dbPath, name, []string{"/tmp/listen.sh"})
+		_, _, _ = intsbx.RunExec(listenerCtx, config, dbPath, name, []string{"/tmp/listen.sh"})
 	}()
 
 	// Give the listener a moment to start.
@@ -369,7 +369,7 @@ func TestPortForward(t *testing.T) {
 	fwdStarted := make(chan struct{})
 	go func() {
 		close(fwdStarted)
-		intsbx.RunForward(fwdCtx, config, dbPath, name, fmt.Sprintf("%d:%d", localPort, remotePort))
+		_, _, _ = intsbx.RunForward(fwdCtx, config, dbPath, name, fmt.Sprintf("%d:%d", localPort, remotePort))
 	}()
 	<-fwdStarted
 
@@ -390,7 +390,7 @@ func TestPortForward(t *testing.T) {
 
 	// Read response.
 	buf := make([]byte, 1024)
-	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	n, err := conn.Read(buf)
 	if err == nil {
 		assert.Equal(t, "pong", string(buf[:n]))
