@@ -1,27 +1,21 @@
-with-expecter: true
+dir: '{{.InterfaceDir}}/{{.SrcPackageName}}mock'
+filename: mocks.go
+force-file-write: true
+structname: 'Mock{{.InterfaceName}}'
+pkgname: '{{.SrcPackageName}}mock'
+template: testify
 packages:
   github.com/slok/sbx/internal/sandbox:
-    config:
-      dir: "{{.InterfaceDir}}/sandboxmock"
-      filename: "mocks.go"
-      outpkg: "sandboxmock"
     interfaces:
       Engine:
   github.com/slok/sbx/internal/provision:
-    config:
-      dir: "{{.InterfaceDir}}/provisionmock"
-      outpkg: "provisionmock"
     interfaces:
       Provisioner:
         config:
-          filename: "mock_provisioner.go"
+          filename: mock_provisioner.go
       SandboxAccessor:
         config:
-          filename: "mock_sandbox_accessor.go"
+          filename: mock_sandbox_accessor.go
   github.com/slok/sbx/internal/storage:
-    config:
-      dir: "{{.InterfaceDir}}/storagemock"
-      filename: "mocks.go"
-      outpkg: "storagemock"
     interfaces:
       Repository:
