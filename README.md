@@ -39,6 +39,7 @@ make build
 - `sbx start` - Start a stopped sandbox
 - `sbx stop` - Stop a running sandbox
 - `sbx rm` - Remove a sandbox
+- `sbx snapshot create` - Create a rootfs snapshot from a stopped sandbox
 
 ### Create a Sandbox
 
@@ -185,6 +186,34 @@ Force remove a running sandbox (stops it first):
 ```bash
 sbx rm example-sandbox --force
 ```
+
+### Create a Snapshot
+
+Create a rootfs snapshot from an existing sandbox:
+
+```bash
+sbx snapshot create example-sandbox base-dev-image
+```
+
+You can omit the snapshot name, and `sbx` will auto-generate one as:
+
+```text
+<sandbox-name>-<YYYYMMDD-HHMM>
+```
+
+Example:
+
+```bash
+sbx snapshot create example-sandbox
+# example-sandbox-20260207-0935
+```
+
+Important snapshot behavior in v1:
+
+- Snapshot source sandbox must be in `created` or `stopped` status
+- Snapshot names are globally unique and can only use `[a-zA-Z0-9._-]`
+- Snapshots are stored under `~/.sbx/snapshots` and remain even if the source sandbox is removed
+- Snapshot captures rootfs disk state only (no memory/device state)
 
 ### Complete Lifecycle Example
 
