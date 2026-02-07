@@ -63,3 +63,33 @@ func TestRepositorySnapshots(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, model.ErrNotFound))
 }
+
+func TestRepositoryDeleteSnapshot(t *testing.T) {
+	repo, err := memory.NewRepository(memory.RepositoryConfig{Logger: log.Noop})
+	require.NoError(t, err)
+
+	snapshot := model.Snapshot{
+		ID:                 "01ARZ3NDEKTSV4RRFFQ69G5FAB",
+		Name:               "snapshot-del",
+		Path:               "/tmp/snapshot-del.ext4",
+		SourceSandboxID:    "sb-1",
+		SourceSandboxName:  "sandbox-1",
+		VirtualSizeBytes:   1024,
+		AllocatedSizeBytes: 512,
+		CreatedAt:          time.Now().UTC(),
+	}
+
+	// Create and then delete.
+	require.NoError(t, repo.CreateSnapshot(context.Background(), snapshot))
+	require.NoError(t, repo.DeleteSnapshot(context.Background(), snapshot.ID))
+
+	// Should be gone.
+	_, err = repo.GetSnapshot(context.Background(), snapshot.ID)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, model.ErrNotFound))
+
+	// Deleting non-existent should fail.
+	err = repo.DeleteSnapshot(context.Background(), "missing")
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, model.ErrNotFound))
+}

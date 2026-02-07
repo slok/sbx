@@ -140,6 +140,21 @@ func (r *Repository) DeleteSandbox(ctx context.Context, id string) error {
 	return nil
 }
 
+// DeleteSnapshot deletes a snapshot by ID.
+func (r *Repository) DeleteSnapshot(ctx context.Context, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, ok := r.snapshots[id]; !ok {
+		return fmt.Errorf("snapshot %s: %w", id, model.ErrNotFound)
+	}
+
+	delete(r.snapshots, id)
+	r.logger.Debugf("Deleted snapshot from repository: %s", id)
+
+	return nil
+}
+
 // CreateSnapshot creates a new snapshot in the repository.
 func (r *Repository) CreateSnapshot(ctx context.Context, s model.Snapshot) error {
 	r.mu.Lock()
