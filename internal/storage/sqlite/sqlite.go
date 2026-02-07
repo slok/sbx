@@ -415,6 +415,25 @@ func (r *Repository) ListSnapshots(ctx context.Context) ([]model.Snapshot, error
 	return snapshots, nil
 }
 
+// DeleteSnapshot deletes a snapshot by ID.
+func (r *Repository) DeleteSnapshot(ctx context.Context, id string) error {
+	result, err := r.db.ExecContext(ctx, `DELETE FROM snapshots WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("could not delete snapshot: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("could not get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("snapshot %s: %w", id, model.ErrNotFound)
+	}
+
+	r.logger.Debugf("Deleted snapshot from repository: %s", id)
+	return nil
+}
+
 func (r *Repository) scanOne(ctx context.Context, query string, arg any) (*model.Sandbox, error) {
 	row := r.db.QueryRowContext(ctx, query, arg)
 	sandbox, err := r.scanRow(row)

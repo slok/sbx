@@ -45,6 +45,7 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	snapshotCmd := app.Command("snapshot", "Manage snapshots.")
 	snapshotCreateCmd := commands.NewSnapshotCreateCommand(rootCmd, snapshotCmd)
 	snapshotListCmd := commands.NewSnapshotListCommand(rootCmd, snapshotCmd)
+	snapshotRmCmd := commands.NewSnapshotRmCommand(rootCmd, snapshotCmd)
 
 	cmds := map[string]commands.Command{
 		createCmd.Name():         createCmd,
@@ -60,6 +61,7 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		forwardCmd.Name():        forwardCmd,
 		snapshotCreateCmd.Name(): snapshotCreateCmd,
 		snapshotListCmd.Name():   snapshotListCmd,
+		snapshotRmCmd.Name():     snapshotRmCmd,
 	}
 
 	// Parse command.

@@ -152,6 +152,27 @@ func TestRepositorySnapshotCRUD(t *testing.T) {
 	assert.True(t, errors.Is(err, model.ErrNotFound))
 }
 
+func TestRepositoryDeleteSnapshot(t *testing.T) {
+	ctx := context.Background()
+	repo := newRepo(t)
+
+	snap := snapshotFixture("snap-del-1", "snapshot-del-1")
+	require.NoError(t, repo.CreateSnapshot(ctx, snap))
+
+	// Delete should succeed.
+	require.NoError(t, repo.DeleteSnapshot(ctx, "snap-del-1"))
+
+	// Should be gone.
+	_, err := repo.GetSnapshot(ctx, "snap-del-1")
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, model.ErrNotFound))
+
+	// Deleting non-existent should fail.
+	err = repo.DeleteSnapshot(ctx, "snap-x")
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, model.ErrNotFound))
+}
+
 func TestRepositorySnapshotConstraints(t *testing.T) {
 	ctx := context.Background()
 	repo := newRepo(t)
