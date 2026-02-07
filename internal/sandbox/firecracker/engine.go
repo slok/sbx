@@ -368,7 +368,7 @@ func (e *Engine) Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sa
 
 	// Task 2: Copy rootfs
 	e.logger.Infof("[2/4] Copying rootfs to VM directory")
-	if err := e.copyRootFS(rootfsPath, vmDir); err != nil {
+	if err := e.copyRootFS(ctx, rootfsPath, vmDir); err != nil {
 		createErr = err
 		goto cleanup
 	}

@@ -3,7 +3,6 @@ package firecracker
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,7 +18,7 @@ const (
 )
 
 // copyRootFS copies the base rootfs to the VM directory.
-func (e *Engine) copyRootFS(srcPath, vmDir string) error {
+func (e *Engine) copyRootFS(ctx context.Context, srcPath, vmDir string) error {
 	dstPath := filepath.Join(vmDir, RootFSFile)
 
 	// Open source file
@@ -36,9 +35,23 @@ func (e *Engine) copyRootFS(srcPath, vmDir string) error {
 	}
 	defer dst.Close()
 
-	// Copy the file
-	if _, err := io.Copy(dst, src); err != nil {
-		return fmt.Errorf("could not copy rootfs: %w", err)
+	copyErr := copyFileSparse(ctx, src, dst)
+	if copyErr != nil {
+		if isSeekDataUnsupported(copyErr) {
+			if _, err := src.Seek(0, 0); err != nil {
+				return fmt.Errorf("could not seek source file before fallback copy: %w", err)
+			}
+			if _, err := dst.Seek(0, 0); err != nil {
+				return fmt.Errorf("could not seek destination file before fallback copy: %w", err)
+			}
+
+			e.logger.Debugf("Sparse copy unsupported by filesystem/kernel while copying rootfs, using regular copy fallback")
+			if err := copyFileRegular(ctx, src, dst); err != nil {
+				return fmt.Errorf("could not copy rootfs: %w", err)
+			}
+		} else {
+			return fmt.Errorf("could not copy rootfs: %w", copyErr)
+		}
 	}
 
 	// Sync to disk

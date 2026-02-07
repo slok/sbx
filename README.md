@@ -43,11 +43,23 @@ make build
 
 ### Create a Sandbox
 
-Create a new sandbox from a YAML configuration file:
+Create a new sandbox:
 
 ```bash
-sbx create -f sandbox.yaml
+sbx create --name example-sandbox --engine firecracker \
+  --firecracker-root-fs /path/to/rootfs.ext4 \
+  --firecracker-kernel /path/to/vmlinux
 ```
+
+Create a sandbox directly from a snapshot (auto-uses snapshot rootfs):
+
+```bash
+sbx create --name example-sandbox-2 --engine firecracker \
+  --from-snapshot base-dev-image \
+  --firecracker-kernel /path/to/vmlinux
+```
+
+When `--from-snapshot` is used, `--firecracker-root-fs` must not be provided.
 
 Example configuration (`sandbox.yaml`):
 
@@ -214,6 +226,14 @@ Important snapshot behavior in v1:
 - Snapshot names are globally unique and can only use `[a-zA-Z0-9._-]`
 - Snapshots are stored under `~/.sbx/snapshots` and remain even if the source sandbox is removed
 - Snapshot captures rootfs disk state only (no memory/device state)
+
+Use snapshot as source for `create`:
+
+```bash
+sbx create --name restored-sandbox --engine firecracker \
+  --from-snapshot base-dev-image \
+  --firecracker-kernel /path/to/vmlinux
+```
 
 ### Complete Lifecycle Example
 
