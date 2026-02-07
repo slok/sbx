@@ -8,6 +8,8 @@ type Printer interface {
 	PrintList(sandboxes []model.Sandbox) error
 	// PrintStatus prints detailed status of a single sandbox.
 	PrintStatus(sandbox model.Sandbox) error
+	// PrintSnapshotList prints a list of snapshots.
+	PrintSnapshotList(snapshots []model.Snapshot) error
 	// PrintMessage prints a simple text message.
 	PrintMessage(msg string) error
 }

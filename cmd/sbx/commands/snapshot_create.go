@@ -20,10 +20,9 @@ type SnapshotCreateCommand struct {
 }
 
 // NewSnapshotCreateCommand returns the snapshot create command.
-func NewSnapshotCreateCommand(rootCmd *RootCommand, app *kingpin.Application) *SnapshotCreateCommand {
+func NewSnapshotCreateCommand(rootCmd *RootCommand, snapshotCmd *kingpin.CmdClause) *SnapshotCreateCommand {
 	c := &SnapshotCreateCommand{rootCmd: rootCmd}
 
-	snapshotCmd := app.Command("snapshot", "Manage snapshots.")
 	c.Cmd = snapshotCmd.Command("create", "Create a rootfs snapshot from a sandbox.")
 	c.Cmd.Arg("name-or-id", "Sandbox name or ID.").Required().StringVar(&c.nameOrID)
 	c.Cmd.Arg("snapshot-name", "Optional friendly snapshot name ([a-zA-Z0-9._-]).").StringVar(&c.snapshotName)

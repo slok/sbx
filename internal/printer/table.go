@@ -67,6 +67,32 @@ func (t *TablePrinter) PrintStatus(sandbox model.Sandbox) error {
 	return nil
 }
 
+// PrintSnapshotList prints snapshots in a table format.
+func (t *TablePrinter) PrintSnapshotList(snapshots []model.Snapshot) error {
+	if len(snapshots) == 0 {
+		return nil
+	}
+
+	tw := tabwriter.NewWriter(t.writer, 0, 0, 2, ' ', 0)
+	defer tw.Flush()
+
+	// Print header.
+	fmt.Fprintln(tw, "NAME\tSOURCE\tVIRT SIZE\tDISK SIZE\tCREATED")
+
+	// Print rows.
+	for _, s := range snapshots {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
+			s.Name,
+			s.SourceSandboxName,
+			FormatBytes(s.VirtualSizeBytes),
+			FormatBytes(s.AllocatedSizeBytes),
+			TimeAgo(s.CreatedAt),
+		)
+	}
+
+	return nil
+}
+
 // PrintMessage prints a simple text message.
 func (t *TablePrinter) PrintMessage(msg string) error {
 	fmt.Fprintln(t.writer, msg)
