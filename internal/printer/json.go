@@ -107,6 +107,37 @@ func (j *JSONPrinter) PrintStatus(sandbox model.Sandbox) error {
 	return enc.Encode(output)
 }
 
+// snapshotListItem represents a snapshot in the list output.
+type snapshotListItem struct {
+	ID                 string    `json:"id"`
+	Name               string    `json:"name"`
+	SourceSandboxID    string    `json:"source_sandbox_id"`
+	SourceSandboxName  string    `json:"source_sandbox_name"`
+	VirtualSizeBytes   int64     `json:"virtual_size_bytes"`
+	AllocatedSizeBytes int64     `json:"allocated_size_bytes"`
+	CreatedAt          time.Time `json:"created_at"`
+}
+
+// PrintSnapshotList prints snapshots in JSON format.
+func (j *JSONPrinter) PrintSnapshotList(snapshots []model.Snapshot) error {
+	items := make([]snapshotListItem, len(snapshots))
+	for i, s := range snapshots {
+		items[i] = snapshotListItem{
+			ID:                 s.ID,
+			Name:               s.Name,
+			SourceSandboxID:    s.SourceSandboxID,
+			SourceSandboxName:  s.SourceSandboxName,
+			VirtualSizeBytes:   s.VirtualSizeBytes,
+			AllocatedSizeBytes: s.AllocatedSizeBytes,
+			CreatedAt:          s.CreatedAt.UTC(),
+		}
+	}
+
+	enc := json.NewEncoder(j.writer)
+	enc.SetIndent("", "  ")
+	return enc.Encode(items)
+}
+
 // PrintMessage prints a simple message in JSON format.
 func (j *JSONPrinter) PrintMessage(msg string) error {
 	output := messageOutput{Message: msg}

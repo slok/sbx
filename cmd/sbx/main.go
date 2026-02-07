@@ -40,7 +40,11 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	doctorCmd := commands.NewDoctorCommand(rootCmd, app)
 	cpCmd := commands.NewCpCommand(rootCmd, app)
 	forwardCmd := commands.NewForwardCommand(rootCmd, app)
-	snapshotCreateCmd := commands.NewSnapshotCreateCommand(rootCmd, app)
+
+	// Snapshot subcommands share a parent command.
+	snapshotCmd := app.Command("snapshot", "Manage snapshots.")
+	snapshotCreateCmd := commands.NewSnapshotCreateCommand(rootCmd, snapshotCmd)
+	snapshotListCmd := commands.NewSnapshotListCommand(rootCmd, snapshotCmd)
 
 	cmds := map[string]commands.Command{
 		createCmd.Name():         createCmd,
@@ -55,6 +59,7 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		cpCmd.Name():             cpCmd,
 		forwardCmd.Name():        forwardCmd,
 		snapshotCreateCmd.Name(): snapshotCreateCmd,
+		snapshotListCmd.Name():   snapshotListCmd,
 	}
 
 	// Parse command.
