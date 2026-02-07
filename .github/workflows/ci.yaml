@@ -29,12 +29,45 @@ jobs:
   integration-test:
     name: Integration test
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: "go.mod"
-      - run: make ci-integration-test
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y e2fsprogs iptables iproute2 git curl
+
+      - name: Enable KVM access
+        run: |
+          [ -e /dev/kvm ] && sudo chmod 666 /dev/kvm
+          ls -la /dev/kvm
+
+      - name: Enable IP forwarding
+        run: sudo sysctl -w net.ipv4.ip_forward=1
+
+      - name: Download Firecracker binary and kernel
+        run: ./scripts/setup-firecracker-images.sh
+
+      - name: Build Alpine agentic rootfs
+        run: |
+          sudo ./scripts/images/alpine/build-rootfs.sh \
+            --profile minimal \
+            --image-name alpine-ci.ext4
+
+      - name: Build sbx binary
+        run: make build
+
+      - name: Run integration tests
+        env:
+          SBX_INTEGRATION: "true"
+          SBX_INTEGRATION_BINARY: ${{ github.workspace }}/bin/sbx
+          SBX_INTEGRATION_KERNEL: /home/runner/.sbx/images/vmlinux
+          SBX_INTEGRATION_ROOTFS: /home/runner/.sbx/images/alpine-ci.ext4
+        run: make ci-integration-test
 
   build:
     name: Build

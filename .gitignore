@@ -1,6 +1,6 @@
 # Binaries
-sbx
-sbx-test
+/sbx
+/sbx-test
 *.exe
 *.dll
 *.so
