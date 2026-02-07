@@ -3,6 +3,8 @@ package create_test
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -83,6 +85,83 @@ func TestCreateService(t *testing.T) {
 
 		sb, err := svc.Create(context.Background(), create.CreateOptions{Config: validConfig()})
 		require.Error(t, err)
+		assert.Nil(t, sb)
+	})
+
+	t.Run("successful create from snapshot name", func(t *testing.T) {
+		eng := sandboxmock.NewMockEngine(t)
+		repo := storagemock.NewMockRepository(t)
+
+		snapshotPath := filepath.Join(t.TempDir(), "snapshot.ext4")
+		require.NoError(t, os.WriteFile(snapshotPath, []byte("snapshot"), 0644))
+
+		repo.On("GetSnapshotByName", mock.Anything, "dev-snapshot").Return(&model.Snapshot{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAB", Path: snapshotPath}, nil)
+		repo.On("GetSandboxByName", mock.Anything, "test-sandbox").Return((*model.Sandbox)(nil), model.ErrNotFound)
+		eng.On("Create", mock.Anything, mock.MatchedBy(func(cfg model.SandboxConfig) bool {
+			return cfg.FirecrackerEngine != nil && cfg.FirecrackerEngine.RootFS == snapshotPath
+		})).Return(&model.Sandbox{ID: "01", Name: "test-sandbox", Status: model.SandboxStatusCreated, Config: validConfig()}, nil)
+		repo.On("CreateSandbox", mock.Anything, mock.Anything).Return(nil)
+
+		svc, err := create.NewService(create.ServiceConfig{Engine: eng, Repository: repo, Logger: log.Noop})
+		require.NoError(t, err)
+
+		sb, err := svc.Create(context.Background(), create.CreateOptions{Config: validConfig(), FromSnapshot: "dev-snapshot"})
+		require.NoError(t, err)
+		require.NotNil(t, sb)
+	})
+
+	t.Run("create from snapshot by id fallback", func(t *testing.T) {
+		eng := sandboxmock.NewMockEngine(t)
+		repo := storagemock.NewMockRepository(t)
+
+		snapshotID := "01ARZ3NDEKTSV4RRFFQ69G5FAB"
+		snapshotPath := filepath.Join(t.TempDir(), "snapshot.ext4")
+		require.NoError(t, os.WriteFile(snapshotPath, []byte("snapshot"), 0644))
+
+		repo.On("GetSnapshotByName", mock.Anything, snapshotID).Return((*model.Snapshot)(nil), model.ErrNotFound)
+		repo.On("GetSnapshot", mock.Anything, snapshotID).Return(&model.Snapshot{ID: snapshotID, Path: snapshotPath}, nil)
+		repo.On("GetSandboxByName", mock.Anything, "test-sandbox").Return((*model.Sandbox)(nil), model.ErrNotFound)
+		eng.On("Create", mock.Anything, mock.MatchedBy(func(cfg model.SandboxConfig) bool {
+			return cfg.FirecrackerEngine != nil && cfg.FirecrackerEngine.RootFS == snapshotPath
+		})).Return(&model.Sandbox{ID: "01", Name: "test-sandbox", Status: model.SandboxStatusCreated, Config: validConfig()}, nil)
+		repo.On("CreateSandbox", mock.Anything, mock.Anything).Return(nil)
+
+		svc, err := create.NewService(create.ServiceConfig{Engine: eng, Repository: repo, Logger: log.Noop})
+		require.NoError(t, err)
+
+		sb, err := svc.Create(context.Background(), create.CreateOptions{Config: validConfig(), FromSnapshot: snapshotID})
+		require.NoError(t, err)
+		require.NotNil(t, sb)
+	})
+
+	t.Run("snapshot not found", func(t *testing.T) {
+		eng := sandboxmock.NewMockEngine(t)
+		repo := storagemock.NewMockRepository(t)
+
+		repo.On("GetSnapshotByName", mock.Anything, "missing").Return((*model.Snapshot)(nil), model.ErrNotFound)
+
+		svc, err := create.NewService(create.ServiceConfig{Engine: eng, Repository: repo, Logger: log.Noop})
+		require.NoError(t, err)
+
+		sb, err := svc.Create(context.Background(), create.CreateOptions{Config: validConfig(), FromSnapshot: "missing"})
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, model.ErrNotFound))
+		assert.Nil(t, sb)
+	})
+
+	t.Run("snapshot file missing", func(t *testing.T) {
+		eng := sandboxmock.NewMockEngine(t)
+		repo := storagemock.NewMockRepository(t)
+
+		missingPath := filepath.Join(t.TempDir(), "missing.ext4")
+		repo.On("GetSnapshotByName", mock.Anything, "dev-snapshot").Return(&model.Snapshot{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAB", Path: missingPath}, nil)
+
+		svc, err := create.NewService(create.ServiceConfig{Engine: eng, Repository: repo, Logger: log.Noop})
+		require.NoError(t, err)
+
+		sb, err := svc.Create(context.Background(), create.CreateOptions{Config: validConfig(), FromSnapshot: "dev-snapshot"})
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, model.ErrNotFound))
 		assert.Nil(t, sb)
 	})
 }

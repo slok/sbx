@@ -30,6 +30,7 @@ type CreateCommand struct {
 	// Firecracker-specific flags.
 	firecrackerRootFS string
 	firecrackerKernel string
+	fromSnapshot      string
 }
 
 // NewCreateCommand returns the create command.
@@ -50,6 +51,7 @@ func NewCreateCommand(rootCmd *RootCommand, app *kingpin.Application) *CreateCom
 	// Firecracker-specific flags.
 	c.Cmd.Flag("firecracker-root-fs", "Path to rootfs image (required for firecracker engine).").StringVar(&c.firecrackerRootFS)
 	c.Cmd.Flag("firecracker-kernel", "Path to kernel image (required for firecracker engine).").StringVar(&c.firecrackerKernel)
+	c.Cmd.Flag("from-snapshot", "Create sandbox from snapshot name or ID.").StringVar(&c.fromSnapshot)
 
 	return c
 }
@@ -58,6 +60,19 @@ func (c CreateCommand) Name() string { return c.Cmd.FullCommand() }
 
 func (c CreateCommand) Run(ctx context.Context) error {
 	logger := c.rootCmd.Logger
+
+	// Initialize storage (SQLite).
+	repo, err := sqlite.NewRepository(ctx, sqlite.RepositoryConfig{
+		DBPath: c.rootCmd.DBPath,
+		Logger: logger,
+	})
+	if err != nil {
+		return fmt.Errorf("could not create repository: %w", err)
+	}
+
+	if c.fromSnapshot != "" && c.firecrackerRootFS != "" {
+		return fmt.Errorf("--from-snapshot and --firecracker-root-fs cannot be used together")
+	}
 
 	// Build SandboxConfig from CLI flags.
 	cfg := model.SandboxConfig{
@@ -71,12 +86,13 @@ func (c CreateCommand) Run(ctx context.Context) error {
 
 	switch c.engine {
 	case "firecracker":
-		if c.firecrackerRootFS == "" {
+		if c.firecrackerRootFS == "" && c.fromSnapshot == "" {
 			return fmt.Errorf("--firecracker-root-fs is required when using firecracker engine")
 		}
 		if c.firecrackerKernel == "" {
 			return fmt.Errorf("--firecracker-kernel is required when using firecracker engine")
 		}
+
 		cfg.FirecrackerEngine = &model.FirecrackerEngineConfig{
 			RootFS:      c.firecrackerRootFS,
 			KernelImage: c.firecrackerKernel,
@@ -86,15 +102,6 @@ func (c CreateCommand) Run(ctx context.Context) error {
 			RootFS:      "/fake/rootfs.ext4",
 			KernelImage: "/fake/vmlinux",
 		}
-	}
-
-	// Initialize storage (SQLite).
-	repo, err := sqlite.NewRepository(ctx, sqlite.RepositoryConfig{
-		DBPath: c.rootCmd.DBPath,
-		Logger: logger,
-	})
-	if err != nil {
-		return fmt.Errorf("could not create repository: %w", err)
 	}
 
 	// Initialize engine based on config.
@@ -126,7 +133,8 @@ func (c CreateCommand) Run(ctx context.Context) error {
 
 	// Execute create.
 	sb, err := svc.Create(ctx, create.CreateOptions{
-		Config: cfg,
+		Config:       cfg,
+		FromSnapshot: c.fromSnapshot,
 	})
 	if err != nil {
 		return fmt.Errorf("could not create sandbox: %w", err)

@@ -1,6 +1,7 @@
 package firecracker
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,6 +11,29 @@ import (
 
 	"github.com/slok/sbx/internal/log"
 )
+
+func TestEngine_copyRootFSPreservesSparseAllocation(t *testing.T) {
+	assert := assert.New(t)
+	require := require.New(t)
+
+	tmpDir := t.TempDir()
+	srcPath := filepath.Join(tmpDir, "src.ext4")
+	require.NoError(createSparseRootFS(srcPath, 256*1024*1024))
+
+	vmDir := filepath.Join(tmpDir, "vm")
+	require.NoError(os.MkdirAll(vmDir, 0755))
+
+	e := &Engine{logger: log.Noop}
+	require.NoError(e.copyRootFS(context.Background(), srcPath, vmDir))
+
+	dstPath := filepath.Join(vmDir, RootFSFile)
+	virtualSize, allocatedSize, err := snapshotSizeStats(dstPath)
+	require.NoError(err)
+
+	assert.Equal(int64(256*1024*1024), virtualSize)
+	assert.Greater(allocatedSize, int64(0))
+	assert.Less(allocatedSize, virtualSize)
+}
 
 func TestEngine_resizeRootFS(t *testing.T) {
 	tests := map[string]struct {
