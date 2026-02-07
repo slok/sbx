@@ -2,11 +2,19 @@ CREATE TABLE IF NOT EXISTS sandboxes (
     id TEXT PRIMARY KEY,
     name TEXT UNIQUE NOT NULL,
     status TEXT NOT NULL,
-    config_json TEXT NOT NULL,
+    rootfs_path TEXT NOT NULL,
+    kernel_image_path TEXT NOT NULL,
+    vcpus REAL NOT NULL,
+    memory_mb INTEGER NOT NULL,
+    disk_gb INTEGER NOT NULL,
+    internal_ip TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL,
     started_at INTEGER,
     stopped_at INTEGER,
-    error TEXT NOT NULL DEFAULT ''
+    CHECK (status IN ('created', 'running', 'stopped')),
+    CHECK (vcpus > 0),
+    CHECK (memory_mb > 0),
+    CHECK (disk_gb > 0)
 );
 
 CREATE INDEX idx_sandboxes_name ON sandboxes(name);

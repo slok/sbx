@@ -38,7 +38,6 @@ type statusOutput struct {
 	CreatedAt time.Time     `json:"created_at"`
 	StartedAt *time.Time    `json:"started_at"`
 	StoppedAt *time.Time    `json:"stopped_at"`
-	Error     string        `json:"error,omitempty"`
 }
 
 // engineOutput represents engine configuration output.
@@ -82,7 +81,6 @@ func (j *JSONPrinter) PrintStatus(sandbox model.Sandbox) error {
 		CreatedAt: sandbox.CreatedAt.UTC(),
 		StartedAt: nil,
 		StoppedAt: nil,
-		Error:     sandbox.Error,
 	}
 
 	// Add engine info

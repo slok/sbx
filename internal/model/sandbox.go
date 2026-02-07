@@ -23,16 +23,13 @@ const (
 
 // Sandbox represents a sandbox instance.
 type Sandbox struct {
-	ID            string
-	Name          string
-	Status        SandboxStatus
-	Config        SandboxConfig
-	SessionConfig SessionConfig
-	ContainerID   string
-	CreatedAt     time.Time
-	StartedAt     *time.Time
-	StoppedAt     *time.Time
-	Error         string
+	ID        string
+	Name      string
+	Status    SandboxStatus
+	Config    SandboxConfig
+	CreatedAt time.Time
+	StartedAt *time.Time
+	StoppedAt *time.Time
 
 	// Firecracker-specific fields
 	PID        int    // Firecracker process ID

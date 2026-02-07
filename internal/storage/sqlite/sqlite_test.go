@@ -3,7 +3,6 @@ package sqlite_test
 import (
 	"context"
 	"errors"
-	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -16,287 +15,98 @@ import (
 	"github.com/slok/sbx/internal/storage/sqlite"
 )
 
+func sandboxFixture(id, name string) model.Sandbox {
+	now := time.Now().UTC()
+	return model.Sandbox{
+		ID:        id,
+		Name:      name,
+		Status:    model.SandboxStatusCreated,
+		CreatedAt: now,
+		Config: model.SandboxConfig{
+			Name: name,
+			FirecrackerEngine: &model.FirecrackerEngineConfig{
+				RootFS:      "/images/rootfs.ext4",
+				KernelImage: "/images/vmlinux",
+			},
+			Resources: model.Resources{VCPUs: 2, MemoryMB: 2048, DiskGB: 10},
+		},
+		InternalIP: "10.0.0.2",
+	}
+}
+
+func newRepo(t *testing.T) *sqlite.Repository {
+	t.Helper()
+	repo, err := sqlite.NewRepository(context.Background(), sqlite.RepositoryConfig{
+		DBPath: filepath.Join(t.TempDir(), "test.db"),
+		Logger: log.Noop,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = repo.Close() })
+	return repo
+}
+
 func TestRepositoryCRUD(t *testing.T) {
-	tests := map[string]struct {
-		actions func(ctx context.Context, t *testing.T, repo *sqlite.Repository) error
-		expErr  bool
-	}{
-		"Creating a sandbox should work": {
-			actions: func(ctx context.Context, t *testing.T, repo *sqlite.Repository) error {
-				now := time.Now().UTC()
-				sandbox := model.Sandbox{
-					ID:        "test-id",
-					Name:      "test",
-					Status:    model.SandboxStatusRunning,
-					CreatedAt: now,
-					StartedAt: &now,
-					SessionConfig: model.SessionConfig{Env: map[string]string{
-						"FOO": "bar",
-					}},
-					Config: model.SandboxConfig{
-						Name: "test",
-						FirecrackerEngine: &model.FirecrackerEngineConfig{
-							RootFS:      "/images/rootfs.ext4",
-							KernelImage: "/images/vmlinux",
-						},
-						Resources: model.Resources{
-							VCPUs:    2,
-							MemoryMB: 2048,
-							DiskGB:   10,
-						},
-					},
-				}
+	ctx := context.Background()
+	repo := newRepo(t)
 
-				err := repo.CreateSandbox(ctx, sandbox)
-				require.NoError(t, err)
+	sb := sandboxFixture("id-1", "sb-1")
+	require.NoError(t, repo.CreateSandbox(ctx, sb))
 
-				// Verify we can retrieve it
-				retrieved, err := repo.GetSandbox(ctx, "test-id")
-				require.NoError(t, err)
-				assert.Equal(t, "test-id", retrieved.ID)
-				assert.Equal(t, "test", retrieved.Name)
-				assert.Equal(t, model.SandboxStatusRunning, retrieved.Status)
-				assert.Equal(t, "bar", retrieved.SessionConfig.Env["FOO"])
+	got, err := repo.GetSandbox(ctx, "id-1")
+	require.NoError(t, err)
+	assert.Equal(t, "sb-1", got.Name)
+	assert.Equal(t, "10.0.0.2", got.InternalIP)
+	assert.Equal(t, "/images/rootfs.ext4", got.Config.FirecrackerEngine.RootFS)
 
-				return nil
-			},
-		},
+	gotByName, err := repo.GetSandboxByName(ctx, "sb-1")
+	require.NoError(t, err)
+	assert.Equal(t, "id-1", gotByName.ID)
 
-		"Creating duplicate ID should fail": {
-			actions: func(ctx context.Context, t *testing.T, repo *sqlite.Repository) error {
-				sandbox := model.Sandbox{
-					ID:        "test-id",
-					Name:      "test",
-					Status:    model.SandboxStatusRunning,
-					CreatedAt: time.Now().UTC(),
-					Config: model.SandboxConfig{
-						Name:      "test",
-						Resources: model.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
-					},
-				}
+	all, err := repo.ListSandboxes(ctx)
+	require.NoError(t, err)
+	assert.Len(t, all, 1)
 
-				err := repo.CreateSandbox(ctx, sandbox)
-				require.NoError(t, err)
+	now := time.Now().UTC()
+	sb.Status = model.SandboxStatusRunning
+	sb.StartedAt = &now
+	sb.InternalIP = "10.0.0.3"
+	require.NoError(t, repo.UpdateSandbox(ctx, sb))
 
-				// Try to create with same ID
-				sandbox2 := sandbox
-				sandbox2.Name = "different"
-				return repo.CreateSandbox(ctx, sandbox2)
-			},
-			expErr: true,
-		},
+	updated, err := repo.GetSandbox(ctx, "id-1")
+	require.NoError(t, err)
+	assert.Equal(t, model.SandboxStatusRunning, updated.Status)
+	assert.Equal(t, "10.0.0.3", updated.InternalIP)
+	assert.NotNil(t, updated.StartedAt)
 
-		"Creating duplicate name should fail": {
-			actions: func(ctx context.Context, t *testing.T, repo *sqlite.Repository) error {
-				sandbox := model.Sandbox{
-					ID:        "test-id-1",
-					Name:      "test",
-					Status:    model.SandboxStatusRunning,
-					CreatedAt: time.Now().UTC(),
-					Config: model.SandboxConfig{
-						Name:      "test",
-						Resources: model.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
-					},
-				}
+	require.NoError(t, repo.DeleteSandbox(ctx, "id-1"))
+	_, err = repo.GetSandbox(ctx, "id-1")
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, model.ErrNotFound))
+}
 
-				err := repo.CreateSandbox(ctx, sandbox)
-				require.NoError(t, err)
+func TestRepositoryConstraints(t *testing.T) {
+	ctx := context.Background()
+	repo := newRepo(t)
 
-				// Try to create with same name
-				sandbox2 := sandbox
-				sandbox2.ID = "test-id-2"
-				return repo.CreateSandbox(ctx, sandbox2)
-			},
-			expErr: true,
-		},
+	sb := sandboxFixture("id-1", "sb-1")
+	require.NoError(t, repo.CreateSandbox(ctx, sb))
 
-		"Getting non-existent sandbox should fail": {
-			actions: func(ctx context.Context, t *testing.T, repo *sqlite.Repository) error {
-				_, err := repo.GetSandbox(ctx, "non-existent")
-				return err
-			},
-			expErr: true,
-		},
+	dupID := sandboxFixture("id-1", "sb-2")
+	err := repo.CreateSandbox(ctx, dupID)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, model.ErrAlreadyExists))
 
-		"Getting sandbox by name should work": {
-			actions: func(ctx context.Context, t *testing.T, repo *sqlite.Repository) error {
-				sandbox := model.Sandbox{
-					ID:        "test-id",
-					Name:      "test-name",
-					Status:    model.SandboxStatusRunning,
-					CreatedAt: time.Now().UTC(),
-					Config: model.SandboxConfig{
-						Name:      "test-name",
-						Resources: model.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
-					},
-				}
+	dupName := sandboxFixture("id-2", "sb-1")
+	err = repo.CreateSandbox(ctx, dupName)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, model.ErrAlreadyExists))
 
-				err := repo.CreateSandbox(ctx, sandbox)
-				require.NoError(t, err)
+	nonExistent := sandboxFixture("id-x", "sb-x")
+	err = repo.UpdateSandbox(ctx, nonExistent)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, model.ErrNotFound))
 
-				retrieved, err := repo.GetSandboxByName(ctx, "test-name")
-				require.NoError(t, err)
-				assert.Equal(t, "test-id", retrieved.ID)
-				assert.Equal(t, "test-name", retrieved.Name)
-
-				return nil
-			},
-		},
-
-		"Getting sandbox by non-existent name should fail": {
-			actions: func(ctx context.Context, t *testing.T, repo *sqlite.Repository) error {
-				_, err := repo.GetSandboxByName(ctx, "non-existent")
-				return err
-			},
-			expErr: true,
-		},
-
-		"Listing sandboxes should work": {
-			actions: func(ctx context.Context, t *testing.T, repo *sqlite.Repository) error {
-				// Create multiple sandboxes
-				for i := 0; i < 3; i++ {
-					sandbox := model.Sandbox{
-						ID:        fmt.Sprintf("test-id-%d", i),
-						Name:      fmt.Sprintf("test-%d", i),
-						Status:    model.SandboxStatusRunning,
-						CreatedAt: time.Now().UTC(),
-						Config: model.SandboxConfig{
-							Name:      fmt.Sprintf("test-%d", i),
-							Resources: model.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
-						},
-					}
-					err := repo.CreateSandbox(ctx, sandbox)
-					require.NoError(t, err)
-				}
-
-				sandboxes, err := repo.ListSandboxes(ctx)
-				require.NoError(t, err)
-				assert.Len(t, sandboxes, 3)
-
-				return nil
-			},
-		},
-
-		"Listing empty repository should return empty slice": {
-			actions: func(ctx context.Context, t *testing.T, repo *sqlite.Repository) error {
-				sandboxes, err := repo.ListSandboxes(ctx)
-				require.NoError(t, err)
-				assert.Empty(t, sandboxes)
-
-				return nil
-			},
-		},
-
-		"Updating a sandbox should work": {
-			actions: func(ctx context.Context, t *testing.T, repo *sqlite.Repository) error {
-				sandbox := model.Sandbox{
-					ID:        "test-id",
-					Name:      "test",
-					Status:    model.SandboxStatusRunning,
-					CreatedAt: time.Now().UTC(),
-					Config: model.SandboxConfig{
-						Name:      "test",
-						Resources: model.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
-					},
-				}
-
-				err := repo.CreateSandbox(ctx, sandbox)
-				require.NoError(t, err)
-
-				// Update status
-				sandbox.Status = model.SandboxStatusStopped
-				now := time.Now().UTC()
-				sandbox.StoppedAt = &now
-
-				err = repo.UpdateSandbox(ctx, sandbox)
-				require.NoError(t, err)
-
-				// Verify update
-				retrieved, err := repo.GetSandbox(ctx, "test-id")
-				require.NoError(t, err)
-				assert.Equal(t, model.SandboxStatusStopped, retrieved.Status)
-				assert.NotNil(t, retrieved.StoppedAt)
-
-				return nil
-			},
-		},
-
-		"Updating non-existent sandbox should fail": {
-			actions: func(ctx context.Context, t *testing.T, repo *sqlite.Repository) error {
-				sandbox := model.Sandbox{
-					ID:        "non-existent",
-					Name:      "test",
-					Status:    model.SandboxStatusRunning,
-					CreatedAt: time.Now().UTC(),
-					Config: model.SandboxConfig{
-						Name:      "test",
-						Resources: model.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
-					},
-				}
-
-				return repo.UpdateSandbox(ctx, sandbox)
-			},
-			expErr: true,
-		},
-
-		"Deleting a sandbox should work": {
-			actions: func(ctx context.Context, t *testing.T, repo *sqlite.Repository) error {
-				sandbox := model.Sandbox{
-					ID:        "test-id",
-					Name:      "test",
-					Status:    model.SandboxStatusRunning,
-					CreatedAt: time.Now().UTC(),
-					Config: model.SandboxConfig{
-						Name:      "test",
-						Resources: model.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
-					},
-				}
-
-				err := repo.CreateSandbox(ctx, sandbox)
-				require.NoError(t, err)
-
-				err = repo.DeleteSandbox(ctx, "test-id")
-				require.NoError(t, err)
-
-				// Verify it's gone
-				_, err = repo.GetSandbox(ctx, "test-id")
-				assert.Error(t, err)
-				assert.True(t, errors.Is(err, model.ErrNotFound))
-
-				return nil
-			},
-		},
-
-		"Deleting non-existent sandbox should fail": {
-			actions: func(ctx context.Context, t *testing.T, repo *sqlite.Repository) error {
-				return repo.DeleteSandbox(ctx, "non-existent")
-			},
-			expErr: true,
-		},
-	}
-
-	for name, test := range tests {
-		t.Run(name, func(t *testing.T) {
-			assert := assert.New(t)
-
-			// Create temp directory and DB for this test
-			tmpDir := t.TempDir()
-			dbPath := filepath.Join(tmpDir, "test.db")
-
-			repo, err := sqlite.NewRepository(context.Background(), sqlite.RepositoryConfig{
-				DBPath: dbPath,
-				Logger: log.Noop,
-			})
-			require.NoError(t, err)
-			defer repo.Close()
-
-			err = test.actions(context.Background(), t, repo)
-
-			if test.expErr {
-				assert.Error(err)
-			} else {
-				assert.NoError(err)
-			}
-		})
-	}
+	err = repo.DeleteSandbox(ctx, "id-x")
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, model.ErrNotFound))
 }
