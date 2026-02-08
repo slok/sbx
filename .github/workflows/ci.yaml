@@ -30,6 +30,9 @@ jobs:
     name: Integration test
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      SBX_IMAGE_VERSION: "v0.1.0-rc.1"
+      SBX_IMAGES_DIR: /home/runner/.sbx/images
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -49,24 +52,20 @@ jobs:
       - name: Enable IP forwarding
         run: sudo sysctl -w net.ipv4.ip_forward=1
 
-      - name: Download Firecracker binary and kernel
-        run: ./scripts/setup-firecracker-images.sh
-
-      - name: Build Alpine agentic rootfs
-        run: |
-          sudo ./scripts/images/alpine/build-rootfs.sh \
-            --profile minimal \
-            --image-name alpine-ci.ext4
-
       - name: Build sbx binary
         run: make build
+
+      - name: Pull sbx image
+        run: |
+          ./bin/sbx image pull ${{ env.SBX_IMAGE_VERSION }} --images-dir ${{ env.SBX_IMAGES_DIR }}
+          ls -la ${{ env.SBX_IMAGES_DIR }}/${{ env.SBX_IMAGE_VERSION }}/
 
       - name: Run integration tests
         env:
           SBX_INTEGRATION: "true"
           SBX_INTEGRATION_BINARY: ${{ github.workspace }}/bin/sbx
-          SBX_INTEGRATION_KERNEL: /home/runner/.sbx/images/vmlinux
-          SBX_INTEGRATION_ROOTFS: /home/runner/.sbx/images/alpine-ci.ext4
+          SBX_INTEGRATION_IMAGE_VERSION: ${{ env.SBX_IMAGE_VERSION }}
+          SBX_INTEGRATION_IMAGES_DIR: ${{ env.SBX_IMAGES_DIR }}
         run: make ci-integration-test
 
   build:

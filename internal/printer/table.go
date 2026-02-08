@@ -93,6 +93,50 @@ func (t *TablePrinter) PrintSnapshotList(snapshots []model.Snapshot) error {
 	return nil
 }
 
+// PrintImageList prints image releases in a table format.
+func (t *TablePrinter) PrintImageList(releases []model.ImageRelease) error {
+	if len(releases) == 0 {
+		return nil
+	}
+
+	tw := tabwriter.NewWriter(t.writer, 0, 0, 2, ' ', 0)
+	defer tw.Flush()
+
+	// Print header.
+	fmt.Fprintln(tw, "VERSION\tINSTALLED")
+
+	// Print rows.
+	for _, r := range releases {
+		installed := "no"
+		if r.Installed {
+			installed = "yes"
+		}
+		fmt.Fprintf(tw, "%s\t%s\n", r.Version, installed)
+	}
+
+	return nil
+}
+
+// PrintImageInspect prints detailed image manifest information.
+func (t *TablePrinter) PrintImageInspect(manifest model.ImageManifest) error {
+	fmt.Fprintf(t.writer, "Schema:       %d\n", manifest.SchemaVersion)
+	fmt.Fprintf(t.writer, "Version:      %s\n", manifest.Version)
+	fmt.Fprintf(t.writer, "Firecracker:  %s\n", manifest.Firecracker.Version)
+	fmt.Fprintf(t.writer, "Built:        %s\n", manifest.Build.Date)
+	fmt.Fprintf(t.writer, "Commit:       %s\n", manifest.Build.Commit)
+
+	for arch, artifacts := range manifest.Artifacts {
+		fmt.Fprintf(t.writer, "\nArchitecture: %s\n", arch)
+		fmt.Fprintf(t.writer, "  Kernel:     %s (version: %s, size: %s)\n",
+			artifacts.Kernel.File, artifacts.Kernel.Version, FormatBytes(artifacts.Kernel.SizeBytes))
+		fmt.Fprintf(t.writer, "  Rootfs:     %s (distro: %s %s, profile: %s, size: %s)\n",
+			artifacts.Rootfs.File, artifacts.Rootfs.Distro, artifacts.Rootfs.DistroVersion,
+			artifacts.Rootfs.Profile, FormatBytes(artifacts.Rootfs.SizeBytes))
+	}
+
+	return nil
+}
+
 // PrintMessage prints a simple text message.
 func (t *TablePrinter) PrintMessage(msg string) error {
 	fmt.Fprintln(t.writer, msg)

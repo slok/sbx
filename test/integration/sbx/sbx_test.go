@@ -553,9 +553,11 @@ func TestCreateFromSnapshot(t *testing.T) {
 		_, _, _ = intsbx.RunSnapshotRm(cleanCtx, config, dbPath, snapName)
 	})
 
-	// Create new sandbox from snapshot.
+	// Create new sandbox from snapshot. --from-snapshot conflicts with --from-image,
+	// so we pass explicit kernel path from the pulled image directory.
+	kernelPath := filepath.Join(config.ImagesDir, config.ImageVersion, "vmlinux-x86_64")
 	args := fmt.Sprintf("create --name %s --engine firecracker --from-snapshot %s --firecracker-kernel %s --cpu 1 --mem 512 --disk 2",
-		dstName, snapName, config.Kernel)
+		dstName, snapName, kernelPath)
 	stdout, stderr, err = intsbx.RunSBXCmd(ctx, config, dbPath, args)
 	require.NoError(t, err, "create from snapshot failed: stdout=%s stderr=%s", stdout, stderr)
 	assert.Contains(t, string(stdout), "Sandbox created successfully")

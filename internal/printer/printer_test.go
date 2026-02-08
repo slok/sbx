@@ -129,6 +129,124 @@ func TestJSONPrinterPrintSnapshotList(t *testing.T) {
 	assert.Contains(t, out, `"name": "other-snap"`)
 }
 
+func imageReleaseFixtures() []model.ImageRelease {
+	return []model.ImageRelease{
+		{Version: "v0.1.0", Installed: true},
+		{Version: "v0.2.0-rc.1", Installed: false},
+		{Version: "v0.0.1", Installed: true},
+	}
+}
+
+func imageManifestFixture() model.ImageManifest {
+	return model.ImageManifest{
+		SchemaVersion: 1,
+		Version:       "v0.1.0",
+		Artifacts: map[string]model.ArchArtifacts{
+			"x86_64": {
+				Kernel: model.KernelInfo{
+					File:      "vmlinux-x86_64",
+					Version:   "6.1.155",
+					Source:    "firecracker-ci/v1.15",
+					SizeBytes: 44279576,
+				},
+				Rootfs: model.RootfsInfo{
+					File:          "rootfs-x86_64.ext4",
+					Distro:        "alpine",
+					DistroVersion: "3.23",
+					Profile:       "balanced",
+					SizeBytes:     679034880,
+				},
+			},
+		},
+		Firecracker: model.FirecrackerInfo{
+			Version: "v1.14.1",
+			Source:  "github.com/firecracker-microvm/firecracker",
+		},
+		Build: model.BuildInfo{
+			Date:   "2026-02-08T09:54:17Z",
+			Commit: "adc9bc1",
+		},
+	}
+}
+
+func TestTablePrinterPrintImageList(t *testing.T) {
+	var buf bytes.Buffer
+	p := printer.NewTablePrinter(&buf)
+
+	err := p.PrintImageList(imageReleaseFixtures())
+	require.NoError(t, err)
+
+	out := buf.String()
+	assert.Contains(t, out, "VERSION")
+	assert.Contains(t, out, "INSTALLED")
+	assert.Contains(t, out, "v0.1.0")
+	assert.Contains(t, out, "v0.2.0-rc.1")
+	assert.Contains(t, out, "yes")
+	assert.Contains(t, out, "no")
+}
+
+func TestTablePrinterPrintImageListEmpty(t *testing.T) {
+	var buf bytes.Buffer
+	p := printer.NewTablePrinter(&buf)
+
+	err := p.PrintImageList([]model.ImageRelease{})
+	require.NoError(t, err)
+	assert.Empty(t, buf.String())
+}
+
+func TestTablePrinterPrintImageInspect(t *testing.T) {
+	var buf bytes.Buffer
+	p := printer.NewTablePrinter(&buf)
+
+	err := p.PrintImageInspect(imageManifestFixture())
+	require.NoError(t, err)
+
+	out := buf.String()
+	assert.Contains(t, out, "Schema:       1")
+	assert.Contains(t, out, "Version:      v0.1.0")
+	assert.Contains(t, out, "Firecracker:  v1.14.1")
+	assert.Contains(t, out, "x86_64")
+	assert.Contains(t, out, "vmlinux-x86_64")
+	assert.Contains(t, out, "6.1.155")
+	assert.Contains(t, out, "rootfs-x86_64.ext4")
+	assert.Contains(t, out, "alpine")
+	assert.Contains(t, out, "balanced")
+	assert.Contains(t, out, "adc9bc1")
+}
+
+func TestJSONPrinterPrintImageList(t *testing.T) {
+	var buf bytes.Buffer
+	p := printer.NewJSONPrinter(&buf)
+
+	err := p.PrintImageList(imageReleaseFixtures())
+	require.NoError(t, err)
+
+	out := buf.String()
+	assert.Contains(t, out, `"version": "v0.1.0"`)
+	assert.Contains(t, out, `"installed": true`)
+	assert.Contains(t, out, `"version": "v0.2.0-rc.1"`)
+	assert.Contains(t, out, `"installed": false`)
+}
+
+func TestJSONPrinterPrintImageInspect(t *testing.T) {
+	var buf bytes.Buffer
+	p := printer.NewJSONPrinter(&buf)
+
+	err := p.PrintImageInspect(imageManifestFixture())
+	require.NoError(t, err)
+
+	out := buf.String()
+	assert.Contains(t, out, `"schema_version": 1`)
+	assert.Contains(t, out, `"version": "v0.1.0"`)
+	assert.Contains(t, out, `"version": "6.1.155"`)
+	assert.Contains(t, out, `"file": "vmlinux-x86_64"`)
+	assert.Contains(t, out, `"distro": "alpine"`)
+	assert.Contains(t, out, `"distro_version": "3.23"`)
+	assert.Contains(t, out, `"profile": "balanced"`)
+	assert.Contains(t, out, `"version": "v1.14.1"`)
+	assert.Contains(t, out, `"commit": "adc9bc1"`)
+}
+
 func TestTablePrinterPrintMessage(t *testing.T) {
 	var buf bytes.Buffer
 	p := printer.NewTablePrinter(&buf)

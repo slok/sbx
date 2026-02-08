@@ -138,6 +138,106 @@ func (j *JSONPrinter) PrintSnapshotList(snapshots []model.Snapshot) error {
 	return enc.Encode(items)
 }
 
+// imageReleaseItem represents an image release in JSON output.
+type imageReleaseItem struct {
+	Version   string `json:"version"`
+	Installed bool   `json:"installed"`
+}
+
+// imageManifestOutput represents a full image manifest in JSON output.
+type imageManifestOutput struct {
+	SchemaVersion int                            `json:"schema_version"`
+	Version       string                         `json:"version"`
+	Artifacts     map[string]archArtifactsOutput `json:"artifacts"`
+	Firecracker   firecrackerInfoOutput          `json:"firecracker"`
+	Build         buildInfoOutput                `json:"build"`
+}
+
+type archArtifactsOutput struct {
+	Kernel kernelInfoOutput `json:"kernel"`
+	Rootfs rootfsInfoOutput `json:"rootfs"`
+}
+
+type kernelInfoOutput struct {
+	File      string `json:"file"`
+	Version   string `json:"version"`
+	Source    string `json:"source"`
+	SizeBytes int64  `json:"size_bytes"`
+}
+
+type rootfsInfoOutput struct {
+	File          string `json:"file"`
+	Distro        string `json:"distro"`
+	DistroVersion string `json:"distro_version"`
+	Profile       string `json:"profile"`
+	SizeBytes     int64  `json:"size_bytes"`
+}
+
+type firecrackerInfoOutput struct {
+	Version string `json:"version"`
+	Source  string `json:"source"`
+}
+
+type buildInfoOutput struct {
+	Date   string `json:"date"`
+	Commit string `json:"commit"`
+}
+
+// PrintImageList prints image releases in JSON format.
+func (j *JSONPrinter) PrintImageList(releases []model.ImageRelease) error {
+	items := make([]imageReleaseItem, len(releases))
+	for i, r := range releases {
+		items[i] = imageReleaseItem{
+			Version:   r.Version,
+			Installed: r.Installed,
+		}
+	}
+
+	enc := json.NewEncoder(j.writer)
+	enc.SetIndent("", "  ")
+	return enc.Encode(items)
+}
+
+// PrintImageInspect prints detailed image manifest in JSON format.
+func (j *JSONPrinter) PrintImageInspect(manifest model.ImageManifest) error {
+	artifacts := make(map[string]archArtifactsOutput, len(manifest.Artifacts))
+	for arch, a := range manifest.Artifacts {
+		artifacts[arch] = archArtifactsOutput{
+			Kernel: kernelInfoOutput{
+				File:      a.Kernel.File,
+				Version:   a.Kernel.Version,
+				Source:    a.Kernel.Source,
+				SizeBytes: a.Kernel.SizeBytes,
+			},
+			Rootfs: rootfsInfoOutput{
+				File:          a.Rootfs.File,
+				Distro:        a.Rootfs.Distro,
+				DistroVersion: a.Rootfs.DistroVersion,
+				Profile:       a.Rootfs.Profile,
+				SizeBytes:     a.Rootfs.SizeBytes,
+			},
+		}
+	}
+
+	output := imageManifestOutput{
+		SchemaVersion: manifest.SchemaVersion,
+		Version:       manifest.Version,
+		Artifacts:     artifacts,
+		Firecracker: firecrackerInfoOutput{
+			Version: manifest.Firecracker.Version,
+			Source:  manifest.Firecracker.Source,
+		},
+		Build: buildInfoOutput{
+			Date:   manifest.Build.Date,
+			Commit: manifest.Build.Commit,
+		},
+	}
+
+	enc := json.NewEncoder(j.writer)
+	enc.SetIndent("", "  ")
+	return enc.Encode(output)
+}
+
 // PrintMessage prints a simple message in JSON format.
 func (j *JSONPrinter) PrintMessage(msg string) error {
 	output := messageOutput{Message: msg}

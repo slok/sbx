@@ -3,10 +3,14 @@ package commands
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"path/filepath"
 
 	"github.com/alecthomas/kingpin/v2"
+	"k8s.io/client-go/util/homedir"
 
 	"github.com/slok/sbx/internal/app/create"
+	"github.com/slok/sbx/internal/image"
 	"github.com/slok/sbx/internal/model"
 	"github.com/slok/sbx/internal/sandbox"
 	"github.com/slok/sbx/internal/sandbox/fake"
@@ -31,6 +35,11 @@ type CreateCommand struct {
 	firecrackerRootFS string
 	firecrackerKernel string
 	fromSnapshot      string
+
+	// Image flags.
+	fromImage string
+	imageRepo string
+	imagesDir string
 }
 
 // NewCreateCommand returns the create command.
@@ -53,6 +62,13 @@ func NewCreateCommand(rootCmd *RootCommand, app *kingpin.Application) *CreateCom
 	c.Cmd.Flag("firecracker-kernel", "Path to kernel image (required for firecracker engine).").StringVar(&c.firecrackerKernel)
 	c.Cmd.Flag("from-snapshot", "Create sandbox from snapshot name or ID.").StringVar(&c.fromSnapshot)
 
+	// Image flags.
+	c.Cmd.Flag("from-image", "Use a pulled image version (e.g. v0.1.0). Run 'sbx image pull' first.").StringVar(&c.fromImage)
+	c.Cmd.Flag("image-repo", "GitHub repository for images (used with --from-image).").Default(image.DefaultRepo).StringVar(&c.imageRepo)
+
+	defaultImagesDir := filepath.Join(homedir.HomeDir(), image.DefaultImagesDir)
+	c.Cmd.Flag("images-dir", "Local directory for images (used with --from-image).").Default(defaultImagesDir).StringVar(&c.imagesDir)
+
 	return c
 }
 
@@ -60,6 +76,20 @@ func (c CreateCommand) Name() string { return c.Cmd.FullCommand() }
 
 func (c CreateCommand) Run(ctx context.Context) error {
 	logger := c.rootCmd.Logger
+
+	// Validate conflicting flags.
+	if c.fromImage != "" && c.firecrackerRootFS != "" {
+		return fmt.Errorf("--from-image and --firecracker-root-fs cannot be used together")
+	}
+	if c.fromImage != "" && c.firecrackerKernel != "" {
+		return fmt.Errorf("--from-image and --firecracker-kernel cannot be used together")
+	}
+	if c.fromImage != "" && c.fromSnapshot != "" {
+		return fmt.Errorf("--from-image and --from-snapshot cannot be used together")
+	}
+	if c.fromSnapshot != "" && c.firecrackerRootFS != "" {
+		return fmt.Errorf("--from-snapshot and --firecracker-root-fs cannot be used together")
+	}
 
 	// Initialize storage (SQLite).
 	repo, err := sqlite.NewRepository(ctx, sqlite.RepositoryConfig{
@@ -70,8 +100,30 @@ func (c CreateCommand) Run(ctx context.Context) error {
 		return fmt.Errorf("could not create repository: %w", err)
 	}
 
-	if c.fromSnapshot != "" && c.firecrackerRootFS != "" {
-		return fmt.Errorf("--from-snapshot and --firecracker-root-fs cannot be used together")
+	// Resolve image paths if --from-image is set.
+	var firecrackerBinaryPath string
+	if c.fromImage != "" {
+		mgr, err := image.NewGitHubImageManager(image.GitHubImageManagerConfig{
+			Repo:       c.imageRepo,
+			ImagesDir:  c.imagesDir,
+			HTTPClient: http.DefaultClient,
+			Logger:     logger,
+		})
+		if err != nil {
+			return fmt.Errorf("could not create image manager: %w", err)
+		}
+
+		exists, err := mgr.Exists(ctx, c.fromImage)
+		if err != nil {
+			return fmt.Errorf("could not check image: %w", err)
+		}
+		if !exists {
+			return fmt.Errorf("image %s is not installed, run 'sbx image pull %s' first", c.fromImage, c.fromImage)
+		}
+
+		c.firecrackerKernel = mgr.KernelPath(c.fromImage)
+		c.firecrackerRootFS = mgr.RootFSPath(c.fromImage)
+		firecrackerBinaryPath = mgr.FirecrackerPath(c.fromImage)
 	}
 
 	// Build SandboxConfig from CLI flags.
@@ -87,10 +139,10 @@ func (c CreateCommand) Run(ctx context.Context) error {
 	switch c.engine {
 	case "firecracker":
 		if c.firecrackerRootFS == "" && c.fromSnapshot == "" {
-			return fmt.Errorf("--firecracker-root-fs is required when using firecracker engine")
+			return fmt.Errorf("--firecracker-root-fs or --from-image is required when using firecracker engine")
 		}
 		if c.firecrackerKernel == "" {
-			return fmt.Errorf("--firecracker-kernel is required when using firecracker engine")
+			return fmt.Errorf("--firecracker-kernel or --from-image is required when using firecracker engine")
 		}
 
 		cfg.FirecrackerEngine = &model.FirecrackerEngineConfig{
@@ -109,8 +161,9 @@ func (c CreateCommand) Run(ctx context.Context) error {
 	switch c.engine {
 	case "firecracker":
 		eng, err = firecracker.NewEngine(firecracker.EngineConfig{
-			Repository: repo,
-			Logger:     logger,
+			FirecrackerBinary: firecrackerBinaryPath,
+			Repository:        repo,
+			Logger:            logger,
 		})
 	case "fake":
 		eng, err = fake.NewEngine(fake.EngineConfig{
