@@ -3,6 +3,7 @@ package lib
 import (
 	"context"
 	"fmt"
+	"os"
 
 	appexec "github.com/slok/sbx/internal/app/exec"
 	"github.com/slok/sbx/internal/model"
@@ -70,6 +71,11 @@ func (c *Client) CopyTo(ctx context.Context, nameOrID string, srcLocal, dstRemot
 
 	if sb.Status != model.SandboxStatusRunning {
 		return mapError(fmt.Errorf("sandbox %s is not running (status: %s): %w", sb.Name, sb.Status, ErrNotValid))
+	}
+
+	// Validate local source exists before attempting the copy.
+	if _, err := os.Stat(srcLocal); err != nil {
+		return fmt.Errorf("source path does not exist: %s: %w", srcLocal, ErrNotValid)
 	}
 
 	if err := eng.CopyTo(ctx, sb.ID, srcLocal, dstRemote); err != nil {
