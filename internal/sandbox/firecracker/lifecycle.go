@@ -65,14 +65,14 @@ func (e *Engine) Start(ctx context.Context, id string) error {
 
 	// Task 1: Ensure networking resources exist (TAP + iptables)
 	// If TAP is missing (e.g., after system reboot), recreate it
-	e.logger.Infof("[1/5] Ensuring network resources exist")
+	e.logger.Debugf("[1/5] Ensuring network resources exist")
 	if err := e.ensureNetworking(tapDevice, gateway, vmIP); err != nil {
 		startErr = err
 		goto cleanup
 	}
 
 	// Task 2: Spawn Firecracker process
-	e.logger.Infof("[2/5] Spawning Firecracker process")
+	e.logger.Debugf("[2/5] Spawning Firecracker process")
 	pid, err = e.spawnFirecracker(vmDir, socketPath)
 	if err != nil {
 		startErr = err
@@ -80,21 +80,21 @@ func (e *Engine) Start(ctx context.Context, id string) error {
 	}
 
 	// Task 3: Configure VM via API (includes network config via kernel ip= parameter)
-	e.logger.Infof("[3/5] Configuring VM via Firecracker API")
+	e.logger.Debugf("[3/5] Configuring VM via Firecracker API")
 	if err := e.configureVM(ctx, socketPath, kernelPath, vmDir, mac, tapDevice, vmIP, gateway, sandbox.Config.Resources); err != nil {
 		startErr = err
 		goto cleanup
 	}
 
 	// Task 4: Boot VM
-	e.logger.Infof("[4/5] Booting VM")
+	e.logger.Debugf("[4/5] Booting VM")
 	if err := e.bootVM(ctx, socketPath); err != nil {
 		startErr = err
 		goto cleanup
 	}
 
 	// Task 5: Expand filesystem inside VM to fill resized disk
-	e.logger.Infof("[5/5] Expanding filesystem inside VM")
+	e.logger.Debugf("[5/5] Expanding filesystem inside VM")
 	if err := e.expandFilesystem(ctx, vmIP); err != nil {
 		startErr = err
 		goto cleanup
@@ -154,14 +154,14 @@ func (e *Engine) Stop(ctx context.Context, id string) error {
 	vmDir := e.VMDir(id)
 
 	// Task 1: Try graceful shutdown via SSH
-	e.logger.Infof("[1/2] Attempting graceful shutdown")
+	e.logger.Debugf("[1/2] Attempting graceful shutdown")
 	if err := e.gracefulShutdown(ctx, id); err != nil {
 		// Continue to kill process even if graceful shutdown fails
 		e.logger.Warningf("Graceful shutdown failed: %v", err)
 	}
 
 	// Task 2: Kill the firecracker process
-	e.logger.Infof("[2/2] Killing Firecracker process")
+	e.logger.Debugf("[2/2] Killing Firecracker process")
 	if err := e.killFirecracker(vmDir); err != nil {
 		return err
 	}
@@ -179,25 +179,25 @@ func (e *Engine) Remove(ctx context.Context, id string) error {
 	_, gateway, vmIP, tapDevice := e.allocateNetwork(id)
 
 	// Task 1: Kill firecracker process if running
-	e.logger.Infof("[1/4] Killing Firecracker process")
+	e.logger.Debugf("[1/4] Killing Firecracker process")
 	if err := e.killFirecracker(vmDir); err != nil {
 		e.logger.Warningf("Could not kill process (may already be stopped): %v", err)
 	}
 
 	// Task 2: Cleanup iptables rules
-	e.logger.Infof("[2/4] Cleaning up iptables rules")
+	e.logger.Debugf("[2/4] Cleaning up iptables rules")
 	if err := e.cleanupIPTables(tapDevice, gateway, vmIP); err != nil {
 		e.logger.Warningf("Could not cleanup iptables: %v", err)
 	}
 
 	// Task 3: Delete TAP device
-	e.logger.Infof("[3/4] Deleting TAP device: %s", tapDevice)
+	e.logger.Debugf("[3/4] Deleting TAP device: %s", tapDevice)
 	if err := e.deleteTAP(tapDevice); err != nil {
 		e.logger.Warningf("Could not delete TAP device: %v", err)
 	}
 
 	// Task 4: Delete VM files
-	e.logger.Infof("[4/4] Deleting VM files")
+	e.logger.Debugf("[4/4] Deleting VM files")
 	if err := os.RemoveAll(vmDir); err != nil {
 		return fmt.Errorf("failed to delete VM files: %w", err)
 	}
@@ -387,7 +387,7 @@ func (e *Engine) CopyTo(ctx context.Context, id string, srcLocal string, dstRemo
 		return fmt.Errorf("failed to copy to VM: %s: %w", errStr, err)
 	}
 
-	e.logger.Infof("Copied %s to %s:%s", srcLocal, id, dstRemote)
+	e.logger.Debugf("Copied %s to %s:%s", srcLocal, id, dstRemote)
 	return nil
 }
 
@@ -423,7 +423,7 @@ func (e *Engine) CopyFrom(ctx context.Context, id string, srcRemote string, dstL
 		return fmt.Errorf("failed to copy from VM: %s: %w", errStr, err)
 	}
 
-	e.logger.Infof("Copied %s:%s to %s", id, srcRemote, dstLocal)
+	e.logger.Debugf("Copied %s:%s to %s", id, srcRemote, dstLocal)
 	return nil
 }
 

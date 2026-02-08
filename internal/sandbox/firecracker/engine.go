@@ -360,28 +360,28 @@ func (e *Engine) Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sa
 	var createErr error
 
 	// Task 1: Ensure SSH keys exist
-	e.logger.Infof("[1/4] Ensuring SSH keys exist")
+	e.logger.Debugf("[1/4] Ensuring SSH keys exist")
 	if _, err := e.sshKeyManager.EnsureKeys(); err != nil {
 		createErr = err
 		goto cleanup
 	}
 
 	// Task 2: Copy rootfs
-	e.logger.Infof("[2/4] Copying rootfs to VM directory")
+	e.logger.Debugf("[2/4] Copying rootfs to VM directory")
 	if err := e.copyRootFS(ctx, rootfsPath, vmDir); err != nil {
 		createErr = err
 		goto cleanup
 	}
 
 	// Task 3: Resize rootfs to configured disk_gb
-	e.logger.Infof("[3/4] Resizing rootfs to %d GB", cfg.Resources.DiskGB)
+	e.logger.Debugf("[3/4] Resizing rootfs to %d GB", cfg.Resources.DiskGB)
 	if err := e.resizeRootFS(vmDir, cfg.Resources.DiskGB, rootfsPath); err != nil {
 		createErr = err
 		goto cleanup
 	}
 
 	// Task 4: Patch rootfs with SSH key
-	e.logger.Infof("[4/4] Patching rootfs with SSH public key")
+	e.logger.Debugf("[4/4] Patching rootfs with SSH public key")
 	if err := e.patchRootFSSSH(vmDir); err != nil {
 		createErr = err
 		goto cleanup

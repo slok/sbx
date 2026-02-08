@@ -83,16 +83,16 @@ func (s *Service) Run(ctx context.Context, req Request) error {
 		return fmt.Errorf("sandbox %s is not running (status: %s): %w", sbx.Name, sbx.Status, model.ErrNotValid)
 	}
 
-	s.logger.Infof("Starting port forwarding to sandbox %s (%s)", sbx.Name, sbx.ID)
+	s.logger.Debugf("Starting port forwarding to sandbox %s (%s)", sbx.Name, sbx.ID)
 	for _, pm := range req.Ports {
-		s.logger.Infof("  localhost:%d -> sandbox:%d", pm.LocalPort, pm.RemotePort)
+		s.logger.Debugf("  localhost:%d -> sandbox:%d", pm.LocalPort, pm.RemotePort)
 	}
 
 	// 4. Forward ports via engine (blocks until context cancelled)
 	if err := s.engine.Forward(ctx, sbx.ID, req.Ports); err != nil {
 		// Context cancellation is expected behavior
 		if errors.Is(err, context.Canceled) {
-			s.logger.Infof("Port forwarding stopped")
+			s.logger.Debugf("Port forwarding stopped")
 			return nil
 		}
 		return fmt.Errorf("port forwarding failed: %w", err)

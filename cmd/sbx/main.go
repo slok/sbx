@@ -86,6 +86,20 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	rootCmd.Stdout = stdout
 	rootCmd.Stderr = stderr
 
+	// Auto-suppress logging for commands that produce structured output (table/JSON)
+	// to prevent log noise from mixing with printer output in the terminal.
+	// Users can still enable logging with --debug.
+	printerCommands := map[string]bool{
+		"list":          true,
+		"status":        true,
+		"image list":    true,
+		"image inspect": true,
+		"snapshot list": true,
+	}
+	if printerCommands[cmdName] && !rootCmd.Debug {
+		rootCmd.NoLog = true
+	}
+
 	// Set logger.
 	rootCmd.Logger = getLogger(ctx, *rootCmd)
 
