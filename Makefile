@@ -9,7 +9,7 @@ build: ## Build the binary
 
 .PHONY: test
 test: ## Run unit tests
-	go test -v -race ./internal/...
+	go test -v -race ./internal/... ./pkg/...
 
 .PHONY: test-integration
 test-integration: ## Run integration tests
