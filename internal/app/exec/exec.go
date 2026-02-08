@@ -89,7 +89,7 @@ func (s *Service) Run(ctx context.Context, req Request) (*model.ExecResult, erro
 		return nil, fmt.Errorf("could not execute command: %w", err)
 	}
 
-	s.logger.Infof("Executed command in sandbox %s (%s): exit code %d", sandbox.Name, sandbox.ID, result.ExitCode)
+	s.logger.Debugf("Executed command in sandbox %s (%s): exit code %d", sandbox.Name, sandbox.ID, result.ExitCode)
 
 	return result, nil
 }

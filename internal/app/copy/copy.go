@@ -142,12 +142,12 @@ func (s *Service) Run(ctx context.Context, req Request) error {
 
 	// 5. Execute copy operation
 	if parsed.ToSandbox {
-		s.logger.Infof("Copying %s to %s:%s", parsed.LocalPath, sbx.Name, parsed.RemotePath)
+		s.logger.Debugf("Copying %s to %s:%s", parsed.LocalPath, sbx.Name, parsed.RemotePath)
 		if err := s.engine.CopyTo(ctx, sbx.ID, parsed.LocalPath, parsed.RemotePath); err != nil {
 			return fmt.Errorf("could not copy to sandbox: %w", err)
 		}
 	} else {
-		s.logger.Infof("Copying %s:%s to %s", sbx.Name, parsed.RemotePath, parsed.LocalPath)
+		s.logger.Debugf("Copying %s:%s to %s", sbx.Name, parsed.RemotePath, parsed.LocalPath)
 		if err := s.engine.CopyFrom(ctx, sbx.ID, parsed.RemotePath, parsed.LocalPath); err != nil {
 			return fmt.Errorf("could not copy from sandbox: %w", err)
 		}

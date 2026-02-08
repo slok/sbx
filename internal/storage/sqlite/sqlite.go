@@ -67,7 +67,7 @@ func NewRepository(ctx context.Context, cfg RepositoryConfig) (*Repository, erro
 		return nil, fmt.Errorf("could not run migrations: %w", err)
 	}
 
-	cfg.Logger.Infof("SQLite repository initialized at %s", cfg.DBPath)
+	cfg.Logger.Debugf("SQLite repository initialized at %s", cfg.DBPath)
 
 	return &Repository{db: db, logger: cfg.Logger}, nil
 }
