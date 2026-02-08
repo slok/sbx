@@ -323,10 +323,9 @@ The project uses GitHub Actions for continuous integration:
 - `scripts/check/unit-test.sh` - Runs unit tests with race detector and coverage
 - `scripts/check/integration-test.sh` - Runs integration tests
 
-#### Image Scripts
+#### Images
 
-- `scripts/setup-firecracker-images.sh` - Downloads Firecracker kernel/rootfs test artifacts
-- `scripts/images/alpine/build-rootfs.sh` - Builds Alpine rootfs images for SBX Firecracker sandboxes
+Pre-built VM images (kernel, rootfs, firecracker binary) are managed via the [slok/sbx-images](https://github.com/slok/sbx-images) repository. Use `sbx image pull <version>` to download them locally. See [docs/images.md](docs/images.md) for details.
 
 #### Test Coverage
 
