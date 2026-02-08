@@ -79,6 +79,9 @@ type FirecrackerConfig struct {
 	RootFS string
 	// KernelImage is the path to the kernel binary (vmlinux).
 	KernelImage string
+	// FirecrackerBinary is the path to the firecracker binary.
+	// If empty, the binary is searched in ./bin/ and PATH.
+	FirecrackerBinary string
 }
 
 // Resources defines the compute resources for a sandbox.

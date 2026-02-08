@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -12,6 +13,19 @@ import (
 
 	sdklib "github.com/slok/sbx/pkg/lib"
 )
+
+// hostArch returns the Firecracker architecture name for the current host.
+// Mirrors internal/image.HostArch() for test use.
+func hostArch() string {
+	switch runtime.GOARCH {
+	case "amd64":
+		return "x86_64"
+	case "arm64":
+		return "aarch64"
+	default:
+		return runtime.GOARCH
+	}
+}
 
 // Config holds integration test configuration loaded from environment variables.
 type Config struct {
@@ -66,12 +80,12 @@ func NewConfig(t *testing.T) Config {
 
 // KernelPath returns the kernel image path for the configured image version.
 func (c Config) KernelPath() string {
-	return filepath.Join(c.ImagesDir, c.ImageVersion, "vmlinux")
+	return filepath.Join(c.ImagesDir, c.ImageVersion, fmt.Sprintf("vmlinux-%s", hostArch()))
 }
 
 // RootFSPath returns the rootfs image path for the configured image version.
 func (c Config) RootFSPath() string {
-	return filepath.Join(c.ImagesDir, c.ImageVersion, "rootfs.ext4")
+	return filepath.Join(c.ImagesDir, c.ImageVersion, fmt.Sprintf("rootfs-%s.ext4", hostArch()))
 }
 
 // FirecrackerBinaryPath returns the firecracker binary path for the configured image version.
