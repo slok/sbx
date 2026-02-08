@@ -48,6 +48,14 @@ type Config struct {
 	// If empty, the binary is searched in ./bin/ and PATH.
 	// Only used when Engine is [EngineFirecracker].
 	FirecrackerBinary string
+
+	// ImagesDir is the directory for downloaded images (kernel, rootfs, firecracker).
+	// Default: ~/.sbx/images.
+	ImagesDir string
+
+	// ImageRepo is the GitHub repository for image releases.
+	// Default: "slok/sbx-images".
+	ImageRepo string
 }
 
 func (c *Config) defaults() error {
@@ -67,6 +75,10 @@ func (c *Config) defaults() error {
 		c.Logger = log.Noop
 	}
 
+	if c.ImagesDir == "" {
+		c.ImagesDir = filepath.Join(c.DataDir, "images")
+	}
+
 	return nil
 }
 
@@ -80,6 +92,8 @@ type Client struct {
 	dataDir           string
 	engineType        EngineType
 	firecrackerBinary string
+	imagesDir         string
+	imageRepo         string
 	closeFn           func() error
 }
 
@@ -112,6 +126,8 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 		dataDir:           cfg.DataDir,
 		engineType:        cfg.Engine,
 		firecrackerBinary: cfg.FirecrackerBinary,
+		imagesDir:         cfg.ImagesDir,
+		imageRepo:         cfg.ImageRepo,
 		closeFn:           repo.Close,
 	}, nil
 }
@@ -167,6 +183,29 @@ func (c *Client) newEngineForCreate(engineType EngineType) (sandbox.Engine, erro
 	default:
 		return nil, fmt.Errorf("unsupported engine type: %s: %w", engineType, ErrNotValid)
 	}
+}
+
+// Doctor runs preflight health checks for the configured engine.
+//
+// For [EngineFirecracker], this checks KVM access, required binaries, network
+// configuration, and other prerequisites. For [EngineFake], this returns an
+// empty slice (nothing to check).
+//
+// Returns a slice of [CheckResult] describing each check's outcome.
+func (c *Client) Doctor(ctx context.Context) ([]CheckResult, error) {
+	if c.engineType == EngineFake || c.engineType == "" {
+		return []CheckResult{}, nil
+	}
+
+	eng, err := c.newEngine(model.SandboxConfig{
+		FirecrackerEngine: &model.FirecrackerEngineConfig{},
+	})
+	if err != nil {
+		return nil, mapError(fmt.Errorf("could not create engine: %w", err))
+	}
+
+	results := eng.Check(ctx)
+	return fromInternalCheckResults(results), nil
 }
 
 // resolveEngineType determines which engine to use for a sandbox.

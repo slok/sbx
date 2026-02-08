@@ -3,6 +3,7 @@ package lib_test
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -601,62 +602,46 @@ func TestExec(t *testing.T) {
 }
 
 func TestCopyTo(t *testing.T) {
-	tests := map[string]struct {
-		setup  func(t *testing.T, c *lib.Client) string
-		expErr bool
-		expIs  error
-	}{
-		"Copying to a running sandbox should work.": {
-			setup: func(t *testing.T, c *lib.Client) string {
-				t.Helper()
-				ctx := context.Background()
-				sb, err := c.CreateSandbox(ctx, lib.CreateSandboxOpts{
-					Name:      "cp-to",
-					Engine:    lib.EngineFake,
-					Resources: lib.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
-				})
-				require.NoError(t, err)
-				_, err = c.StartSandbox(ctx, sb.Name, nil)
-				require.NoError(t, err)
-				return sb.Name
-			},
-		},
+	t.Run("Copying to a running sandbox should work.", func(t *testing.T) {
+		assert := assert.New(t)
+		client := newTestClient(t)
+		ctx := context.Background()
 
-		"Copying to a non-running sandbox should fail.": {
-			setup: func(t *testing.T, c *lib.Client) string {
-				t.Helper()
-				sb, err := c.CreateSandbox(context.Background(), lib.CreateSandboxOpts{
-					Name:      "cp-to-stopped",
-					Engine:    lib.EngineFake,
-					Resources: lib.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
-				})
-				require.NoError(t, err)
-				return sb.Name
-			},
-			expErr: true,
-			expIs:  lib.ErrNotValid,
-		},
-	}
-
-	for name, test := range tests {
-		t.Run(name, func(t *testing.T) {
-			assert := assert.New(t)
-			client := newTestClient(t)
-			nameOrID := test.setup(t, client)
-
-			err := client.CopyTo(context.Background(), nameOrID, "/tmp/src", "/dst")
-
-			if test.expErr {
-				assert.Error(err)
-				if test.expIs != nil {
-					assert.True(errors.Is(err, test.expIs), "expected error %v, got: %v", test.expIs, err)
-				}
-				return
-			}
-
-			assert.NoError(err)
+		sb, err := client.CreateSandbox(ctx, lib.CreateSandboxOpts{
+			Name:      "cp-to",
+			Engine:    lib.EngineFake,
+			Resources: lib.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
 		})
-	}
+		require.NoError(t, err)
+		_, err = client.StartSandbox(ctx, sb.Name, nil)
+		require.NoError(t, err)
+
+		// Create a real temp file as source.
+		srcPath := filepath.Join(t.TempDir(), "src.txt")
+		require.NoError(t, os.WriteFile(srcPath, []byte("data"), 0644))
+
+		err = client.CopyTo(ctx, sb.Name, srcPath, "/dst")
+		assert.NoError(err)
+	})
+
+	t.Run("Copying to a non-running sandbox should fail.", func(t *testing.T) {
+		assert := assert.New(t)
+		client := newTestClient(t)
+
+		sb, err := client.CreateSandbox(context.Background(), lib.CreateSandboxOpts{
+			Name:      "cp-to-stopped",
+			Engine:    lib.EngineFake,
+			Resources: lib.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
+		})
+		require.NoError(t, err)
+
+		srcPath := filepath.Join(t.TempDir(), "src.txt")
+		require.NoError(t, os.WriteFile(srcPath, []byte("data"), 0644))
+
+		err = client.CopyTo(context.Background(), sb.Name, srcPath, "/dst")
+		assert.Error(err)
+		assert.True(errors.Is(err, lib.ErrNotValid), "expected ErrNotValid, got: %v", err)
+	})
 }
 
 func TestCopyFrom(t *testing.T) {
@@ -765,7 +750,9 @@ func TestFullLifecycle(t *testing.T) {
 	assert.Equal(0, result.ExitCode)
 
 	// CopyTo.
-	err = client.CopyTo(ctx, "lifecycle", "/tmp/src", "/dst")
+	srcPath := filepath.Join(t.TempDir(), "src.txt")
+	require.NoError(os.WriteFile(srcPath, []byte("data"), 0644))
+	err = client.CopyTo(ctx, "lifecycle", srcPath, "/dst")
 	require.NoError(err)
 
 	// CopyFrom.
@@ -790,6 +777,299 @@ func TestFullLifecycle(t *testing.T) {
 	sandboxes, err = client.ListSandboxes(ctx, nil)
 	require.NoError(err)
 	assert.Len(sandboxes, 0)
+}
+
+func TestCopyToSourceValidation(t *testing.T) {
+	assert := assert.New(t)
+	require := require.New(t)
+	client := newTestClient(t)
+	ctx := context.Background()
+
+	// Create and start a sandbox.
+	_, err := client.CreateSandbox(ctx, lib.CreateSandboxOpts{
+		Name:      "cp-validation",
+		Engine:    lib.EngineFake,
+		Resources: lib.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
+	})
+	require.NoError(err)
+	_, err = client.StartSandbox(ctx, "cp-validation", nil)
+	require.NoError(err)
+
+	// CopyTo with non-existent source should fail with ErrNotValid.
+	err = client.CopyTo(ctx, "cp-validation", "/nonexistent/path/file.txt", "/dst")
+	assert.Error(err)
+	assert.True(errors.Is(err, lib.ErrNotValid), "expected ErrNotValid, got: %v", err)
+}
+
+func TestCreateSnapshot(t *testing.T) {
+	tests := map[string]struct {
+		setup  func(t *testing.T, c *lib.Client) string
+		opts   *lib.CreateSnapshotOpts
+		expErr bool
+		expIs  error
+	}{
+		"Creating a snapshot of a created sandbox should work.": {
+			setup: func(t *testing.T, c *lib.Client) string {
+				t.Helper()
+				sb, err := c.CreateSandbox(context.Background(), lib.CreateSandboxOpts{
+					Name:      "snap-created",
+					Engine:    lib.EngineFake,
+					Resources: lib.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
+				})
+				require.NoError(t, err)
+				return sb.Name
+			},
+		},
+
+		"Creating a snapshot with a custom name should work.": {
+			setup: func(t *testing.T, c *lib.Client) string {
+				t.Helper()
+				sb, err := c.CreateSandbox(context.Background(), lib.CreateSandboxOpts{
+					Name:      "snap-named",
+					Engine:    lib.EngineFake,
+					Resources: lib.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
+				})
+				require.NoError(t, err)
+				return sb.Name
+			},
+			opts: &lib.CreateSnapshotOpts{SnapshotName: "my-snapshot"},
+		},
+
+		"Creating a snapshot of a running sandbox should fail.": {
+			setup: func(t *testing.T, c *lib.Client) string {
+				t.Helper()
+				ctx := context.Background()
+				sb, err := c.CreateSandbox(ctx, lib.CreateSandboxOpts{
+					Name:      "snap-running",
+					Engine:    lib.EngineFake,
+					Resources: lib.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
+				})
+				require.NoError(t, err)
+				_, err = c.StartSandbox(ctx, sb.Name, nil)
+				require.NoError(t, err)
+				return sb.Name
+			},
+			expErr: true,
+			expIs:  lib.ErrNotValid,
+		},
+
+		"Creating a snapshot of a non-existent sandbox should fail.": {
+			setup: func(t *testing.T, c *lib.Client) string {
+				return "ghost"
+			},
+			expErr: true,
+			expIs:  lib.ErrNotFound,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert := assert.New(t)
+			client := newTestClient(t)
+			nameOrID := test.setup(t, client)
+
+			snap, err := client.CreateSnapshot(context.Background(), nameOrID, test.opts)
+
+			if test.expErr {
+				assert.Error(err)
+				if test.expIs != nil {
+					assert.True(errors.Is(err, test.expIs), "expected error %v, got: %v", test.expIs, err)
+				}
+				return
+			}
+
+			assert.NoError(err)
+			assert.NotEmpty(snap.ID)
+			assert.NotEmpty(snap.Name)
+			assert.False(snap.CreatedAt.IsZero())
+		})
+	}
+}
+
+func TestListSnapshots(t *testing.T) {
+	assert := assert.New(t)
+	require := require.New(t)
+	client := newTestClient(t)
+	ctx := context.Background()
+
+	// Initially empty.
+	snaps, err := client.ListSnapshots(ctx)
+	require.NoError(err)
+	assert.Len(snaps, 0)
+
+	// Create sandbox + snapshot.
+	_, err = client.CreateSandbox(ctx, lib.CreateSandboxOpts{
+		Name:      "list-snap",
+		Engine:    lib.EngineFake,
+		Resources: lib.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
+	})
+	require.NoError(err)
+
+	_, err = client.CreateSnapshot(ctx, "list-snap", &lib.CreateSnapshotOpts{SnapshotName: "snap-1"})
+	require.NoError(err)
+
+	_, err = client.CreateSnapshot(ctx, "list-snap", &lib.CreateSnapshotOpts{SnapshotName: "snap-2"})
+	require.NoError(err)
+
+	// Should have 2.
+	snaps, err = client.ListSnapshots(ctx)
+	require.NoError(err)
+	assert.Len(snaps, 2)
+}
+
+func TestRemoveSnapshot(t *testing.T) {
+	tests := map[string]struct {
+		setup  func(t *testing.T, c *lib.Client) string // returns snapshot nameOrID to remove
+		expErr bool
+		expIs  error
+	}{
+		"Removing a snapshot by name should work.": {
+			setup: func(t *testing.T, c *lib.Client) string {
+				t.Helper()
+				ctx := context.Background()
+				_, err := c.CreateSandbox(ctx, lib.CreateSandboxOpts{
+					Name:      "rm-snap",
+					Engine:    lib.EngineFake,
+					Resources: lib.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
+				})
+				require.NoError(t, err)
+				snap, err := c.CreateSnapshot(ctx, "rm-snap", &lib.CreateSnapshotOpts{SnapshotName: "to-remove"})
+				require.NoError(t, err)
+				return snap.Name
+			},
+		},
+
+		"Removing a non-existent snapshot should fail.": {
+			setup: func(t *testing.T, c *lib.Client) string {
+				return "ghost-snapshot"
+			},
+			expErr: true,
+			expIs:  lib.ErrNotFound,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert := assert.New(t)
+			client := newTestClient(t)
+			nameOrID := test.setup(t, client)
+
+			snap, err := client.RemoveSnapshot(context.Background(), nameOrID)
+
+			if test.expErr {
+				assert.Error(err)
+				if test.expIs != nil {
+					assert.True(errors.Is(err, test.expIs), "expected error %v, got: %v", test.expIs, err)
+				}
+				return
+			}
+
+			assert.NoError(err)
+			assert.NotEmpty(snap.ID)
+
+			// Verify snapshot is gone.
+			snaps, err := client.ListSnapshots(context.Background())
+			assert.NoError(err)
+			assert.Len(snaps, 0)
+		})
+	}
+}
+
+func TestSnapshotLifecycle(t *testing.T) {
+	assert := assert.New(t)
+	require := require.New(t)
+	client := newTestClient(t)
+	ctx := context.Background()
+
+	// Create a sandbox.
+	_, err := client.CreateSandbox(ctx, lib.CreateSandboxOpts{
+		Name:      "snap-lifecycle",
+		Engine:    lib.EngineFake,
+		Resources: lib.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
+	})
+	require.NoError(err)
+
+	// Create snapshot.
+	snap, err := client.CreateSnapshot(ctx, "snap-lifecycle", &lib.CreateSnapshotOpts{
+		SnapshotName: "my-snap",
+	})
+	require.NoError(err)
+	assert.Equal("my-snap", snap.Name)
+	assert.NotEmpty(snap.ID)
+
+	// List should have 1.
+	snaps, err := client.ListSnapshots(ctx)
+	require.NoError(err)
+	assert.Len(snaps, 1)
+	assert.Equal("my-snap", snaps[0].Name)
+
+	// Remove.
+	removed, err := client.RemoveSnapshot(ctx, "my-snap")
+	require.NoError(err)
+	assert.Equal(snap.ID, removed.ID)
+
+	// List should be empty.
+	snaps, err = client.ListSnapshots(ctx)
+	require.NoError(err)
+	assert.Len(snaps, 0)
+}
+
+func TestForward(t *testing.T) {
+	t.Run("Forwarding with empty ports should fail.", func(t *testing.T) {
+		assert := assert.New(t)
+		client := newTestClient(t)
+		ctx := context.Background()
+
+		sb, err := client.CreateSandbox(ctx, lib.CreateSandboxOpts{
+			Name:      "fwd-empty",
+			Engine:    lib.EngineFake,
+			Resources: lib.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
+		})
+		require.NoError(t, err)
+		_, err = client.StartSandbox(ctx, sb.Name, nil)
+		require.NoError(t, err)
+
+		err = client.Forward(ctx, sb.Name, []lib.PortMapping{})
+		assert.Error(err)
+		assert.True(errors.Is(err, lib.ErrNotValid), "expected ErrNotValid, got: %v", err)
+	})
+
+	t.Run("Forwarding to a non-existent sandbox should fail.", func(t *testing.T) {
+		assert := assert.New(t)
+		client := newTestClient(t)
+
+		err := client.Forward(context.Background(), "ghost", []lib.PortMapping{{LocalPort: 8080, RemotePort: 8080}})
+		assert.Error(err)
+		assert.True(errors.Is(err, lib.ErrNotFound), "expected ErrNotFound, got: %v", err)
+	})
+
+	t.Run("Forwarding to a non-running sandbox should fail.", func(t *testing.T) {
+		assert := assert.New(t)
+		client := newTestClient(t)
+
+		_, err := client.CreateSandbox(context.Background(), lib.CreateSandboxOpts{
+			Name:      "fwd-stopped",
+			Engine:    lib.EngineFake,
+			Resources: lib.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
+		})
+		require.NoError(t, err)
+
+		err = client.Forward(context.Background(), "fwd-stopped", []lib.PortMapping{{LocalPort: 8080, RemotePort: 8080}})
+		assert.Error(err)
+		assert.True(errors.Is(err, lib.ErrNotValid), "expected ErrNotValid, got: %v", err)
+	})
+}
+
+func TestDoctor(t *testing.T) {
+	assert := assert.New(t)
+	client := newTestClient(t) // Uses EngineFake.
+	ctx := context.Background()
+
+	// Doctor with fake engine should return empty results.
+	results, err := client.Doctor(ctx)
+	assert.NoError(err)
+	assert.NotNil(results)
+	assert.Len(results, 0)
 }
 
 func TestResourcesPreserved(t *testing.T) {

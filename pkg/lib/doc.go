@@ -40,6 +40,59 @@
 //   - [EngineFake]: In-memory fake engine for unit testing. No real infrastructure
 //     needed. Set [Config].Engine to [EngineFake] to use it.
 //
+// # File Operations
+//
+// Copy files between the host and a running sandbox:
+//
+//	client.CopyTo(ctx, "my-sandbox", "/local/file.txt", "/remote/file.txt")
+//	client.CopyFrom(ctx, "my-sandbox", "/remote/file.txt", "/local/file.txt")
+//
+// # Port Forwarding
+//
+// Forward local ports to a running sandbox. The method blocks until context
+// cancellation:
+//
+//	ctx, cancel := context.WithCancel(context.Background())
+//	go func() {
+//	    time.Sleep(10 * time.Second)
+//	    cancel()
+//	}()
+//	client.Forward(ctx, "my-sandbox", []lib.PortMapping{
+//	    {LocalPort: 8080, RemotePort: 80},
+//	})
+//
+// # Snapshots
+//
+// Create point-in-time snapshots of stopped sandboxes and restore from them:
+//
+//	client.StopSandbox(ctx, "my-sandbox")
+//	snap, _ := client.CreateSnapshot(ctx, "my-sandbox", nil)
+//	client.CreateSandbox(ctx, lib.CreateSandboxOpts{
+//	    Name:         "from-snapshot",
+//	    Engine:       lib.EngineFirecracker,
+//	    Firecracker:  &lib.FirecrackerConfig{KernelImage: "/path/to/vmlinux"},
+//	    Resources:    lib.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
+//	    FromSnapshot: snap.Name,
+//	})
+//
+// # Image Management
+//
+// List, pull, inspect, and remove image releases from the registry:
+//
+//	images, _ := client.ListImages(ctx)
+//	result, _ := client.PullImage(ctx, "v0.1.0", nil)
+//	manifest, _ := client.InspectImage(ctx, "v0.1.0")
+//	client.RemoveImage(ctx, "v0.1.0")
+//
+// # Health Checks
+//
+// Run preflight checks to verify the engine environment:
+//
+//	results, _ := client.Doctor(ctx)
+//	for _, r := range results {
+//	    fmt.Printf("%s: %s (%s)\n", r.ID, r.Message, r.Status)
+//	}
+//
 // # Error Handling
 //
 // All methods return errors that can be inspected with [errors.Is]:

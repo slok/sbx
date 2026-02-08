@@ -23,6 +23,9 @@ type ServiceConfig struct {
 	Engine     sandbox.Engine
 	Repository storage.Repository
 	Logger     log.Logger
+	// SnapshotsDir is the directory where snapshot files are stored.
+	// If empty, defaults to ~/.sbx/snapshots.
+	SnapshotsDir string
 }
 
 func (c *ServiceConfig) defaults() error {
@@ -38,15 +41,24 @@ func (c *ServiceConfig) defaults() error {
 		c.Logger = log.Noop
 	}
 
+	if c.SnapshotsDir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("could not get user home dir: %w", err)
+		}
+		c.SnapshotsDir = filepath.Join(home, ".sbx", "snapshots")
+	}
+
 	c.Logger = c.Logger.WithValues(log.Kv{"svc": "app.SnapshotCreate"})
 	return nil
 }
 
 // Service creates snapshots from sandboxes.
 type Service struct {
-	engine sandbox.Engine
-	repo   storage.Repository
-	logger log.Logger
+	engine       sandbox.Engine
+	repo         storage.Repository
+	logger       log.Logger
+	snapshotsDir string
 }
 
 // NewService creates a new snapshot create service.
@@ -56,9 +68,10 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 	}
 
 	return &Service{
-		engine: cfg.Engine,
-		repo:   cfg.Repository,
-		logger: cfg.Logger,
+		engine:       cfg.Engine,
+		repo:         cfg.Repository,
+		logger:       cfg.Logger,
+		snapshotsDir: cfg.SnapshotsDir,
 	}, nil
 }
 
@@ -97,10 +110,7 @@ func (s *Service) Run(ctx context.Context, req Request) (*model.Snapshot, error)
 	}
 
 	snapshotID := ulid.MustNew(ulid.Timestamp(time.Now().UTC()), rand.Reader).String()
-	dstPath, err := defaultSnapshotPath(snapshotID)
-	if err != nil {
-		return nil, fmt.Errorf("could not build snapshot destination path: %w", err)
-	}
+	dstPath := filepath.Join(s.snapshotsDir, fmt.Sprintf("%s.ext4", snapshotID))
 
 	virtualSize, allocatedSize, err := s.engine.CreateSnapshot(ctx, sandbox.ID, snapshotID, dstPath)
 	if err != nil {
@@ -199,15 +209,6 @@ func sanitizeSnapshotNamePart(raw string) string {
 	}
 
 	return strings.Trim(b.String(), "-._")
-}
-
-func defaultSnapshotPath(snapshotID string) (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("could not get user home dir: %w", err)
-	}
-
-	return filepath.Join(home, ".sbx", "snapshots", fmt.Sprintf("%s.ext4", snapshotID)), nil
 }
 
 // looksLikeULID checks if a string looks like a ULID (26 characters, alphanumeric uppercase).

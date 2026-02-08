@@ -158,6 +158,154 @@ type ExecResult struct {
 	ExitCode int
 }
 
+// --- Snapshot types ---
+
+// Snapshot represents a point-in-time copy of a sandbox's rootfs.
+type Snapshot struct {
+	// ID is the unique identifier (ULID).
+	ID string
+	// Name is the human-friendly name.
+	Name string
+	// Path is the filesystem path to the snapshot .ext4 file.
+	Path string
+	// SourceSandboxID is the ID of the sandbox this snapshot was taken from.
+	SourceSandboxID string
+	// SourceSandboxName is the name of the sandbox this snapshot was taken from.
+	SourceSandboxName string
+	// VirtualSizeBytes is the logical file size in bytes.
+	VirtualSizeBytes int64
+	// AllocatedSizeBytes is the actual disk space used (sparse-aware).
+	AllocatedSizeBytes int64
+	// CreatedAt is when the snapshot was created.
+	CreatedAt time.Time
+}
+
+// CreateSnapshotOpts configures snapshot creation.
+//
+// Pass nil to [Client.CreateSnapshot] to auto-generate the snapshot name.
+type CreateSnapshotOpts struct {
+	// SnapshotName is an optional name for the snapshot.
+	// If empty, a name is auto-generated from the sandbox name and timestamp.
+	SnapshotName string
+}
+
+// --- Image types ---
+
+// ImageRelease represents an image version available in the registry.
+type ImageRelease struct {
+	// Version is the release version string (e.g. "v0.1.0").
+	Version string
+	// Installed indicates whether this version is downloaded locally.
+	Installed bool
+}
+
+// PullImageOpts configures image pull behavior.
+//
+// Pass nil to [Client.PullImage] to use defaults (no force, no progress output).
+type PullImageOpts struct {
+	// Force re-downloads the image even if already installed.
+	Force bool
+	// StatusWriter receives progress output during download. Nil means silent.
+	StatusWriter io.Writer
+}
+
+// PullResult contains the result of an image pull operation.
+type PullResult struct {
+	// Version is the pulled image version.
+	Version string
+	// Skipped is true if the image was already installed and Force was false.
+	Skipped bool
+	// KernelPath is the local path to the kernel binary.
+	KernelPath string
+	// RootFSPath is the local path to the rootfs image.
+	RootFSPath string
+	// FirecrackerPath is the local path to the firecracker binary.
+	FirecrackerPath string
+}
+
+// ImageManifest describes an image release's artifacts and metadata.
+type ImageManifest struct {
+	// SchemaVersion is the manifest schema version.
+	SchemaVersion int
+	// Version is the release version.
+	Version string
+	// Artifacts maps architecture names (e.g. "x86_64") to their artifacts.
+	Artifacts map[string]ArchArtifacts
+	// Firecracker describes the expected Firecracker binary version.
+	Firecracker FirecrackerInfo
+	// Build contains build metadata.
+	Build BuildInfo
+}
+
+// ArchArtifacts contains per-architecture artifact metadata.
+type ArchArtifacts struct {
+	Kernel KernelInfo
+	Rootfs RootfsInfo
+}
+
+// KernelInfo describes the kernel binary artifact.
+type KernelInfo struct {
+	File      string
+	Version   string
+	Source    string
+	SizeBytes int64
+}
+
+// RootfsInfo describes the rootfs image artifact.
+type RootfsInfo struct {
+	File          string
+	Distro        string
+	DistroVersion string
+	Profile       string
+	SizeBytes     int64
+}
+
+// FirecrackerInfo describes the expected Firecracker version.
+type FirecrackerInfo struct {
+	Version string
+	Source  string
+}
+
+// BuildInfo contains build metadata.
+type BuildInfo struct {
+	Date   string
+	Commit string
+}
+
+// --- Forward types ---
+
+// PortMapping represents a port forwarding configuration.
+type PortMapping struct {
+	// LocalPort is the port on the host machine.
+	LocalPort int
+	// RemotePort is the port inside the sandbox.
+	RemotePort int
+}
+
+// --- Doctor types ---
+
+// CheckStatus represents the status of a preflight check.
+type CheckStatus string
+
+const (
+	// CheckStatusOK indicates the check passed.
+	CheckStatusOK CheckStatus = "ok"
+	// CheckStatusWarning indicates the check passed with a warning.
+	CheckStatusWarning CheckStatus = "warning"
+	// CheckStatusError indicates the check failed.
+	CheckStatusError CheckStatus = "error"
+)
+
+// CheckResult represents the result of a single preflight check.
+type CheckResult struct {
+	// ID is a unique identifier for the check (e.g. "kvm_available").
+	ID string
+	// Message is a human-readable description of the result.
+	Message string
+	// Status is the check status.
+	Status CheckStatus
+}
+
 // --- Internal conversion helpers ---
 
 func toInternalSandboxConfig(opts CreateSandboxOpts) model.SandboxConfig {
@@ -303,3 +451,109 @@ func (e *mappedError) Is(target error) bool {
 }
 
 func (e *mappedError) Unwrap() error { return e.original }
+
+// --- Snapshot conversion helpers ---
+
+func fromInternalSnapshot(s model.Snapshot) Snapshot {
+	return Snapshot{
+		ID:                 s.ID,
+		Name:               s.Name,
+		Path:               s.Path,
+		SourceSandboxID:    s.SourceSandboxID,
+		SourceSandboxName:  s.SourceSandboxName,
+		VirtualSizeBytes:   s.VirtualSizeBytes,
+		AllocatedSizeBytes: s.AllocatedSizeBytes,
+		CreatedAt:          s.CreatedAt,
+	}
+}
+
+func fromInternalSnapshotList(ss []model.Snapshot) []Snapshot {
+	result := make([]Snapshot, len(ss))
+	for i, s := range ss {
+		result[i] = fromInternalSnapshot(s)
+	}
+	return result
+}
+
+// --- Image conversion helpers ---
+
+func fromInternalImageRelease(r model.ImageRelease) ImageRelease {
+	return ImageRelease{
+		Version:   r.Version,
+		Installed: r.Installed,
+	}
+}
+
+func fromInternalImageReleaseList(rs []model.ImageRelease) []ImageRelease {
+	result := make([]ImageRelease, len(rs))
+	for i, r := range rs {
+		result[i] = fromInternalImageRelease(r)
+	}
+	return result
+}
+
+func fromInternalImageManifest(m *model.ImageManifest) *ImageManifest {
+	if m == nil {
+		return nil
+	}
+
+	artifacts := make(map[string]ArchArtifacts, len(m.Artifacts))
+	for arch, a := range m.Artifacts {
+		artifacts[arch] = ArchArtifacts{
+			Kernel: KernelInfo{
+				File:      a.Kernel.File,
+				Version:   a.Kernel.Version,
+				Source:    a.Kernel.Source,
+				SizeBytes: a.Kernel.SizeBytes,
+			},
+			Rootfs: RootfsInfo{
+				File:          a.Rootfs.File,
+				Distro:        a.Rootfs.Distro,
+				DistroVersion: a.Rootfs.DistroVersion,
+				Profile:       a.Rootfs.Profile,
+				SizeBytes:     a.Rootfs.SizeBytes,
+			},
+		}
+	}
+
+	return &ImageManifest{
+		SchemaVersion: m.SchemaVersion,
+		Version:       m.Version,
+		Artifacts:     artifacts,
+		Firecracker: FirecrackerInfo{
+			Version: m.Firecracker.Version,
+			Source:  m.Firecracker.Source,
+		},
+		Build: BuildInfo{
+			Date:   m.Build.Date,
+			Commit: m.Build.Commit,
+		},
+	}
+}
+
+// --- Forward conversion helpers ---
+
+func toInternalPortMappings(ports []PortMapping) []model.PortMapping {
+	result := make([]model.PortMapping, len(ports))
+	for i, p := range ports {
+		result[i] = model.PortMapping{
+			LocalPort:  p.LocalPort,
+			RemotePort: p.RemotePort,
+		}
+	}
+	return result
+}
+
+// --- Doctor conversion helpers ---
+
+func fromInternalCheckResults(results []model.CheckResult) []CheckResult {
+	out := make([]CheckResult, len(results))
+	for i, r := range results {
+		out[i] = CheckResult{
+			ID:      r.ID,
+			Message: r.Message,
+			Status:  CheckStatus(r.Status),
+		}
+	}
+	return out
+}
