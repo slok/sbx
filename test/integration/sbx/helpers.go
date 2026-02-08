@@ -157,3 +157,39 @@ func RunSnapshotRm(ctx context.Context, config Config, dbPath, nameOrID string) 
 func RunForward(ctx context.Context, config Config, dbPath, name, ports string) (stdout, stderr []byte, err error) {
 	return RunSBXCmd(ctx, config, dbPath, fmt.Sprintf("forward %s %s", name, ports))
 }
+
+// RunImageList lists image releases in JSON format.
+func RunImageList(ctx context.Context, config Config, dbPath, extraArgs string) (stdout, stderr []byte, err error) {
+	args := "image list --format json"
+	if extraArgs != "" {
+		args += " " + extraArgs
+	}
+	return RunSBXCmd(ctx, config, dbPath, args)
+}
+
+// RunImagePull pulls an image version.
+func RunImagePull(ctx context.Context, config Config, dbPath, version, extraArgs string) (stdout, stderr []byte, err error) {
+	args := fmt.Sprintf("image pull %s", version)
+	if extraArgs != "" {
+		args += " " + extraArgs
+	}
+	return RunSBXCmd(ctx, config, dbPath, args)
+}
+
+// RunImageRm removes an installed image version.
+func RunImageRm(ctx context.Context, config Config, dbPath, version, extraArgs string) (stdout, stderr []byte, err error) {
+	args := fmt.Sprintf("image rm %s", version)
+	if extraArgs != "" {
+		args += " " + extraArgs
+	}
+	return RunSBXCmd(ctx, config, dbPath, args)
+}
+
+// RunImageInspect inspects an image version in JSON format.
+func RunImageInspect(ctx context.Context, config Config, dbPath, version, extraArgs string) (stdout, stderr []byte, err error) {
+	args := fmt.Sprintf("image inspect %s --format json", version)
+	if extraArgs != "" {
+		args += " " + extraArgs
+	}
+	return RunSBXCmd(ctx, config, dbPath, args)
+}

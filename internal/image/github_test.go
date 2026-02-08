@@ -69,10 +69,10 @@ func TestGitHubImageManagerListReleases(t *testing.T) {
 			apiHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				// Return releases on page 1, empty on page 2+ (stops pagination).
 				if r.URL.Query().Get("page") == "2" {
-					json.NewEncoder(w).Encode([]map[string]string{})
+					_ = json.NewEncoder(w).Encode([]map[string]string{})
 					return
 				}
-				json.NewEncoder(w).Encode(tc.releases)
+				_ = json.NewEncoder(w).Encode(tc.releases)
 			})
 
 			m, imagesDir := newTestManager(t, apiHandler, http.NotFoundHandler())
@@ -116,7 +116,7 @@ func TestGitHubImageManagerGetManifest(t *testing.T) {
 
 	downloadHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/test/images/releases/download/v0.1.0/manifest.json" {
-			json.NewEncoder(w).Encode(manifest)
+			_ = json.NewEncoder(w).Encode(manifest)
 			return
 		}
 		http.NotFound(w, r)
@@ -177,13 +177,13 @@ func TestGitHubImageManagerPull(t *testing.T) {
 	downloadHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/test/images/releases/download/v0.1.0/manifest.json":
-			json.NewEncoder(w).Encode(manifest)
+			_ = json.NewEncoder(w).Encode(manifest)
 		case "/test/images/releases/download/v0.1.0/vmlinux-x86_64":
-			w.Write(kernelData)
+			_, _ = w.Write(kernelData)
 		case "/test/images/releases/download/v0.1.0/rootfs-x86_64.ext4":
-			w.Write(rootfsData)
+			_, _ = w.Write(rootfsData)
 		case "/firecracker-microvm/firecracker/releases/download/v1.14.1/firecracker-v1.14.1-x86_64.tgz":
-			w.Write(fcTgz)
+			_, _ = w.Write(fcTgz)
 		default:
 			http.NotFound(w, r)
 		}
