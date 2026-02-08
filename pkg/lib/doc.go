@@ -63,16 +63,15 @@
 //
 // # Snapshots
 //
-// Create point-in-time snapshots of stopped sandboxes and restore from them:
+// Create snapshot images from stopped sandboxes and restore from them:
 //
 //	client.StopSandbox(ctx, "my-sandbox")
-//	snap, _ := client.CreateSnapshot(ctx, "my-sandbox", nil)
+//	imgName, _ := client.CreateImageFromSandbox(ctx, "my-sandbox", nil)
 //	client.CreateSandbox(ctx, lib.CreateSandboxOpts{
-//	    Name:         "from-snapshot",
-//	    Engine:       lib.EngineFirecracker,
-//	    Firecracker:  &lib.FirecrackerConfig{KernelImage: "/path/to/vmlinux"},
-//	    Resources:    lib.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
-//	    FromSnapshot: snap.Name,
+//	    Name:      "from-snapshot",
+//	    Engine:    lib.EngineFirecracker,
+//	    FromImage: imgName,
+//	    Resources: lib.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
 //	})
 //
 // # Image Management

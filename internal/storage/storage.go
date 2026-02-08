@@ -14,10 +14,4 @@ type Repository interface {
 	ListSandboxes(ctx context.Context) ([]model.Sandbox, error)
 	UpdateSandbox(ctx context.Context, s model.Sandbox) error
 	DeleteSandbox(ctx context.Context, id string) error
-
-	CreateSnapshot(ctx context.Context, s model.Snapshot) error
-	GetSnapshot(ctx context.Context, id string) (*model.Snapshot, error)
-	GetSnapshotByName(ctx context.Context, name string) (*model.Snapshot, error)
-	ListSnapshots(ctx context.Context) ([]model.Snapshot, error)
-	DeleteSnapshot(ctx context.Context, id string) error
 }

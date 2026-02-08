@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/slok/sbx/internal/log"
 	"github.com/slok/sbx/internal/model"
@@ -110,6 +111,7 @@ type manifestJSON struct {
 	Artifacts     map[string]archArtifactsJSON `json:"artifacts"`
 	FC            firecrackerJSON              `json:"firecracker"`
 	Build         buildJSON                    `json:"build"`
+	Snapshot      *snapshotInfoJSON            `json:"snapshot,omitempty"`
 }
 
 type archArtifactsJSON struct {
@@ -142,6 +144,14 @@ type buildJSON struct {
 	Commit string `json:"commit"`
 }
 
+type snapshotInfoJSON struct {
+	SourceSandboxID   string `json:"source_sandbox_id"`
+	SourceSandboxName string `json:"source_sandbox_name"`
+	SourceImage       string `json:"source_image"`
+	ParentSnapshot    string `json:"parent_snapshot"`
+	CreatedAt         string `json:"created_at"`
+}
+
 func (m *manifestJSON) toModel() *model.ImageManifest {
 	artifacts := make(map[string]model.ArchArtifacts, len(m.Artifacts))
 	for arch, a := range m.Artifacts {
@@ -161,7 +171,8 @@ func (m *manifestJSON) toModel() *model.ImageManifest {
 			},
 		}
 	}
-	return &model.ImageManifest{
+
+	manifest := &model.ImageManifest{
 		SchemaVersion: m.SchemaVersion,
 		Version:       m.Version,
 		Artifacts:     artifacts,
@@ -174,22 +185,75 @@ func (m *manifestJSON) toModel() *model.ImageManifest {
 			Commit: m.Build.Commit,
 		},
 	}
+
+	if m.Snapshot != nil {
+		createdAt, _ := time.Parse(time.RFC3339, m.Snapshot.CreatedAt)
+		manifest.Snapshot = &model.SnapshotInfo{
+			SourceSandboxID:   m.Snapshot.SourceSandboxID,
+			SourceSandboxName: m.Snapshot.SourceSandboxName,
+			SourceImage:       m.Snapshot.SourceImage,
+			ParentSnapshot:    m.Snapshot.ParentSnapshot,
+			CreatedAt:         createdAt,
+		}
+	}
+
+	return manifest
 }
 
 // --- ImageManager interface implementation ---
 
 func (g *GitHubImageManager) ListReleases(ctx context.Context) ([]model.ImageRelease, error) {
+	// Fetch remote releases from GitHub.
 	releases, err := g.fetchReleases(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("fetching releases: %w", err)
 	}
 
+	// Build result from remote releases, checking local installation.
+	knownVersions := make(map[string]bool, len(releases))
 	result := make([]model.ImageRelease, 0, len(releases))
 	for _, r := range releases {
 		installed, _ := g.Exists(ctx, r.TagName)
 		result = append(result, model.ImageRelease{
 			Version:   r.TagName,
 			Installed: installed,
+			Source:    model.ImageSourceRelease,
+		})
+		knownVersions[r.TagName] = true
+	}
+
+	// Scan local dirs for snapshot images.
+	entries, err := os.ReadDir(g.imagesDir)
+	if err != nil {
+		// If the images dir doesn't exist yet, just return remote releases.
+		if os.IsNotExist(err) {
+			return result, nil
+		}
+		return nil, fmt.Errorf("reading images directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if knownVersions[name] {
+			continue // Already in the list from remote releases.
+		}
+
+		// Check if this local dir has a manifest with snapshot info.
+		mj, err := g.readLocalManifest(name)
+		if err != nil {
+			continue // No valid manifest, skip.
+		}
+		if mj.Snapshot == nil {
+			continue // Not a snapshot image.
+		}
+
+		result = append(result, model.ImageRelease{
+			Version:   name,
+			Installed: true, // Local snapshot images are always installed.
+			Source:    model.ImageSourceSnapshot,
 		})
 	}
 
@@ -197,6 +261,21 @@ func (g *GitHubImageManager) ListReleases(ctx context.Context) ([]model.ImageRel
 }
 
 func (g *GitHubImageManager) GetManifest(ctx context.Context, version string) (*model.ImageManifest, error) {
+	// Try local manifest first.
+	mj, err := g.readLocalManifest(version)
+	if err == nil {
+		// Validate schema version.
+		if mj.SchemaVersion == 0 {
+			mj.SchemaVersion = 1
+		}
+		if mj.SchemaVersion != model.CurrentSchemaVersion {
+			return nil, fmt.Errorf("unsupported manifest schema version %d for %s (supported: %d), try updating sbx",
+				mj.SchemaVersion, version, model.CurrentSchemaVersion)
+		}
+		return mj.toModel(), nil
+	}
+
+	// Fallback to remote GitHub download.
 	url := fmt.Sprintf("%s/%s/releases/download/%s/manifest.json", g.downloadBaseURL, g.repo, version)
 
 	data, err := g.httpGet(ctx, url)
@@ -204,22 +283,22 @@ func (g *GitHubImageManager) GetManifest(ctx context.Context, version string) (*
 		return nil, fmt.Errorf("downloading manifest for %s: %w", version, err)
 	}
 
-	var mj manifestJSON
-	if err := json.Unmarshal(data, &mj); err != nil {
+	var remoteMJ manifestJSON
+	if err := json.Unmarshal(data, &remoteMJ); err != nil {
 		return nil, fmt.Errorf("parsing manifest for %s: %w", version, err)
 	}
 
 	// Validate schema version. A schema_version of 0 means the field was absent
 	// (pre-versioning manifests), which we treat as schema version 1 for backward compatibility.
-	if mj.SchemaVersion == 0 {
-		mj.SchemaVersion = 1
+	if remoteMJ.SchemaVersion == 0 {
+		remoteMJ.SchemaVersion = 1
 	}
-	if mj.SchemaVersion != model.CurrentSchemaVersion {
+	if remoteMJ.SchemaVersion != model.CurrentSchemaVersion {
 		return nil, fmt.Errorf("unsupported manifest schema version %d for %s (supported: %d), try updating sbx",
-			mj.SchemaVersion, version, model.CurrentSchemaVersion)
+			remoteMJ.SchemaVersion, version, model.CurrentSchemaVersion)
 	}
 
-	return mj.toModel(), nil
+	return remoteMJ.toModel(), nil
 }
 
 func (g *GitHubImageManager) Pull(ctx context.Context, version string, opts PullOptions) (*PullResult, error) {
@@ -332,7 +411,143 @@ func (g *GitHubImageManager) FirecrackerPath(version string) string {
 	return filepath.Join(g.imagesDir, version, "firecracker")
 }
 
+func (g *GitHubImageManager) CreateSnapshot(_ context.Context, opts CreateSnapshotOptions) error {
+	// Validate name.
+	if err := model.ValidateImageName(opts.Name); err != nil {
+		return fmt.Errorf("invalid snapshot image name: %w", err)
+	}
+
+	// Check name doesn't already exist.
+	versionDir := filepath.Join(g.imagesDir, opts.Name)
+	if _, err := os.Stat(versionDir); err == nil {
+		return fmt.Errorf("image %q already exists: %w", opts.Name, model.ErrAlreadyExists)
+	}
+
+	// Create the version directory.
+	if err := os.MkdirAll(versionDir, 0o755); err != nil {
+		return fmt.Errorf("creating snapshot directory: %w", err)
+	}
+
+	// Cleanup on error.
+	success := false
+	defer func() {
+		if !success {
+			os.RemoveAll(versionDir)
+		}
+	}()
+
+	arch := HostArch()
+	kernelFile := fmt.Sprintf("vmlinux-%s", arch)
+	rootfsFile := fmt.Sprintf("rootfs-%s.ext4", arch)
+
+	// Copy kernel.
+	kernelDst := filepath.Join(versionDir, kernelFile)
+	if err := copyFile(opts.KernelSrc, kernelDst); err != nil {
+		return fmt.Errorf("copying kernel: %w", err)
+	}
+
+	// Copy rootfs.
+	rootfsDst := filepath.Join(versionDir, rootfsFile)
+	if err := copyFile(opts.RootFSSrc, rootfsDst); err != nil {
+		return fmt.Errorf("copying rootfs: %w", err)
+	}
+
+	// Get file sizes for the manifest.
+	kernelInfo, err := os.Stat(kernelDst)
+	if err != nil {
+		return fmt.Errorf("stat kernel: %w", err)
+	}
+	rootfsInfo, err := os.Stat(rootfsDst)
+	if err != nil {
+		return fmt.Errorf("stat rootfs: %w", err)
+	}
+
+	// Build and write manifest.
+	fcVersion := opts.FirecrackerVersion
+	if fcVersion == "" {
+		fcVersion = "unknown"
+	}
+
+	mj := manifestJSON{
+		SchemaVersion: model.CurrentSchemaVersion,
+		Version:       opts.Name,
+		Artifacts: map[string]archArtifactsJSON{
+			arch: {
+				Kernel: kernelJSON{
+					File:      kernelFile,
+					SizeBytes: kernelInfo.Size(),
+				},
+				Rootfs: rootfsJSON{
+					File:      rootfsFile,
+					SizeBytes: rootfsInfo.Size(),
+				},
+			},
+		},
+		FC: firecrackerJSON{
+			Version: fcVersion,
+		},
+		Build: buildJSON{},
+		Snapshot: &snapshotInfoJSON{
+			SourceSandboxID:   opts.SourceSandboxID,
+			SourceSandboxName: opts.SourceSandboxName,
+			SourceImage:       opts.SourceImage,
+			ParentSnapshot:    opts.ParentSnapshot,
+			CreatedAt:         time.Now().UTC().Format(time.RFC3339),
+		},
+	}
+
+	manifestData, err := json.MarshalIndent(mj, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshaling manifest: %w", err)
+	}
+
+	manifestPath := filepath.Join(versionDir, "manifest.json")
+	if err := os.WriteFile(manifestPath, manifestData, 0o644); err != nil {
+		return fmt.Errorf("writing manifest: %w", err)
+	}
+
+	success = true
+	return nil
+}
+
 // --- Internal helpers ---
+
+// readLocalManifest reads and parses a manifest.json from a local version directory.
+func (g *GitHubImageManager) readLocalManifest(version string) (*manifestJSON, error) {
+	manifestPath := filepath.Join(g.imagesDir, version, "manifest.json")
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return nil, err
+	}
+
+	var mj manifestJSON
+	if err := json.Unmarshal(data, &mj); err != nil {
+		return nil, fmt.Errorf("parsing local manifest for %s: %w", version, err)
+	}
+
+	return &mj, nil
+}
+
+// copyFile copies a file from src to dst using regular io.Copy.
+func copyFile(src, dst string) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("opening source %s: %w", src, err)
+	}
+	defer srcFile.Close()
+
+	dstFile, err := os.Create(dst)
+	if err != nil {
+		return fmt.Errorf("creating destination %s: %w", dst, err)
+	}
+	defer dstFile.Close()
+
+	if _, err := io.Copy(dstFile, srcFile); err != nil {
+		return fmt.Errorf("copying %s to %s: %w", src, dst, err)
+	}
+
+	return nil
+}
 
 func (g *GitHubImageManager) fetchReleases(ctx context.Context) ([]ghRelease, error) {
 	var allReleases []ghRelease

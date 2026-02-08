@@ -3,102 +3,71 @@ package lib
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 
-	"github.com/slok/sbx/internal/app/snapshotcreate"
-	"github.com/slok/sbx/internal/app/snapshotlist"
-	"github.com/slok/sbx/internal/app/snapshotremove"
-	"github.com/slok/sbx/internal/sandbox/firecracker"
+	"github.com/slok/sbx/internal/app/imagecreate"
 )
 
-// CreateSnapshot creates a point-in-time rootfs snapshot of a sandbox.
+// CreateImageFromSandboxOpts configures snapshot image creation.
+//
+// Pass nil to [Client.CreateImageFromSandbox] to auto-generate the image name.
+type CreateImageFromSandboxOpts struct {
+	// ImageName is an optional name for the snapshot image.
+	// If empty, a name is auto-generated from the sandbox name and timestamp.
+	ImageName string
+}
+
+// CreateImageFromSandbox creates a local snapshot image from a sandbox.
 //
 // The sandbox must be in [SandboxStatusCreated] or [SandboxStatusStopped] state.
-// Snapshots can later be used to create new sandboxes via
-// [CreateSandboxOpts].FromSnapshot.
+// The resulting image can be used with [CreateSandboxOpts].FromImage to create
+// new sandboxes.
 //
-// Pass nil opts to auto-generate a snapshot name from the sandbox name and
-// timestamp. Use opts.SnapshotName to specify a custom name.
+// Pass nil opts to auto-generate an image name from the sandbox name and
+// timestamp. Use opts.ImageName to specify a custom name.
 //
-// Returns [ErrNotFound] if the sandbox does not exist, [ErrNotValid] if the
-// sandbox is running, or [ErrAlreadyExists] if the snapshot name is taken.
-func (c *Client) CreateSnapshot(ctx context.Context, nameOrID string, opts *CreateSnapshotOpts) (*Snapshot, error) {
-	sb, err := c.getInternalSandbox(ctx, nameOrID)
+// Returns the image name, or [ErrNotFound] if the sandbox does not exist,
+// [ErrNotValid] if the sandbox is running, or [ErrAlreadyExists] if the
+// image name is taken.
+func (c *Client) CreateImageFromSandbox(ctx context.Context, nameOrID string, opts *CreateImageFromSandboxOpts) (string, error) {
+	mgr, err := c.newImageManager()
 	if err != nil {
-		return nil, mapError(err)
+		return "", fmt.Errorf("could not create image manager: %w", err)
 	}
 
-	eng, err := c.newEngine(sb.Config)
-	if err != nil {
-		return nil, mapError(fmt.Errorf("could not create engine: %w", err))
+	// Determine data dir.
+	dataDir := c.dataDir
+	if dataDir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("could not get user home dir: %w", err)
+		}
+		dataDir = filepath.Join(home, ".sbx")
 	}
 
-	svc, err := snapshotcreate.NewService(snapshotcreate.ServiceConfig{
-		Engine:       eng,
-		Repository:   c.repo,
-		Logger:       c.logger,
-		SnapshotsDir: filepath.Join(c.dataDir, firecracker.SnapshotsDir),
+	svc, err := imagecreate.NewService(imagecreate.ServiceConfig{
+		Manager:    mgr,
+		Repository: c.repo,
+		Logger:     c.logger,
+		DataDir:    dataDir,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("could not create service: %w", err)
+		return "", fmt.Errorf("could not create service: %w", err)
 	}
 
-	var snapshotName string
+	var imgName string
 	if opts != nil {
-		snapshotName = opts.SnapshotName
+		imgName = opts.ImageName
 	}
 
-	result, err := svc.Run(ctx, snapshotcreate.Request{
-		NameOrID:     nameOrID,
-		SnapshotName: snapshotName,
+	result, err := svc.Run(ctx, imagecreate.Request{
+		NameOrID:  nameOrID,
+		ImageName: imgName,
 	})
 	if err != nil {
-		return nil, mapError(err)
+		return "", mapError(err)
 	}
 
-	out := fromInternalSnapshot(*result)
-	return &out, nil
-}
-
-// ListSnapshots returns all snapshots ordered by creation time (newest first).
-func (c *Client) ListSnapshots(ctx context.Context) ([]Snapshot, error) {
-	svc, err := snapshotlist.NewService(snapshotlist.ServiceConfig{
-		Repository: c.repo,
-		Logger:     c.logger,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("could not create service: %w", err)
-	}
-
-	result, err := svc.Run(ctx, snapshotlist.Request{})
-	if err != nil {
-		return nil, mapError(err)
-	}
-
-	return fromInternalSnapshotList(result), nil
-}
-
-// RemoveSnapshot deletes a snapshot by name or ID.
-//
-// The snapshot file is removed from disk and the record is deleted from storage.
-//
-// Returns [ErrNotFound] if the snapshot does not exist.
-func (c *Client) RemoveSnapshot(ctx context.Context, nameOrID string) (*Snapshot, error) {
-	svc, err := snapshotremove.NewService(snapshotremove.ServiceConfig{
-		Repository: c.repo,
-		Logger:     c.logger,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("could not create service: %w", err)
-	}
-
-	result, err := svc.Run(ctx, snapshotremove.Request{
-		NameOrID: nameOrID,
-	})
-	if err != nil {
-		return nil, mapError(err)
-	}
-
-	out := fromInternalSnapshot(*result)
-	return &out, nil
+	return result, nil
 }

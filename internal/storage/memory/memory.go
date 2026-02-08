@@ -25,7 +25,6 @@ func (c *RepositoryConfig) defaults() error {
 // Repository is an in-memory implementation of storage.Repository.
 type Repository struct {
 	sandboxes map[string]model.Sandbox
-	snapshots map[string]model.Snapshot
 	mu        sync.RWMutex
 	logger    log.Logger
 }
@@ -38,7 +37,6 @@ func NewRepository(cfg RepositoryConfig) (*Repository, error) {
 
 	return &Repository{
 		sandboxes: make(map[string]model.Sandbox),
-		snapshots: make(map[string]model.Snapshot),
 		logger:    cfg.Logger,
 	}, nil
 }
@@ -138,86 +136,4 @@ func (r *Repository) DeleteSandbox(ctx context.Context, id string) error {
 	r.logger.Debugf("Deleted sandbox from repository: %s", id)
 
 	return nil
-}
-
-// DeleteSnapshot deletes a snapshot by ID.
-func (r *Repository) DeleteSnapshot(ctx context.Context, id string) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if _, ok := r.snapshots[id]; !ok {
-		return fmt.Errorf("snapshot %s: %w", id, model.ErrNotFound)
-	}
-
-	delete(r.snapshots, id)
-	r.logger.Debugf("Deleted snapshot from repository: %s", id)
-
-	return nil
-}
-
-// CreateSnapshot creates a new snapshot in the repository.
-func (r *Repository) CreateSnapshot(ctx context.Context, s model.Snapshot) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if err := s.Validate(); err != nil {
-		return fmt.Errorf("invalid snapshot: %w", err)
-	}
-
-	if _, ok := r.snapshots[s.ID]; ok {
-		return fmt.Errorf("snapshot with id %s: %w", s.ID, model.ErrAlreadyExists)
-	}
-
-	for _, existing := range r.snapshots {
-		if existing.Name == s.Name {
-			return fmt.Errorf("snapshot with name %s: %w", s.Name, model.ErrAlreadyExists)
-		}
-	}
-
-	r.snapshots[s.ID] = s
-	r.logger.Debugf("Created snapshot in repository: %s", s.ID)
-
-	return nil
-}
-
-// GetSnapshot retrieves a snapshot by ID.
-func (r *Repository) GetSnapshot(ctx context.Context, id string) (*model.Snapshot, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	snapshot, ok := r.snapshots[id]
-	if !ok {
-		return nil, fmt.Errorf("snapshot %s: %w", id, model.ErrNotFound)
-	}
-
-	snapshotCopy := snapshot
-	return &snapshotCopy, nil
-}
-
-// GetSnapshotByName retrieves a snapshot by name.
-func (r *Repository) GetSnapshotByName(ctx context.Context, name string) (*model.Snapshot, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	for _, snapshot := range r.snapshots {
-		if snapshot.Name == name {
-			snapshotCopy := snapshot
-			return &snapshotCopy, nil
-		}
-	}
-
-	return nil, fmt.Errorf("snapshot with name %s: %w", name, model.ErrNotFound)
-}
-
-// ListSnapshots returns all snapshots.
-func (r *Repository) ListSnapshots(ctx context.Context) ([]model.Snapshot, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	snapshots := make([]model.Snapshot, 0, len(r.snapshots))
-	for _, snapshot := range r.snapshots {
-		snapshots = append(snapshots, snapshot)
-	}
-
-	return snapshots, nil
 }

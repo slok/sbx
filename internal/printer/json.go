@@ -107,40 +107,10 @@ func (j *JSONPrinter) PrintStatus(sandbox model.Sandbox) error {
 	return enc.Encode(output)
 }
 
-// snapshotListItem represents a snapshot in the list output.
-type snapshotListItem struct {
-	ID                 string    `json:"id"`
-	Name               string    `json:"name"`
-	SourceSandboxID    string    `json:"source_sandbox_id"`
-	SourceSandboxName  string    `json:"source_sandbox_name"`
-	VirtualSizeBytes   int64     `json:"virtual_size_bytes"`
-	AllocatedSizeBytes int64     `json:"allocated_size_bytes"`
-	CreatedAt          time.Time `json:"created_at"`
-}
-
-// PrintSnapshotList prints snapshots in JSON format.
-func (j *JSONPrinter) PrintSnapshotList(snapshots []model.Snapshot) error {
-	items := make([]snapshotListItem, len(snapshots))
-	for i, s := range snapshots {
-		items[i] = snapshotListItem{
-			ID:                 s.ID,
-			Name:               s.Name,
-			SourceSandboxID:    s.SourceSandboxID,
-			SourceSandboxName:  s.SourceSandboxName,
-			VirtualSizeBytes:   s.VirtualSizeBytes,
-			AllocatedSizeBytes: s.AllocatedSizeBytes,
-			CreatedAt:          s.CreatedAt.UTC(),
-		}
-	}
-
-	enc := json.NewEncoder(j.writer)
-	enc.SetIndent("", "  ")
-	return enc.Encode(items)
-}
-
 // imageReleaseItem represents an image release in JSON output.
 type imageReleaseItem struct {
 	Version   string `json:"version"`
+	Source    string `json:"source"`
 	Installed bool   `json:"installed"`
 }
 
@@ -151,6 +121,15 @@ type imageManifestOutput struct {
 	Artifacts     map[string]archArtifactsOutput `json:"artifacts"`
 	Firecracker   firecrackerInfoOutput          `json:"firecracker"`
 	Build         buildInfoOutput                `json:"build"`
+	Snapshot      *snapshotInfoOutput            `json:"snapshot,omitempty"`
+}
+
+type snapshotInfoOutput struct {
+	SourceSandboxID   string `json:"source_sandbox_id"`
+	SourceSandboxName string `json:"source_sandbox_name"`
+	SourceImage       string `json:"source_image,omitempty"`
+	ParentSnapshot    string `json:"parent_snapshot,omitempty"`
+	CreatedAt         string `json:"created_at"`
 }
 
 type archArtifactsOutput struct {
@@ -189,6 +168,7 @@ func (j *JSONPrinter) PrintImageList(releases []model.ImageRelease) error {
 	for i, r := range releases {
 		items[i] = imageReleaseItem{
 			Version:   r.Version,
+			Source:    string(r.Source),
 			Installed: r.Installed,
 		}
 	}
@@ -231,6 +211,16 @@ func (j *JSONPrinter) PrintImageInspect(manifest model.ImageManifest) error {
 			Date:   manifest.Build.Date,
 			Commit: manifest.Build.Commit,
 		},
+	}
+
+	if manifest.Snapshot != nil {
+		output.Snapshot = &snapshotInfoOutput{
+			SourceSandboxID:   manifest.Snapshot.SourceSandboxID,
+			SourceSandboxName: manifest.Snapshot.SourceSandboxName,
+			SourceImage:       manifest.Snapshot.SourceImage,
+			ParentSnapshot:    manifest.Snapshot.ParentSnapshot,
+			CreatedAt:         manifest.Snapshot.CreatedAt.UTC().Format(time.RFC3339),
+		}
 	}
 
 	enc := json.NewEncoder(j.writer)

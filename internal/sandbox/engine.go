@@ -31,8 +31,4 @@ type Engine interface {
 	// Blocks until context is cancelled or connection drops.
 	// Not all engines support forwarding (e.g., Docker requires ports at creation time).
 	Forward(ctx context.Context, id string, ports []model.PortMapping) error
-
-	// CreateSnapshot creates a root filesystem snapshot for an existing sandbox.
-	// It returns virtual file size and allocated bytes on disk.
-	CreateSnapshot(ctx context.Context, sandboxID string, snapshotID string, dstPath string) (virtualSize int64, allocatedSize int64, err error)
 }

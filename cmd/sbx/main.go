@@ -41,11 +41,7 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	cpCmd := commands.NewCpCommand(rootCmd, app)
 	forwardCmd := commands.NewForwardCommand(rootCmd, app)
 
-	// Snapshot subcommands share a parent command.
-	snapshotCmd := app.Command("snapshot", "Manage snapshots.")
-	snapshotCreateCmd := commands.NewSnapshotCreateCommand(rootCmd, snapshotCmd)
-	snapshotListCmd := commands.NewSnapshotListCommand(rootCmd, snapshotCmd)
-	snapshotRmCmd := commands.NewSnapshotRmCommand(rootCmd, snapshotCmd)
+	snapshotCmd := commands.NewSnapshotCommand(rootCmd, app)
 
 	// Image subcommands share a parent command.
 	imgCmd := commands.NewImageCommand(app)
@@ -55,24 +51,22 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	imageInspectCmd := commands.NewImageInspectCommand(rootCmd, imgCmd)
 
 	cmds := map[string]commands.Command{
-		createCmd.Name():         createCmd,
-		listCmd.Name():           listCmd,
-		statusCmd.Name():         statusCmd,
-		stopCmd.Name():           stopCmd,
-		startCmd.Name():          startCmd,
-		removeCmd.Name():         removeCmd,
-		execCmd.Name():           execCmd,
-		shellCmd.Name():          shellCmd,
-		doctorCmd.Name():         doctorCmd,
-		cpCmd.Name():             cpCmd,
-		forwardCmd.Name():        forwardCmd,
-		snapshotCreateCmd.Name(): snapshotCreateCmd,
-		snapshotListCmd.Name():   snapshotListCmd,
-		snapshotRmCmd.Name():     snapshotRmCmd,
-		imageListCmd.Name():      imageListCmd,
-		imagePullCmd.Name():      imagePullCmd,
-		imageRmCmd.Name():        imageRmCmd,
-		imageInspectCmd.Name():   imageInspectCmd,
+		createCmd.Name():       createCmd,
+		listCmd.Name():         listCmd,
+		statusCmd.Name():       statusCmd,
+		stopCmd.Name():         stopCmd,
+		startCmd.Name():        startCmd,
+		removeCmd.Name():       removeCmd,
+		execCmd.Name():         execCmd,
+		shellCmd.Name():        shellCmd,
+		doctorCmd.Name():       doctorCmd,
+		cpCmd.Name():           cpCmd,
+		forwardCmd.Name():      forwardCmd,
+		snapshotCmd.Name():     snapshotCmd,
+		imageListCmd.Name():    imageListCmd,
+		imagePullCmd.Name():    imagePullCmd,
+		imageRmCmd.Name():      imageRmCmd,
+		imageInspectCmd.Name(): imageInspectCmd,
 	}
 
 	// Parse command.
@@ -94,7 +88,6 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		"status":        true,
 		"image list":    true,
 		"image inspect": true,
-		"snapshot list": true,
 	}
 	if printerCommands[cmdName] && !rootCmd.Debug {
 		rootCmd.NoLog = true

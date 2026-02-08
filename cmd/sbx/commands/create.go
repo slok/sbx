@@ -34,7 +34,6 @@ type CreateCommand struct {
 	// Firecracker-specific flags.
 	firecrackerRootFS string
 	firecrackerKernel string
-	fromSnapshot      string
 
 	// Image flags.
 	fromImage string
@@ -60,7 +59,6 @@ func NewCreateCommand(rootCmd *RootCommand, app *kingpin.Application) *CreateCom
 	// Firecracker-specific flags.
 	c.Cmd.Flag("firecracker-root-fs", "Path to rootfs image (required for firecracker engine).").StringVar(&c.firecrackerRootFS)
 	c.Cmd.Flag("firecracker-kernel", "Path to kernel image (required for firecracker engine).").StringVar(&c.firecrackerKernel)
-	c.Cmd.Flag("from-snapshot", "Create sandbox from snapshot name or ID.").StringVar(&c.fromSnapshot)
 
 	// Image flags.
 	c.Cmd.Flag("from-image", "Use a pulled image version (e.g. v0.1.0). Run 'sbx image pull' first.").StringVar(&c.fromImage)
@@ -84,13 +82,6 @@ func (c CreateCommand) Run(ctx context.Context) error {
 	if c.fromImage != "" && c.firecrackerKernel != "" {
 		return fmt.Errorf("--from-image and --firecracker-kernel cannot be used together")
 	}
-	if c.fromImage != "" && c.fromSnapshot != "" {
-		return fmt.Errorf("--from-image and --from-snapshot cannot be used together")
-	}
-	if c.fromSnapshot != "" && c.firecrackerRootFS != "" {
-		return fmt.Errorf("--from-snapshot and --firecracker-root-fs cannot be used together")
-	}
-
 	// Initialize storage (SQLite).
 	repo, err := sqlite.NewRepository(ctx, sqlite.RepositoryConfig{
 		DBPath: c.rootCmd.DBPath,
@@ -138,7 +129,7 @@ func (c CreateCommand) Run(ctx context.Context) error {
 
 	switch c.engine {
 	case "firecracker":
-		if c.firecrackerRootFS == "" && c.fromSnapshot == "" {
+		if c.firecrackerRootFS == "" {
 			return fmt.Errorf("--firecracker-root-fs or --from-image is required when using firecracker engine")
 		}
 		if c.firecrackerKernel == "" {
@@ -186,8 +177,7 @@ func (c CreateCommand) Run(ctx context.Context) error {
 
 	// Execute create.
 	sb, err := svc.Create(ctx, create.CreateOptions{
-		Config:       cfg,
-		FromSnapshot: c.fromSnapshot,
+		Config: cfg,
 	})
 	if err != nil {
 		return fmt.Errorf("could not create sandbox: %w", err)

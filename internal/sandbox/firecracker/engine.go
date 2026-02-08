@@ -26,8 +26,6 @@ const (
 	VMsDir = "vms"
 	// ImagesDir is the subdirectory for kernel and rootfs images.
 	ImagesDir = "images"
-	// SnapshotsDir is the subdirectory for snapshot files.
-	SnapshotsDir = "snapshots"
 )
 
 // EngineConfig is the configuration for the Firecracker engine.
@@ -94,11 +92,6 @@ func (e *Engine) VMDir(sandboxID string) string {
 // ImagesPath returns the path to the images directory.
 func (e *Engine) ImagesPath() string {
 	return filepath.Join(e.dataDir, ImagesDir)
-}
-
-// SnapshotsPath returns the path to the snapshots directory.
-func (e *Engine) SnapshotsPath() string {
-	return filepath.Join(e.dataDir, SnapshotsDir)
 }
 
 // SSHKeyManager returns the SSH key manager.

@@ -50,8 +50,7 @@ func (c *Client) CreateSandbox(ctx context.Context, opts CreateSandboxOpts) (*Sa
 	}
 
 	sb, err := svc.Create(ctx, create.CreateOptions{
-		Config:       cfg,
-		FromSnapshot: opts.FromSnapshot,
+		Config: cfg,
 	})
 	if err != nil {
 		return nil, mapError(err)

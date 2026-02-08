@@ -94,23 +94,20 @@ type Resources struct {
 // CreateSandboxOpts configures sandbox creation.
 //
 // Name and Engine are required. For [EngineFirecracker], you must also provide
-// Firecracker config with kernel and rootfs paths (unless using FromSnapshot
-// or FromImage). Resources must have positive values.
+// Firecracker config with kernel and rootfs paths (unless using FromImage).
+// Resources must have positive values.
 type CreateSandboxOpts struct {
 	// Name is the sandbox name (required). Must be unique.
 	Name string
 	// Engine selects the engine type (required).
 	Engine EngineType
 	// Firecracker contains engine-specific config. Required for [EngineFirecracker]
-	// unless FromSnapshot is set. Ignored for [EngineFake].
+	// unless FromImage is set. Ignored for [EngineFake].
 	Firecracker *FirecrackerConfig
 	// Resources defines compute resources (required, must be positive values).
 	Resources Resources
-	// FromSnapshot restores the sandbox rootfs from a snapshot name or ID.
-	// When set, the Firecracker.RootFS field is overridden with the snapshot path.
-	FromSnapshot string
 	// FromImage uses a pulled image version (e.g. "v0.1.0") for kernel and rootfs.
-	// Cannot be combined with FromSnapshot or explicit Firecracker paths.
+	// Cannot be combined with explicit Firecracker paths.
 	FromImage string
 }
 
@@ -158,38 +155,17 @@ type ExecResult struct {
 	ExitCode int
 }
 
-// --- Snapshot types ---
-
-// Snapshot represents a point-in-time copy of a sandbox's rootfs.
-type Snapshot struct {
-	// ID is the unique identifier (ULID).
-	ID string
-	// Name is the human-friendly name.
-	Name string
-	// Path is the filesystem path to the snapshot .ext4 file.
-	Path string
-	// SourceSandboxID is the ID of the sandbox this snapshot was taken from.
-	SourceSandboxID string
-	// SourceSandboxName is the name of the sandbox this snapshot was taken from.
-	SourceSandboxName string
-	// VirtualSizeBytes is the logical file size in bytes.
-	VirtualSizeBytes int64
-	// AllocatedSizeBytes is the actual disk space used (sparse-aware).
-	AllocatedSizeBytes int64
-	// CreatedAt is when the snapshot was created.
-	CreatedAt time.Time
-}
-
-// CreateSnapshotOpts configures snapshot creation.
-//
-// Pass nil to [Client.CreateSnapshot] to auto-generate the snapshot name.
-type CreateSnapshotOpts struct {
-	// SnapshotName is an optional name for the snapshot.
-	// If empty, a name is auto-generated from the sandbox name and timestamp.
-	SnapshotName string
-}
-
 // --- Image types ---
+
+// ImageSource indicates where an image comes from.
+type ImageSource string
+
+const (
+	// ImageSourceRelease is a remote image from GitHub releases.
+	ImageSourceRelease ImageSource = "release"
+	// ImageSourceSnapshot is a local image created from a sandbox snapshot.
+	ImageSourceSnapshot ImageSource = "snapshot"
+)
 
 // ImageRelease represents an image version available in the registry.
 type ImageRelease struct {
@@ -197,6 +173,8 @@ type ImageRelease struct {
 	Version string
 	// Installed indicates whether this version is downloaded locally.
 	Installed bool
+	// Source indicates where this image comes from (release or snapshot).
+	Source ImageSource
 }
 
 // PullImageOpts configures image pull behavior.
@@ -235,6 +213,22 @@ type ImageManifest struct {
 	Firecracker FirecrackerInfo
 	// Build contains build metadata.
 	Build BuildInfo
+	// Snapshot contains snapshot-specific metadata (nil for release images).
+	Snapshot *SnapshotInfo
+}
+
+// SnapshotInfo contains metadata specific to snapshot-created images.
+type SnapshotInfo struct {
+	// SourceSandboxID is the ULID of the sandbox this snapshot was taken from.
+	SourceSandboxID string
+	// SourceSandboxName is the name of the source sandbox.
+	SourceSandboxName string
+	// SourceImage is the image version the source sandbox was created from (if known).
+	SourceImage string
+	// ParentSnapshot is the snapshot image name this was derived from (for snapshot chains).
+	ParentSnapshot string
+	// CreatedAt is when the snapshot was created.
+	CreatedAt time.Time
 }
 
 // ArchArtifacts contains per-architecture artifact metadata.
@@ -452,35 +446,13 @@ func (e *mappedError) Is(target error) bool {
 
 func (e *mappedError) Unwrap() error { return e.original }
 
-// --- Snapshot conversion helpers ---
-
-func fromInternalSnapshot(s model.Snapshot) Snapshot {
-	return Snapshot{
-		ID:                 s.ID,
-		Name:               s.Name,
-		Path:               s.Path,
-		SourceSandboxID:    s.SourceSandboxID,
-		SourceSandboxName:  s.SourceSandboxName,
-		VirtualSizeBytes:   s.VirtualSizeBytes,
-		AllocatedSizeBytes: s.AllocatedSizeBytes,
-		CreatedAt:          s.CreatedAt,
-	}
-}
-
-func fromInternalSnapshotList(ss []model.Snapshot) []Snapshot {
-	result := make([]Snapshot, len(ss))
-	for i, s := range ss {
-		result[i] = fromInternalSnapshot(s)
-	}
-	return result
-}
-
 // --- Image conversion helpers ---
 
 func fromInternalImageRelease(r model.ImageRelease) ImageRelease {
 	return ImageRelease{
 		Version:   r.Version,
 		Installed: r.Installed,
+		Source:    ImageSource(r.Source),
 	}
 }
 
@@ -516,7 +488,7 @@ func fromInternalImageManifest(m *model.ImageManifest) *ImageManifest {
 		}
 	}
 
-	return &ImageManifest{
+	result := &ImageManifest{
 		SchemaVersion: m.SchemaVersion,
 		Version:       m.Version,
 		Artifacts:     artifacts,
@@ -529,6 +501,18 @@ func fromInternalImageManifest(m *model.ImageManifest) *ImageManifest {
 			Commit: m.Build.Commit,
 		},
 	}
+
+	if m.Snapshot != nil {
+		result.Snapshot = &SnapshotInfo{
+			SourceSandboxID:   m.Snapshot.SourceSandboxID,
+			SourceSandboxName: m.Snapshot.SourceSandboxName,
+			SourceImage:       m.Snapshot.SourceImage,
+			ParentSnapshot:    m.Snapshot.ParentSnapshot,
+			CreatedAt:         m.Snapshot.CreatedAt,
+		}
+	}
+
+	return result
 }
 
 // --- Forward conversion helpers ---

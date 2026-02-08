@@ -4,8 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -18,38 +16,6 @@ import (
 // EngineConfig is the configuration for the fake engine.
 type EngineConfig struct {
 	Logger log.Logger
-}
-
-// CreateSnapshot simulates creating a rootfs snapshot for a sandbox.
-func (e *Engine) CreateSnapshot(ctx context.Context, sandboxID string, snapshotID string, dstPath string) (virtualSize int64, allocatedSize int64, err error) {
-	if sandboxID == "" {
-		return 0, 0, fmt.Errorf("sandbox id cannot be empty: %w", model.ErrNotValid)
-	}
-
-	if snapshotID == "" {
-		return 0, 0, fmt.Errorf("snapshot id cannot be empty: %w", model.ErrNotValid)
-	}
-
-	if dstPath == "" {
-		return 0, 0, fmt.Errorf("destination path cannot be empty: %w", model.ErrNotValid)
-	}
-
-	if _, err := os.Stat(dstPath); err == nil {
-		return 0, 0, fmt.Errorf("destination snapshot file already exists: %w", model.ErrAlreadyExists)
-	}
-
-	if err := os.MkdirAll(filepath.Dir(dstPath), 0755); err != nil {
-		return 0, 0, fmt.Errorf("could not create destination directory: %w", err)
-	}
-
-	f, err := os.OpenFile(dstPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
-	if err != nil {
-		return 0, 0, fmt.Errorf("could not create destination snapshot file: %w", err)
-	}
-	defer f.Close()
-
-	e.logger.Debugf("Created fake snapshot for sandbox %s at %s", sandboxID, dstPath)
-	return 0, 0, nil
 }
 
 func (c *EngineConfig) defaults() error {

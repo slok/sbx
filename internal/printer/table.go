@@ -67,32 +67,6 @@ func (t *TablePrinter) PrintStatus(sandbox model.Sandbox) error {
 	return nil
 }
 
-// PrintSnapshotList prints snapshots in a table format.
-func (t *TablePrinter) PrintSnapshotList(snapshots []model.Snapshot) error {
-	if len(snapshots) == 0 {
-		return nil
-	}
-
-	tw := tabwriter.NewWriter(t.writer, 0, 0, 2, ' ', 0)
-	defer tw.Flush()
-
-	// Print header.
-	fmt.Fprintln(tw, "NAME\tSOURCE\tVIRT SIZE\tDISK SIZE\tCREATED")
-
-	// Print rows.
-	for _, s := range snapshots {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
-			s.Name,
-			s.SourceSandboxName,
-			FormatBytes(s.VirtualSizeBytes),
-			FormatBytes(s.AllocatedSizeBytes),
-			TimeAgo(s.CreatedAt),
-		)
-	}
-
-	return nil
-}
-
 // PrintImageList prints image releases in a table format.
 func (t *TablePrinter) PrintImageList(releases []model.ImageRelease) error {
 	if len(releases) == 0 {
@@ -102,16 +76,18 @@ func (t *TablePrinter) PrintImageList(releases []model.ImageRelease) error {
 	tw := tabwriter.NewWriter(t.writer, 0, 0, 2, ' ', 0)
 	defer tw.Flush()
 
-	// Print header.
-	fmt.Fprintln(tw, "VERSION\tINSTALLED")
+	fmt.Fprintln(tw, "VERSION\tSOURCE\tINSTALLED")
 
-	// Print rows.
 	for _, r := range releases {
 		installed := "no"
 		if r.Installed {
 			installed = "yes"
 		}
-		fmt.Fprintf(tw, "%s\t%s\n", r.Version, installed)
+		source := string(r.Source)
+		if source == "" {
+			source = "release"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\n", r.Version, source, installed)
 	}
 
 	return nil
@@ -132,6 +108,18 @@ func (t *TablePrinter) PrintImageInspect(manifest model.ImageManifest) error {
 		fmt.Fprintf(t.writer, "  Rootfs:     %s (distro: %s %s, profile: %s, size: %s)\n",
 			artifacts.Rootfs.File, artifacts.Rootfs.Distro, artifacts.Rootfs.DistroVersion,
 			artifacts.Rootfs.Profile, FormatBytes(artifacts.Rootfs.SizeBytes))
+	}
+
+	if manifest.Snapshot != nil {
+		fmt.Fprintf(t.writer, "\nSnapshot:\n")
+		fmt.Fprintf(t.writer, "  Source:     %s (%s)\n", manifest.Snapshot.SourceSandboxName, manifest.Snapshot.SourceSandboxID)
+		if manifest.Snapshot.SourceImage != "" {
+			fmt.Fprintf(t.writer, "  Image:      %s\n", manifest.Snapshot.SourceImage)
+		}
+		if manifest.Snapshot.ParentSnapshot != "" {
+			fmt.Fprintf(t.writer, "  Parent:     %s\n", manifest.Snapshot.ParentSnapshot)
+		}
+		fmt.Fprintf(t.writer, "  Created:    %s\n", FormatTimestamp(manifest.Snapshot.CreatedAt))
 	}
 
 	return nil

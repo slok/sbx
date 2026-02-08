@@ -18,7 +18,14 @@ func TestEngine_copyRootFSPreservesSparseAllocation(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	srcPath := filepath.Join(tmpDir, "src.ext4")
-	require.NoError(createSparseRootFS(srcPath, 256*1024*1024))
+	require.NoError(createSparseFile(srcPath, 256*1024*1024))
+
+	// Write some real data so the file has both data extents and holes.
+	f, err := os.OpenFile(srcPath, os.O_WRONLY, 0644)
+	require.NoError(err)
+	_, err = f.Write(make([]byte, 4096))
+	require.NoError(f.Close())
+	require.NoError(err)
 
 	vmDir := filepath.Join(tmpDir, "vm")
 	require.NoError(os.MkdirAll(vmDir, 0755))

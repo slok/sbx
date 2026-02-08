@@ -2,8 +2,6 @@ package fake_test
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -61,35 +59,4 @@ func TestExecRequiresRunningSandbox(t *testing.T) {
 	_, err = eng.Exec(context.Background(), sb.ID, []string{"echo", "ok"}, model.ExecOpts{})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, model.ErrNotValid)
-}
-
-func TestCreateSnapshot(t *testing.T) {
-	eng, err := fake.NewEngine(fake.EngineConfig{Logger: log.Noop})
-	require.NoError(t, err)
-
-	sb, err := eng.Create(context.Background(), testConfig("test"))
-	require.NoError(t, err)
-
-	dstPath := filepath.Join(t.TempDir(), "snapshot.ext4")
-	virtualSize, allocatedSize, err := eng.CreateSnapshot(context.Background(), sb.ID, "01ARZ3NDEKTSV4RRFFQ69G5FAB", dstPath)
-	require.NoError(t, err)
-	assert.Equal(t, int64(0), virtualSize)
-	assert.Equal(t, int64(0), allocatedSize)
-	assert.FileExists(t, dstPath)
-}
-
-func TestCreateSnapshotFailsOnExistingDestination(t *testing.T) {
-	eng, err := fake.NewEngine(fake.EngineConfig{Logger: log.Noop})
-	require.NoError(t, err)
-
-	sb, err := eng.Create(context.Background(), testConfig("test"))
-	require.NoError(t, err)
-
-	dstPath := filepath.Join(t.TempDir(), "snapshot.ext4")
-	err = os.WriteFile(dstPath, []byte("already exists"), 0644)
-	require.NoError(t, err)
-
-	_, _, err = eng.CreateSnapshot(context.Background(), sb.ID, "01ARZ3NDEKTSV4RRFFQ69G5FAB", dstPath)
-	require.Error(t, err)
-	assert.ErrorIs(t, err, model.ErrAlreadyExists)
 }

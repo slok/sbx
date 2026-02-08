@@ -39,6 +39,63 @@ func (_m *MockImageManager) EXPECT() *MockImageManager_Expecter {
 	return &MockImageManager_Expecter{mock: &_m.Mock}
 }
 
+// CreateSnapshot provides a mock function for the type MockImageManager
+func (_mock *MockImageManager) CreateSnapshot(ctx context.Context, opts image.CreateSnapshotOptions) error {
+	ret := _mock.Called(ctx, opts)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreateSnapshot")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, image.CreateSnapshotOptions) error); ok {
+		r0 = returnFunc(ctx, opts)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockImageManager_CreateSnapshot_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateSnapshot'
+type MockImageManager_CreateSnapshot_Call struct {
+	*mock.Call
+}
+
+// CreateSnapshot is a helper method to define mock.On call
+//   - ctx context.Context
+//   - opts image.CreateSnapshotOptions
+func (_e *MockImageManager_Expecter) CreateSnapshot(ctx interface{}, opts interface{}) *MockImageManager_CreateSnapshot_Call {
+	return &MockImageManager_CreateSnapshot_Call{Call: _e.mock.On("CreateSnapshot", ctx, opts)}
+}
+
+func (_c *MockImageManager_CreateSnapshot_Call) Run(run func(ctx context.Context, opts image.CreateSnapshotOptions)) *MockImageManager_CreateSnapshot_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 image.CreateSnapshotOptions
+		if args[1] != nil {
+			arg1 = args[1].(image.CreateSnapshotOptions)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockImageManager_CreateSnapshot_Call) Return(err error) *MockImageManager_CreateSnapshot_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockImageManager_CreateSnapshot_Call) RunAndReturn(run func(ctx context.Context, opts image.CreateSnapshotOptions) error) *MockImageManager_CreateSnapshot_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Exists provides a mock function for the type MockImageManager
 func (_mock *MockImageManager) Exists(ctx context.Context, version string) (bool, error) {
 	ret := _mock.Called(ctx, version)
