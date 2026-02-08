@@ -47,6 +47,13 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	snapshotListCmd := commands.NewSnapshotListCommand(rootCmd, snapshotCmd)
 	snapshotRmCmd := commands.NewSnapshotRmCommand(rootCmd, snapshotCmd)
 
+	// Image subcommands share a parent command.
+	imgCmd := commands.NewImageCommand(app)
+	imageListCmd := commands.NewImageListCommand(rootCmd, imgCmd)
+	imagePullCmd := commands.NewImagePullCommand(rootCmd, imgCmd)
+	imageRmCmd := commands.NewImageRmCommand(rootCmd, imgCmd)
+	imageInspectCmd := commands.NewImageInspectCommand(rootCmd, imgCmd)
+
 	cmds := map[string]commands.Command{
 		createCmd.Name():         createCmd,
 		listCmd.Name():           listCmd,
@@ -62,6 +69,10 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		snapshotCreateCmd.Name(): snapshotCreateCmd,
 		snapshotListCmd.Name():   snapshotListCmd,
 		snapshotRmCmd.Name():     snapshotRmCmd,
+		imageListCmd.Name():      imageListCmd,
+		imagePullCmd.Name():      imagePullCmd,
+		imageRmCmd.Name():        imageRmCmd,
+		imageInspectCmd.Name():   imageInspectCmd,
 	}
 
 	// Parse command.

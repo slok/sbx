@@ -203,3 +203,14 @@ When stopping, provide:
   - Base image protection: error if `disk_gb < base image size`
   - 13 unit tests covering resize, validation, and error cases
   - No integration tests (unit tests only as requested)
+
+- **Task 0011**: Image Management Rework - In progress
+  - Complete rewrite of image management from file-based to release-centric versioned bundles
+  - Companion repo `slok/sbx-images` builds and publishes kernel+rootfs as GitHub Releases
+  - `ImageManager` interface with GitHub implementation (`internal/image/`)
+  - App services: `imagelist`, `imagepull`, `imagerm`, `imageinspect` (`internal/app/`)
+  - CLI commands: `sbx image list/pull/rm/inspect` with `--repo` and `--images-dir` flags
+  - `--from-image <version>` flag on `sbx create` to use pulled images
+  - Printer support: `PrintImageList` and `PrintImageInspect` in table and JSON formats
+  - Firecracker binary downloaded from upstream during pull (not bundled in sbx-images)
+  - Local storage: `~/.sbx/images/{version}/` with kernel, rootfs, and firecracker binary

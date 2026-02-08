@@ -19,3 +19,6 @@ packages:
   github.com/slok/sbx/internal/storage:
     interfaces:
       Repository:
+  github.com/slok/sbx/internal/image:
+    interfaces:
+      ImageManager:

@@ -10,6 +10,10 @@ type Printer interface {
 	PrintStatus(sandbox model.Sandbox) error
 	// PrintSnapshotList prints a list of snapshots.
 	PrintSnapshotList(snapshots []model.Snapshot) error
+	// PrintImageList prints a list of image releases.
+	PrintImageList(releases []model.ImageRelease) error
+	// PrintImageInspect prints detailed image manifest information.
+	PrintImageInspect(manifest model.ImageManifest) error
 	// PrintMessage prints a simple text message.
 	PrintMessage(msg string) error
 }
