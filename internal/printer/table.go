@@ -119,6 +119,7 @@ func (t *TablePrinter) PrintImageList(releases []model.ImageRelease) error {
 
 // PrintImageInspect prints detailed image manifest information.
 func (t *TablePrinter) PrintImageInspect(manifest model.ImageManifest) error {
+	fmt.Fprintf(t.writer, "Schema:       %d\n", manifest.SchemaVersion)
 	fmt.Fprintf(t.writer, "Version:      %s\n", manifest.Version)
 	fmt.Fprintf(t.writer, "Firecracker:  %s\n", manifest.Firecracker.Version)
 	fmt.Fprintf(t.writer, "Built:        %s\n", manifest.Build.Date)

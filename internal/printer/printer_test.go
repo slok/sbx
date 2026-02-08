@@ -139,7 +139,8 @@ func imageReleaseFixtures() []model.ImageRelease {
 
 func imageManifestFixture() model.ImageManifest {
 	return model.ImageManifest{
-		Version: "v0.1.0",
+		SchemaVersion: 1,
+		Version:       "v0.1.0",
 		Artifacts: map[string]model.ArchArtifacts{
 			"x86_64": {
 				Kernel: model.KernelInfo{
@@ -201,6 +202,7 @@ func TestTablePrinterPrintImageInspect(t *testing.T) {
 	require.NoError(t, err)
 
 	out := buf.String()
+	assert.Contains(t, out, "Schema:       1")
 	assert.Contains(t, out, "Version:      v0.1.0")
 	assert.Contains(t, out, "Firecracker:  v1.14.1")
 	assert.Contains(t, out, "x86_64")
@@ -234,6 +236,7 @@ func TestJSONPrinterPrintImageInspect(t *testing.T) {
 	require.NoError(t, err)
 
 	out := buf.String()
+	assert.Contains(t, out, `"schema_version": 1`)
 	assert.Contains(t, out, `"version": "v0.1.0"`)
 	assert.Contains(t, out, `"version": "6.1.155"`)
 	assert.Contains(t, out, `"file": "vmlinux-x86_64"`)

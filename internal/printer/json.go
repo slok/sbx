@@ -146,10 +146,11 @@ type imageReleaseItem struct {
 
 // imageManifestOutput represents a full image manifest in JSON output.
 type imageManifestOutput struct {
-	Version     string                         `json:"version"`
-	Artifacts   map[string]archArtifactsOutput `json:"artifacts"`
-	Firecracker firecrackerInfoOutput          `json:"firecracker"`
-	Build       buildInfoOutput                `json:"build"`
+	SchemaVersion int                            `json:"schema_version"`
+	Version       string                         `json:"version"`
+	Artifacts     map[string]archArtifactsOutput `json:"artifacts"`
+	Firecracker   firecrackerInfoOutput          `json:"firecracker"`
+	Build         buildInfoOutput                `json:"build"`
 }
 
 type archArtifactsOutput struct {
@@ -219,8 +220,9 @@ func (j *JSONPrinter) PrintImageInspect(manifest model.ImageManifest) error {
 	}
 
 	output := imageManifestOutput{
-		Version:   manifest.Version,
-		Artifacts: artifacts,
+		SchemaVersion: manifest.SchemaVersion,
+		Version:       manifest.Version,
+		Artifacts:     artifacts,
 		Firecracker: firecrackerInfoOutput{
 			Version: manifest.Firecracker.Version,
 			Source:  manifest.Firecracker.Source,

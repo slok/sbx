@@ -105,10 +105,11 @@ type ghRelease struct {
 }
 
 type manifestJSON struct {
-	Version   string                       `json:"version"`
-	Artifacts map[string]archArtifactsJSON `json:"artifacts"`
-	FC        firecrackerJSON              `json:"firecracker"`
-	Build     buildJSON                    `json:"build"`
+	SchemaVersion int                          `json:"schema_version"`
+	Version       string                       `json:"version"`
+	Artifacts     map[string]archArtifactsJSON `json:"artifacts"`
+	FC            firecrackerJSON              `json:"firecracker"`
+	Build         buildJSON                    `json:"build"`
 }
 
 type archArtifactsJSON struct {
@@ -161,8 +162,9 @@ func (m *manifestJSON) toModel() *model.ImageManifest {
 		}
 	}
 	return &model.ImageManifest{
-		Version:   m.Version,
-		Artifacts: artifacts,
+		SchemaVersion: m.SchemaVersion,
+		Version:       m.Version,
+		Artifacts:     artifacts,
 		Firecracker: model.FirecrackerInfo{
 			Version: m.FC.Version,
 			Source:  m.FC.Source,
@@ -205,6 +207,16 @@ func (g *GitHubImageManager) GetManifest(ctx context.Context, version string) (*
 	var mj manifestJSON
 	if err := json.Unmarshal(data, &mj); err != nil {
 		return nil, fmt.Errorf("parsing manifest for %s: %w", version, err)
+	}
+
+	// Validate schema version. A schema_version of 0 means the field was absent
+	// (pre-versioning manifests), which we treat as schema version 1 for backward compatibility.
+	if mj.SchemaVersion == 0 {
+		mj.SchemaVersion = 1
+	}
+	if mj.SchemaVersion != model.CurrentSchemaVersion {
+		return nil, fmt.Errorf("unsupported manifest schema version %d for %s (supported: %d), try updating sbx",
+			mj.SchemaVersion, version, model.CurrentSchemaVersion)
 	}
 
 	return mj.toModel(), nil

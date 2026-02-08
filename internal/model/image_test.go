@@ -10,7 +10,8 @@ import (
 
 func TestImageManifestArtifactsAccess(t *testing.T) {
 	manifest := model.ImageManifest{
-		Version: "v0.1.0",
+		SchemaVersion: 1,
+		Version:       "v0.1.0",
 		Artifacts: map[string]model.ArchArtifacts{
 			"x86_64": {
 				Kernel: model.KernelInfo{

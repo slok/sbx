@@ -97,7 +97,8 @@ func TestGitHubImageManagerListReleases(t *testing.T) {
 
 func TestGitHubImageManagerGetManifest(t *testing.T) {
 	manifest := map[string]any{
-		"version": "v0.1.0",
+		"schema_version": 1,
+		"version":        "v0.1.0",
 		"artifacts": map[string]any{
 			"x86_64": map[string]any{
 				"kernel": map[string]any{
@@ -148,13 +149,58 @@ func TestGitHubImageManagerGetManifestNotFound(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestGitHubImageManagerGetManifestUnsupportedSchema(t *testing.T) {
+	manifest := map[string]any{
+		"schema_version": 999,
+		"version":        "v0.1.0",
+		"artifacts":      map[string]any{},
+		"firecracker":    map[string]any{"version": "v1.14.1", "source": "test"},
+		"build":          map[string]any{"date": "2026-01-01", "commit": "abc"},
+	}
+
+	downloadHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(manifest)
+	})
+
+	m, _ := newTestManager(t, http.NotFoundHandler(), downloadHandler)
+	_, err := m.GetManifest(context.Background(), "v0.1.0")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported manifest schema version 999")
+}
+
+func TestGitHubImageManagerGetManifestMissingSchemaDefaultsToOne(t *testing.T) {
+	// Manifests without schema_version (pre-versioning) should be treated as schema 1.
+	manifest := map[string]any{
+		"version": "v0.1.0",
+		"artifacts": map[string]any{
+			"x86_64": map[string]any{
+				"kernel": map[string]any{"file": "vmlinux-x86_64", "version": "6.1", "source": "test", "size_bytes": 100},
+				"rootfs": map[string]any{"file": "rootfs.ext4", "distro": "alpine", "distro_version": "3.23", "profile": "balanced", "size_bytes": 200},
+			},
+		},
+		"firecracker": map[string]any{"version": "v1.14.1", "source": "test"},
+		"build":       map[string]any{"date": "2026-01-01", "commit": "abc"},
+	}
+
+	downloadHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(manifest)
+	})
+
+	m, _ := newTestManager(t, http.NotFoundHandler(), downloadHandler)
+	got, err := m.GetManifest(context.Background(), "v0.1.0")
+	require.NoError(t, err)
+	assert.Equal(t, 1, got.SchemaVersion)
+	assert.Equal(t, "v0.1.0", got.Version)
+}
+
 func TestGitHubImageManagerPull(t *testing.T) {
 	kernelData := []byte("fake-kernel-binary-data")
 	rootfsData := []byte("fake-rootfs-binary-data")
 	fcBinaryData := []byte("fake-firecracker-binary")
 
 	manifest := map[string]any{
-		"version": "v0.1.0",
+		"schema_version": 1,
+		"version":        "v0.1.0",
 		"artifacts": map[string]any{
 			"x86_64": map[string]any{
 				"kernel": map[string]any{

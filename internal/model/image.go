@@ -8,13 +8,17 @@ type ImageRelease struct {
 	Installed bool
 }
 
+// CurrentSchemaVersion is the manifest schema version supported by this client.
+const CurrentSchemaVersion = 1
+
 // ImageManifest is the full manifest for an image release, describing all
 // artifacts, the expected Firecracker version, and build metadata.
 type ImageManifest struct {
-	Version     string
-	Artifacts   map[string]ArchArtifacts // keyed by arch (e.g. "x86_64").
-	Firecracker FirecrackerInfo
-	Build       BuildInfo
+	SchemaVersion int
+	Version       string
+	Artifacts     map[string]ArchArtifacts // keyed by arch (e.g. "x86_64").
+	Firecracker   FirecrackerInfo
+	Build         BuildInfo
 }
 
 // ArchArtifacts contains per-architecture artifact metadata.

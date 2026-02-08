@@ -18,6 +18,7 @@ Releases are tagged manually (e.g. `v0.1.0`, `v0.1.0-rc.1`) and built via GitHub
 
 ```json
 {
+  "schema_version": 1,
   "version": "v0.1.0",
   "artifacts": {
     "x86_64": {
@@ -29,6 +30,8 @@ Releases are tagged manually (e.g. `v0.1.0`, `v0.1.0-rc.1`) and built via GitHub
   "build": { "date": "2026-02-08T09:54:17Z", "commit": "adc9bc1" }
 }
 ```
+
+The `schema_version` field identifies the manifest format. The sbx client validates it and will error with a clear message if the version is unsupported (e.g., after a breaking manifest format change). Manifests without `schema_version` (pre-versioning) are treated as schema version 1.
 
 ### Local Storage Layout
 
