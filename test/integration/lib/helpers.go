@@ -107,9 +107,10 @@ func NewTestClient(t *testing.T, config Config) *sdklib.Client {
 	ctx := context.Background()
 
 	client, err := sdklib.New(ctx, sdklib.Config{
-		DBPath:  dbPath,
-		DataDir: t.TempDir(),
-		Engine:  sdklib.EngineFirecracker,
+		DBPath:            dbPath,
+		DataDir:           t.TempDir(),
+		Engine:            sdklib.EngineFirecracker,
+		FirecrackerBinary: config.FirecrackerBinaryPath(),
 	})
 	require.NoError(t, err)
 

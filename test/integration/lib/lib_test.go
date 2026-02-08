@@ -30,9 +30,8 @@ func TestSDKSandboxLifecycle(t *testing.T) {
 		Name:   name,
 		Engine: sdklib.EngineFirecracker,
 		Firecracker: &sdklib.FirecrackerConfig{
-			RootFS:            config.RootFSPath(),
-			KernelImage:       config.KernelPath(),
-			FirecrackerBinary: config.FirecrackerBinaryPath(),
+			RootFS:      config.RootFSPath(),
+			KernelImage: config.KernelPath(),
 		},
 		Resources: sdklib.Resources{
 			VCPUs:    1,
@@ -94,9 +93,8 @@ func TestSDKExec(t *testing.T) {
 		Name:   name,
 		Engine: sdklib.EngineFirecracker,
 		Firecracker: &sdklib.FirecrackerConfig{
-			RootFS:            config.RootFSPath(),
-			KernelImage:       config.KernelPath(),
-			FirecrackerBinary: config.FirecrackerBinaryPath(),
+			RootFS:      config.RootFSPath(),
+			KernelImage: config.KernelPath(),
 		},
 		Resources: sdklib.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 2},
 	})
@@ -147,9 +145,8 @@ func TestSDKCopy(t *testing.T) {
 		Name:   name,
 		Engine: sdklib.EngineFirecracker,
 		Firecracker: &sdklib.FirecrackerConfig{
-			RootFS:            config.RootFSPath(),
-			KernelImage:       config.KernelPath(),
-			FirecrackerBinary: config.FirecrackerBinaryPath(),
+			RootFS:      config.RootFSPath(),
+			KernelImage: config.KernelPath(),
 		},
 		Resources: sdklib.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 2},
 	})
@@ -199,9 +196,8 @@ func TestSDKStartWithEnv(t *testing.T) {
 		Name:   name,
 		Engine: sdklib.EngineFirecracker,
 		Firecracker: &sdklib.FirecrackerConfig{
-			RootFS:            config.RootFSPath(),
-			KernelImage:       config.KernelPath(),
-			FirecrackerBinary: config.FirecrackerBinaryPath(),
+			RootFS:      config.RootFSPath(),
+			KernelImage: config.KernelPath(),
 		},
 		Resources: sdklib.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 2},
 	})

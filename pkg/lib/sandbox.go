@@ -35,12 +35,7 @@ func (c *Client) CreateSandbox(ctx context.Context, opts CreateSandboxOpts) (*Sa
 		}
 	}
 
-	var fcBinary string
-	if opts.Firecracker != nil {
-		fcBinary = opts.Firecracker.FirecrackerBinary
-	}
-
-	eng, err := c.newEngineForCreate(opts.Engine, fcBinary)
+	eng, err := c.newEngineForCreate(opts.Engine)
 	if err != nil {
 		return nil, mapError(fmt.Errorf("could not create engine: %w", err))
 	}

@@ -43,6 +43,11 @@ type Config struct {
 	//
 	// Set this to [EngineFake] for testing without real infrastructure.
 	Engine EngineType
+
+	// FirecrackerBinary is the path to the firecracker binary.
+	// If empty, the binary is searched in ./bin/ and PATH.
+	// Only used when Engine is [EngineFirecracker].
+	FirecrackerBinary string
 }
 
 func (c *Config) defaults() error {
@@ -70,11 +75,12 @@ func (c *Config) defaults() error {
 // Create a Client with [New] and release its resources with [Client.Close].
 // A Client is safe for concurrent use.
 type Client struct {
-	repo       storage.Repository
-	logger     log.Logger
-	dataDir    string
-	engineType EngineType
-	closeFn    func() error
+	repo              storage.Repository
+	logger            log.Logger
+	dataDir           string
+	engineType        EngineType
+	firecrackerBinary string
+	closeFn           func() error
 }
 
 // New creates a new SDK client backed by a SQLite database.
@@ -101,11 +107,12 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 	}
 
 	return &Client{
-		repo:       repo,
-		logger:     cfg.Logger,
-		dataDir:    cfg.DataDir,
-		engineType: cfg.Engine,
-		closeFn:    repo.Close,
+		repo:              repo,
+		logger:            cfg.Logger,
+		dataDir:           cfg.DataDir,
+		engineType:        cfg.Engine,
+		firecrackerBinary: cfg.FirecrackerBinary,
+		closeFn:           repo.Close,
 	}, nil
 }
 
@@ -129,9 +136,10 @@ func (c *Client) newEngine(cfg model.SandboxConfig) (sandbox.Engine, error) {
 	switch engineType {
 	case EngineFirecracker:
 		return firecracker.NewEngine(firecracker.EngineConfig{
-			DataDir:    c.dataDir,
-			Repository: c.repo,
-			Logger:     c.logger,
+			DataDir:           c.dataDir,
+			FirecrackerBinary: c.firecrackerBinary,
+			Repository:        c.repo,
+			Logger:            c.logger,
 		})
 	case EngineFake:
 		return fake.NewEngine(fake.EngineConfig{
@@ -142,13 +150,13 @@ func (c *Client) newEngine(cfg model.SandboxConfig) (sandbox.Engine, error) {
 	}
 }
 
-// newEngineForCreate creates the engine for sandbox creation with optional binary path.
-func (c *Client) newEngineForCreate(engineType EngineType, fcBinary string) (sandbox.Engine, error) {
+// newEngineForCreate creates the engine for sandbox creation.
+func (c *Client) newEngineForCreate(engineType EngineType) (sandbox.Engine, error) {
 	switch engineType {
 	case EngineFirecracker:
 		return firecracker.NewEngine(firecracker.EngineConfig{
 			DataDir:           c.dataDir,
-			FirecrackerBinary: fcBinary,
+			FirecrackerBinary: c.firecrackerBinary,
 			Repository:        c.repo,
 			Logger:            c.logger,
 		})
