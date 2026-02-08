@@ -21,17 +21,27 @@ const (
 )
 
 // Config configures the SDK client.
+//
+// All fields are optional and have sensible defaults. At minimum, an empty
+// Config{} will use ~/.sbx/sbx.db for storage and auto-detect the engine.
 type Config struct {
-	// DBPath is the SQLite database path. Default: ~/.sbx/sbx.db.
+	// DBPath is the SQLite database path.
+	// Default: ~/.sbx/sbx.db.
 	DBPath string
-	// DataDir is the base data directory. Default: ~/.sbx.
+
+	// DataDir is the base directory for sbx data (VMs, snapshots, SSH keys).
+	// Default: ~/.sbx.
 	DataDir string
-	// Logger is optional. Default: noop logger.
+
+	// Logger receives structured log output from the SDK.
+	// Default: noop (silent). See the log sub-package for the interface.
 	Logger log.Logger
+
 	// Engine forces all sandbox operations to use this engine type.
-	// When empty (default), the engine is auto-detected from the stored sandbox
-	// configuration (Firecracker config present -> Firecracker engine).
-	// Set this to EngineFake for testing without real infrastructure.
+	// When empty (default), the engine is auto-detected from the stored
+	// sandbox configuration (Firecracker config present -> Firecracker engine).
+	//
+	// Set this to [EngineFake] for testing without real infrastructure.
 	Engine EngineType
 }
 
@@ -56,6 +66,9 @@ func (c *Config) defaults() error {
 }
 
 // Client is the main SDK entry point for managing sandboxes programmatically.
+//
+// Create a Client with [New] and release its resources with [Client.Close].
+// A Client is safe for concurrent use.
 type Client struct {
 	repo       storage.Repository
 	logger     log.Logger
@@ -64,7 +77,16 @@ type Client struct {
 	closeFn    func() error
 }
 
-// New creates a new SDK client. The caller must call Close when done.
+// New creates a new SDK client backed by a SQLite database.
+//
+// The caller must call [Client.Close] when done to release the database
+// connection. Typically used with defer:
+//
+//	client, err := lib.New(ctx, lib.Config{})
+//	if err != nil {
+//	    return err
+//	}
+//	defer client.Close()
 func New(ctx context.Context, cfg Config) (*Client, error) {
 	if err := cfg.defaults(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
@@ -87,7 +109,8 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 	}, nil
 }
 
-// Close releases resources held by the client (e.g. database connection).
+// Close releases resources held by the client, including the database connection.
+// After Close returns, the client must not be used.
 func (c *Client) Close() error {
 	if c.closeFn != nil {
 		return c.closeFn()

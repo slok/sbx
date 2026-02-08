@@ -8,8 +8,16 @@ import (
 	"github.com/slok/sbx/internal/model"
 )
 
-// Exec executes a command inside a running sandbox.
-// Pass nil opts for defaults.
+// Exec executes a command inside a running sandbox and returns the result.
+//
+// The command must be non-empty. Use opts to configure working directory,
+// environment variables, and I/O streams. Pass nil opts for defaults
+// (no working dir, no extra env, discarded output).
+//
+// The sandbox must be in [SandboxStatusRunning] state.
+//
+// Returns [ErrNotFound] if the sandbox does not exist, or [ErrNotValid] if
+// the sandbox is not running or the command is empty.
 func (c *Client) Exec(ctx context.Context, nameOrID string, command []string, opts *ExecOpts) (*ExecResult, error) {
 	sb, err := c.getInternalSandbox(ctx, nameOrID)
 	if err != nil {
@@ -42,7 +50,13 @@ func (c *Client) Exec(ctx context.Context, nameOrID string, command []string, op
 	return &ExecResult{ExitCode: result.ExitCode}, nil
 }
 
-// CopyTo copies a local file or directory into a running sandbox.
+// CopyTo copies a local file or directory from the host into a running sandbox.
+//
+// The sandbox must be in [SandboxStatusRunning] state.
+// For Firecracker sandboxes, this uses SCP over the VM's internal IP.
+//
+// Returns [ErrNotFound] if the sandbox does not exist, or [ErrNotValid] if
+// the sandbox is not running.
 func (c *Client) CopyTo(ctx context.Context, nameOrID string, srcLocal, dstRemote string) error {
 	sb, err := c.getInternalSandbox(ctx, nameOrID)
 	if err != nil {
@@ -66,6 +80,12 @@ func (c *Client) CopyTo(ctx context.Context, nameOrID string, srcLocal, dstRemot
 }
 
 // CopyFrom copies a file or directory from a running sandbox to the local host.
+//
+// The sandbox must be in [SandboxStatusRunning] state.
+// For Firecracker sandboxes, this uses SCP over the VM's internal IP.
+//
+// Returns [ErrNotFound] if the sandbox does not exist, or [ErrNotValid] if
+// the sandbox is not running.
 func (c *Client) CopyFrom(ctx context.Context, nameOrID string, srcRemote, dstLocal string) error {
 	sb, err := c.getInternalSandbox(ctx, nameOrID)
 	if err != nil {

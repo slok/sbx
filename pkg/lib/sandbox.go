@@ -13,7 +13,17 @@ import (
 	"github.com/slok/sbx/internal/model"
 )
 
-// CreateSandbox creates a new sandbox.
+// CreateSandbox creates a new sandbox with the given configuration.
+//
+// The sandbox is created in [SandboxStatusCreated] state. Call [Client.StartSandbox]
+// to start it. The sandbox name must be unique.
+//
+// For Firecracker sandboxes, provide kernel and rootfs paths via
+// [CreateSandboxOpts].Firecracker. For the fake engine (testing), these are
+// auto-populated with stub values.
+//
+// Returns [ErrAlreadyExists] if a sandbox with the same name exists,
+// or [ErrNotValid] if the configuration is invalid.
 func (c *Client) CreateSandbox(ctx context.Context, opts CreateSandboxOpts) (*Sandbox, error) {
 	cfg := toInternalSandboxConfig(opts)
 
@@ -51,8 +61,13 @@ func (c *Client) CreateSandbox(ctx context.Context, opts CreateSandboxOpts) (*Sa
 	return &result, nil
 }
 
-// StartSandbox starts a stopped or created sandbox.
-// Pass nil opts for defaults.
+// StartSandbox starts a sandbox that is in created or stopped state.
+//
+// Use opts to inject session environment variables that will be available
+// inside the sandbox. Pass nil for defaults (no extra env vars).
+//
+// Returns [ErrNotFound] if the sandbox does not exist, or [ErrNotValid] if
+// the sandbox is not in a startable state.
 func (c *Client) StartSandbox(ctx context.Context, nameOrID string, opts *StartSandboxOpts) (*Sandbox, error) {
 	sb, err := c.getInternalSandbox(ctx, nameOrID)
 	if err != nil {
@@ -86,6 +101,11 @@ func (c *Client) StartSandbox(ctx context.Context, nameOrID string, opts *StartS
 }
 
 // StopSandbox stops a running sandbox.
+//
+// The sandbox must be in [SandboxStatusRunning] state.
+//
+// Returns [ErrNotFound] if the sandbox does not exist, or [ErrNotValid] if
+// the sandbox is not running.
 func (c *Client) StopSandbox(ctx context.Context, nameOrID string) (*Sandbox, error) {
 	sb, err := c.getInternalSandbox(ctx, nameOrID)
 	if err != nil {
@@ -117,7 +137,12 @@ func (c *Client) StopSandbox(ctx context.Context, nameOrID string) (*Sandbox, er
 	return &out, nil
 }
 
-// RemoveSandbox removes a sandbox. If force is true, a running sandbox is stopped first.
+// RemoveSandbox removes a sandbox and cleans up its resources.
+//
+// If force is false and the sandbox is running, it returns [ErrNotValid].
+// If force is true, a running sandbox is stopped first (best-effort) then removed.
+//
+// Returns [ErrNotFound] if the sandbox does not exist.
 func (c *Client) RemoveSandbox(ctx context.Context, nameOrID string, force bool) (*Sandbox, error) {
 	sb, err := c.getInternalSandbox(ctx, nameOrID)
 	if err != nil {
@@ -150,7 +175,10 @@ func (c *Client) RemoveSandbox(ctx context.Context, nameOrID string, force bool)
 	return &out, nil
 }
 
-// ListSandboxes lists sandboxes with optional filtering. Pass nil opts for all sandboxes.
+// ListSandboxes returns all sandboxes, optionally filtered by status.
+//
+// Pass nil opts to list all sandboxes regardless of status. Use
+// [ListSandboxesOpts].Status to filter by a specific [SandboxStatus].
 func (c *Client) ListSandboxes(ctx context.Context, opts *ListSandboxesOpts) ([]Sandbox, error) {
 	svc, err := list.NewService(list.ServiceConfig{
 		Repository: c.repo,
@@ -171,6 +199,11 @@ func (c *Client) ListSandboxes(ctx context.Context, opts *ListSandboxesOpts) ([]
 }
 
 // GetSandbox retrieves a sandbox by name or ID.
+//
+// The nameOrID parameter is first matched against sandbox names. If no match is
+// found and the value looks like a ULID, it is tried as an ID.
+//
+// Returns [ErrNotFound] if the sandbox does not exist.
 func (c *Client) GetSandbox(ctx context.Context, nameOrID string) (*Sandbox, error) {
 	sb, err := c.getInternalSandbox(ctx, nameOrID)
 	if err != nil {

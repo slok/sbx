@@ -11,100 +11,150 @@ import (
 type EngineType string
 
 const (
-	// EngineFirecracker uses Firecracker microVMs.
+	// EngineFirecracker uses Firecracker microVMs for real isolated sandboxes.
+	// Requires KVM access and appropriate host capabilities.
 	EngineFirecracker EngineType = "firecracker"
-	// EngineFake uses an in-memory fake engine (for testing).
+
+	// EngineFake uses an in-memory simulation (no real VMs).
+	// Use this for unit testing without infrastructure dependencies.
 	EngineFake EngineType = "fake"
 )
 
 // SandboxStatus represents the lifecycle state of a sandbox.
+//
+// The typical lifecycle is:
+//
+//	pending -> created -> running -> stopped -> (removed)
+//
+// A sandbox can also transition to failed at any point if an error occurs.
 type SandboxStatus string
 
 const (
+	// SandboxStatusPending indicates the sandbox is being provisioned.
 	SandboxStatusPending SandboxStatus = "pending"
+	// SandboxStatusCreated indicates the sandbox is provisioned but not started.
 	SandboxStatusCreated SandboxStatus = "created"
+	// SandboxStatusRunning indicates the sandbox is running and accepting commands.
 	SandboxStatusRunning SandboxStatus = "running"
+	// SandboxStatusStopped indicates the sandbox is stopped. It can be started again.
 	SandboxStatusStopped SandboxStatus = "stopped"
-	SandboxStatusFailed  SandboxStatus = "failed"
+	// SandboxStatusFailed indicates the sandbox encountered an unrecoverable error.
+	SandboxStatusFailed SandboxStatus = "failed"
 )
 
-// Sandbox represents a sandbox instance.
+// Sandbox represents a sandbox instance returned by the SDK.
+//
+// This is a read-only snapshot of the sandbox state at the time of the API call.
+// Use [Client.GetSandbox] to get the latest state.
 type Sandbox struct {
-	ID        string
-	Name      string
-	Status    SandboxStatus
-	Config    SandboxConfig
+	// ID is the unique identifier (ULID) assigned at creation.
+	ID string
+	// Name is the human-friendly name.
+	Name string
+	// Status is the current lifecycle state.
+	Status SandboxStatus
+	// Config is the static configuration set at creation time.
+	Config SandboxConfig
+	// CreatedAt is when the sandbox was created.
 	CreatedAt time.Time
+	// StartedAt is when the sandbox was last started. Nil if never started.
 	StartedAt *time.Time
+	// StoppedAt is when the sandbox was last stopped. Nil if never stopped.
 	StoppedAt *time.Time
 }
 
-// SandboxConfig is the static configuration of a sandbox.
+// SandboxConfig is the immutable configuration of a sandbox, set at creation time.
 type SandboxConfig struct {
-	Name        string
+	// Name is the sandbox name.
+	Name string
+	// Firecracker holds Firecracker-specific config. Nil for non-Firecracker engines.
 	Firecracker *FirecrackerConfig
-	Resources   Resources
+	// Resources defines the compute resources allocated to the sandbox.
+	Resources Resources
 }
 
-// FirecrackerConfig contains Firecracker engine-specific settings.
+// FirecrackerConfig contains Firecracker microVM engine-specific settings.
 type FirecrackerConfig struct {
-	RootFS      string
+	// RootFS is the path to the root filesystem image (ext4).
+	RootFS string
+	// KernelImage is the path to the kernel binary (vmlinux).
 	KernelImage string
 }
 
-// Resources defines compute resources for a sandbox.
+// Resources defines the compute resources for a sandbox.
 type Resources struct {
-	VCPUs    float64
+	// VCPUs is the number of virtual CPUs. Can be fractional (e.g. 0.5).
+	VCPUs float64
+	// MemoryMB is the memory allocation in megabytes.
 	MemoryMB int
-	DiskGB   int
+	// DiskGB is the disk size in gigabytes.
+	DiskGB int
 }
 
 // CreateSandboxOpts configures sandbox creation.
+//
+// Name and Engine are required. For [EngineFirecracker], you must also provide
+// Firecracker config with kernel and rootfs paths (unless using FromSnapshot
+// or FromImage). Resources must have positive values.
 type CreateSandboxOpts struct {
-	// Name is the sandbox name (required).
+	// Name is the sandbox name (required). Must be unique.
 	Name string
 	// Engine selects the engine type (required).
 	Engine EngineType
-	// Firecracker contains engine-specific config (required for firecracker engine).
+	// Firecracker contains engine-specific config. Required for [EngineFirecracker]
+	// unless FromSnapshot is set. Ignored for [EngineFake].
 	Firecracker *FirecrackerConfig
-	// Resources defines compute resources.
+	// Resources defines compute resources (required, must be positive values).
 	Resources Resources
-	// FromSnapshot creates the sandbox from a snapshot name or ID (optional).
+	// FromSnapshot restores the sandbox rootfs from a snapshot name or ID.
+	// When set, the Firecracker.RootFS field is overridden with the snapshot path.
 	FromSnapshot string
-	// FromImage uses a pulled image version, e.g. "v0.1.0" (optional).
+	// FromImage uses a pulled image version (e.g. "v0.1.0") for kernel and rootfs.
+	// Cannot be combined with FromSnapshot or explicit Firecracker paths.
 	FromImage string
 }
 
-// StartSandboxOpts configures sandbox start.
+// StartSandboxOpts configures sandbox start behavior.
+//
+// Pass nil to [Client.StartSandbox] to use defaults (no session env).
 type StartSandboxOpts struct {
-	// Env contains session environment variables applied at start time.
+	// Env contains session environment variables injected into the sandbox at
+	// start time. These are written to /etc/sbx/session-env.sh and sourced
+	// by login shells.
 	Env map[string]string
 }
 
 // ListSandboxesOpts configures sandbox listing.
+//
+// Pass nil to [Client.ListSandboxes] to list all sandboxes.
 type ListSandboxesOpts struct {
 	// Status filters sandboxes by status. Nil means all statuses.
 	Status *SandboxStatus
 }
 
 // ExecOpts configures command execution inside a sandbox.
+//
+// Pass nil to [Client.Exec] to use defaults (no working dir, no extra env,
+// discarded stdout/stderr).
 type ExecOpts struct {
-	// WorkingDir sets the working directory for the command.
+	// WorkingDir sets the working directory for the command inside the sandbox.
 	WorkingDir string
-	// Env contains additional environment variables.
+	// Env contains additional environment variables for this execution only.
 	Env map[string]string
-	// Stdin is the input stream (optional).
+	// Stdin is the standard input stream. Nil means no input.
 	Stdin io.Reader
-	// Stdout is the output stream (optional).
+	// Stdout receives the command's standard output. Nil means output is discarded.
 	Stdout io.Writer
-	// Stderr is the error stream (optional).
+	// Stderr receives the command's standard error. Nil means output is discarded.
 	Stderr io.Writer
-	// Tty allocates a pseudo-TTY.
+	// Tty allocates a pseudo-TTY for the command (useful for interactive shells).
 	Tty bool
 }
 
 // ExecResult contains the result of a command execution.
 type ExecResult struct {
+	// ExitCode is the exit status of the executed command.
+	// 0 indicates success, non-zero indicates failure.
 	ExitCode int
 }
 
