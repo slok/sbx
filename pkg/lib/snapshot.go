@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/slok/sbx/internal/app/imagecreate"
+	"github.com/slok/sbx/internal/app/snapshotcreate"
 )
 
 // CreateImageFromSandboxOpts configures snapshot image creation.
@@ -31,9 +31,14 @@ type CreateImageFromSandboxOpts struct {
 // [ErrNotValid] if the sandbox is running, or [ErrAlreadyExists] if the
 // image name is taken.
 func (c *Client) CreateImageFromSandbox(ctx context.Context, nameOrID string, opts *CreateImageFromSandboxOpts) (string, error) {
-	snapMgr, err := c.newSnapshotManager()
+	imgMgr, err := c.newLocalImageManager()
 	if err != nil {
-		return "", fmt.Errorf("could not create snapshot manager: %w", err)
+		return "", fmt.Errorf("could not create image manager: %w", err)
+	}
+
+	snapCrt, err := c.newSnapshotCreator()
+	if err != nil {
+		return "", fmt.Errorf("could not create snapshot creator: %w", err)
 	}
 
 	// Determine data dir.
@@ -46,8 +51,9 @@ func (c *Client) CreateImageFromSandbox(ctx context.Context, nameOrID string, op
 		dataDir = filepath.Join(home, ".sbx")
 	}
 
-	svc, err := imagecreate.NewService(imagecreate.ServiceConfig{
-		SnapshotManager: snapMgr,
+	svc, err := snapshotcreate.NewService(snapshotcreate.ServiceConfig{
+		ImageManager:    imgMgr,
+		SnapshotCreator: snapCrt,
 		Repository:      c.repo,
 		Logger:          c.logger,
 		DataDir:         dataDir,
@@ -61,7 +67,7 @@ func (c *Client) CreateImageFromSandbox(ctx context.Context, nameOrID string, op
 		imgName = opts.ImageName
 	}
 
-	result, err := svc.Run(ctx, imagecreate.Request{
+	result, err := svc.Run(ctx, snapshotcreate.Request{
 		NameOrID:  nameOrID,
 		ImageName: imgName,
 	})

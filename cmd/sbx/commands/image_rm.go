@@ -34,20 +34,14 @@ func (c ImageRmCommand) Name() string { return c.Cmd.FullCommand() }
 func (c ImageRmCommand) Run(ctx context.Context) error {
 	logger := c.rootCmd.Logger
 
-	mgr, err := newImageManager(c.imgCmd, logger)
-	if err != nil {
-		return err
-	}
-
-	snapMgr, err := newSnapshotManager(c.imgCmd, logger)
+	mgr, err := newLocalImageManager(c.imgCmd, logger)
 	if err != nil {
 		return err
 	}
 
 	svc, err := imagerm.NewService(imagerm.ServiceConfig{
-		Manager:         mgr,
-		SnapshotManager: snapMgr,
-		Logger:          logger,
+		Manager: mgr,
+		Logger:  logger,
 	})
 	if err != nil {
 		return fmt.Errorf("could not create service: %w", err)

@@ -34,20 +34,20 @@ func (c ImageListCommand) Name() string { return c.Cmd.FullCommand() }
 func (c ImageListCommand) Run(ctx context.Context) error {
 	logger := c.rootCmd.Logger
 
-	mgr, err := newImageManager(c.imgCmd, logger)
+	mgr, err := newLocalImageManager(c.imgCmd, logger)
 	if err != nil {
 		return err
 	}
 
-	snapMgr, err := newSnapshotManager(c.imgCmd, logger)
+	puller, err := newImagePuller(c.imgCmd, logger)
 	if err != nil {
 		return err
 	}
 
 	svc, err := imagelist.NewService(imagelist.ServiceConfig{
-		Manager:         mgr,
-		SnapshotManager: snapMgr,
-		Logger:          logger,
+		Manager: mgr,
+		Puller:  puller,
+		Logger:  logger,
 	})
 	if err != nil {
 		return fmt.Errorf("could not create service: %w", err)

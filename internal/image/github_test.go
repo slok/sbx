@@ -18,8 +18,8 @@ import (
 	"github.com/slok/sbx/internal/image"
 )
 
-// newTestManager creates a GitHubImageManager backed by httptest servers.
-func newTestManager(t *testing.T, apiHandler, downloadHandler http.Handler) (*image.GitHubImageManager, string) {
+// newTestPuller creates a GitHubImagePuller backed by httptest servers.
+func newTestPuller(t *testing.T, apiHandler, downloadHandler http.Handler) (*image.GitHubImagePuller, string) {
 	t.Helper()
 
 	apiServer := httptest.NewServer(apiHandler)
@@ -29,45 +29,33 @@ func newTestManager(t *testing.T, apiHandler, downloadHandler http.Handler) (*im
 	t.Cleanup(downloadServer.Close)
 
 	imagesDir := t.TempDir()
-	m, err := image.NewGitHubImageManagerWithBaseURL(image.GitHubImageManagerConfig{
+	p, err := image.NewGitHubImagePullerWithBaseURL(image.GitHubImagePullerConfig{
 		Repo:      "test/images",
 		ImagesDir: imagesDir,
 	}, apiServer.URL, downloadServer.URL)
 	require.NoError(t, err)
 
-	return m, imagesDir
+	return p, imagesDir
 }
 
-func TestGitHubImageManagerListReleases(t *testing.T) {
+func TestGitHubImagePullerListRemote(t *testing.T) {
 	tests := map[string]struct {
-		releases     []map[string]string
-		installed    []string
-		expVersions  []string
-		expInstalled map[string]bool
+		releases    []map[string]string
+		expVersions []string
 	}{
-		"multiple releases with one installed": {
-			releases:     []map[string]string{{"tag_name": "v0.2.0"}, {"tag_name": "v0.1.0"}},
-			installed:    []string{"v0.1.0"},
-			expVersions:  []string{"v0.2.0", "v0.1.0"},
-			expInstalled: map[string]bool{"v0.2.0": false, "v0.1.0": true},
+		"Multiple remote releases should be listed.": {
+			releases:    []map[string]string{{"tag_name": "v0.2.0"}, {"tag_name": "v0.1.0"}},
+			expVersions: []string{"v0.2.0", "v0.1.0"},
 		},
-		"no releases": {
-			releases:     []map[string]string{},
-			expVersions:  nil,
-			expInstalled: map[string]bool{},
-		},
-		"all installed": {
-			releases:     []map[string]string{{"tag_name": "v0.1.0"}},
-			installed:    []string{"v0.1.0"},
-			expVersions:  []string{"v0.1.0"},
-			expInstalled: map[string]bool{"v0.1.0": true},
+		"No remote releases should return empty.": {
+			releases:    []map[string]string{},
+			expVersions: nil,
 		},
 	}
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			apiHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				// Return releases on page 1, empty on page 2+ (stops pagination).
 				if r.URL.Query().Get("page") == "2" {
 					_ = json.NewEncoder(w).Encode([]map[string]string{})
 					return
@@ -75,125 +63,21 @@ func TestGitHubImageManagerListReleases(t *testing.T) {
 				_ = json.NewEncoder(w).Encode(tc.releases)
 			})
 
-			m, imagesDir := newTestManager(t, apiHandler, http.NotFoundHandler())
+			p, _ := newTestPuller(t, apiHandler, http.NotFoundHandler())
 
-			// Create installed version directories.
-			for _, v := range tc.installed {
-				require.NoError(t, os.MkdirAll(filepath.Join(imagesDir, v), 0o755))
-			}
-
-			releases, err := m.ListReleases(context.Background())
+			releases, err := p.ListRemote(context.Background())
 			require.NoError(t, err)
 
 			var gotVersions []string
 			for _, r := range releases {
 				gotVersions = append(gotVersions, r.Version)
-				assert.Equal(t, tc.expInstalled[r.Version], r.Installed, "installed status for %s", r.Version)
 			}
 			assert.Equal(t, tc.expVersions, gotVersions)
 		})
 	}
 }
 
-func TestGitHubImageManagerGetManifest(t *testing.T) {
-	manifest := map[string]any{
-		"schema_version": 1,
-		"version":        "v0.1.0",
-		"artifacts": map[string]any{
-			"x86_64": map[string]any{
-				"kernel": map[string]any{
-					"file": "vmlinux-x86_64", "version": "6.1.155",
-					"source": "firecracker-ci/v1.15", "size_bytes": 44279576,
-				},
-				"rootfs": map[string]any{
-					"file": "rootfs-x86_64.ext4", "distro": "alpine",
-					"distro_version": "3.23", "profile": "balanced", "size_bytes": 679034880,
-				},
-			},
-		},
-		"firecracker": map[string]any{"version": "v1.14.1", "source": "github.com/firecracker-microvm/firecracker"},
-		"build":       map[string]any{"date": "2026-02-08T09:54:17Z", "commit": "adc9bc1"},
-	}
-
-	downloadHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/test/images/releases/download/v0.1.0/manifest.json" {
-			_ = json.NewEncoder(w).Encode(manifest)
-			return
-		}
-		http.NotFound(w, r)
-	})
-
-	m, _ := newTestManager(t, http.NotFoundHandler(), downloadHandler)
-
-	got, err := m.GetManifest(context.Background(), "v0.1.0")
-	require.NoError(t, err)
-
-	assert.Equal(t, "v0.1.0", got.Version)
-	assert.Equal(t, "v1.14.1", got.Firecracker.Version)
-	assert.Equal(t, "adc9bc1", got.Build.Commit)
-
-	arch, ok := got.Artifacts["x86_64"]
-	require.True(t, ok)
-	assert.Equal(t, "vmlinux-x86_64", arch.Kernel.File)
-	assert.Equal(t, "rootfs-x86_64.ext4", arch.Rootfs.File)
-	assert.Equal(t, int64(44279576), arch.Kernel.SizeBytes)
-}
-
-func TestGitHubImageManagerGetManifestNotFound(t *testing.T) {
-	downloadHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-	})
-
-	m, _ := newTestManager(t, http.NotFoundHandler(), downloadHandler)
-	_, err := m.GetManifest(context.Background(), "v99.0.0")
-	assert.Error(t, err)
-}
-
-func TestGitHubImageManagerGetManifestUnsupportedSchema(t *testing.T) {
-	manifest := map[string]any{
-		"schema_version": 999,
-		"version":        "v0.1.0",
-		"artifacts":      map[string]any{},
-		"firecracker":    map[string]any{"version": "v1.14.1", "source": "test"},
-		"build":          map[string]any{"date": "2026-01-01", "commit": "abc"},
-	}
-
-	downloadHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(manifest)
-	})
-
-	m, _ := newTestManager(t, http.NotFoundHandler(), downloadHandler)
-	_, err := m.GetManifest(context.Background(), "v0.1.0")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "unsupported manifest schema version 999")
-}
-
-func TestGitHubImageManagerGetManifestMissingSchemaDefaultsToOne(t *testing.T) {
-	// Manifests without schema_version (pre-versioning) should be treated as schema 1.
-	manifest := map[string]any{
-		"version": "v0.1.0",
-		"artifacts": map[string]any{
-			"x86_64": map[string]any{
-				"kernel": map[string]any{"file": "vmlinux-x86_64", "version": "6.1", "source": "test", "size_bytes": 100},
-				"rootfs": map[string]any{"file": "rootfs.ext4", "distro": "alpine", "distro_version": "3.23", "profile": "balanced", "size_bytes": 200},
-			},
-		},
-		"firecracker": map[string]any{"version": "v1.14.1", "source": "test"},
-		"build":       map[string]any{"date": "2026-01-01", "commit": "abc"},
-	}
-
-	downloadHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(manifest)
-	})
-
-	m, _ := newTestManager(t, http.NotFoundHandler(), downloadHandler)
-	got, err := m.GetManifest(context.Background(), "v0.1.0")
-	require.NoError(t, err)
-	assert.Equal(t, 1, got.SchemaVersion)
-	assert.Equal(t, "v0.1.0", got.Version)
-}
-
-func TestGitHubImageManagerPull(t *testing.T) {
+func TestGitHubImagePullerPull(t *testing.T) {
 	kernelData := []byte("fake-kernel-binary-data")
 	rootfsData := []byte("fake-rootfs-binary-data")
 	fcBinaryData := []byte("fake-firecracker-binary")
@@ -217,7 +101,6 @@ func TestGitHubImageManagerPull(t *testing.T) {
 		"build":       map[string]any{"date": "2026-02-08T09:54:17Z", "commit": "abc"},
 	}
 
-	// Build a fake firecracker tgz.
 	fcTgz := buildFakeFCTgz(t, "v1.14.1", "x86_64", fcBinaryData)
 
 	downloadHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -235,9 +118,9 @@ func TestGitHubImageManagerPull(t *testing.T) {
 		}
 	})
 
-	m, imagesDir := newTestManager(t, http.NotFoundHandler(), downloadHandler)
+	p, imagesDir := newTestPuller(t, http.NotFoundHandler(), downloadHandler)
 
-	result, err := m.Pull(context.Background(), "v0.1.0", image.PullOptions{})
+	result, err := p.Pull(context.Background(), "v0.1.0", image.PullOptions{})
 	require.NoError(t, err)
 
 	assert.False(t, result.Skipped)
@@ -257,60 +140,15 @@ func TestGitHubImageManagerPull(t *testing.T) {
 	assert.Equal(t, fcBinaryData, gotFC)
 }
 
-func TestGitHubImageManagerPullSkipsIfInstalled(t *testing.T) {
-	m, imagesDir := newTestManager(t, http.NotFoundHandler(), http.NotFoundHandler())
+func TestGitHubImagePullerPullSkipsIfInstalled(t *testing.T) {
+	p, imagesDir := newTestPuller(t, http.NotFoundHandler(), http.NotFoundHandler())
 
-	// Pre-create the version directory.
-	require.NoError(t, os.MkdirAll(filepath.Join(imagesDir, "v0.1.0"), 0o755))
+	// Pre-create the version directory with a valid manifest.
+	writeTestManifest(t, imagesDir, "v0.1.0", false)
 
-	result, err := m.Pull(context.Background(), "v0.1.0", image.PullOptions{})
+	result, err := p.Pull(context.Background(), "v0.1.0", image.PullOptions{})
 	require.NoError(t, err)
 	assert.True(t, result.Skipped)
-}
-
-func TestGitHubImageManagerRemove(t *testing.T) {
-	m, imagesDir := newTestManager(t, http.NotFoundHandler(), http.NotFoundHandler())
-
-	// Create a version dir with a file.
-	vDir := filepath.Join(imagesDir, "v0.1.0")
-	require.NoError(t, os.MkdirAll(vDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(vDir, "vmlinux"), []byte("data"), 0o644))
-
-	err := m.Remove(context.Background(), "v0.1.0")
-	require.NoError(t, err)
-
-	_, statErr := os.Stat(vDir)
-	assert.True(t, os.IsNotExist(statErr))
-}
-
-func TestGitHubImageManagerRemoveNotInstalled(t *testing.T) {
-	m, _ := newTestManager(t, http.NotFoundHandler(), http.NotFoundHandler())
-
-	err := m.Remove(context.Background(), "v99.0.0")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "not installed")
-}
-
-func TestGitHubImageManagerExists(t *testing.T) {
-	m, imagesDir := newTestManager(t, http.NotFoundHandler(), http.NotFoundHandler())
-
-	exists, err := m.Exists(context.Background(), "v0.1.0")
-	require.NoError(t, err)
-	assert.False(t, exists)
-
-	require.NoError(t, os.MkdirAll(filepath.Join(imagesDir, "v0.1.0"), 0o755))
-
-	exists, err = m.Exists(context.Background(), "v0.1.0")
-	require.NoError(t, err)
-	assert.True(t, exists)
-}
-
-func TestGitHubImageManagerPaths(t *testing.T) {
-	m, imagesDir := newTestManager(t, http.NotFoundHandler(), http.NotFoundHandler())
-
-	assert.Equal(t, filepath.Join(imagesDir, "v0.1.0", "vmlinux-x86_64"), m.KernelPath("v0.1.0"))
-	assert.Equal(t, filepath.Join(imagesDir, "v0.1.0", "rootfs-x86_64.ext4"), m.RootFSPath("v0.1.0"))
-	assert.Equal(t, filepath.Join(imagesDir, "v0.1.0", "firecracker"), m.FirecrackerPath("v0.1.0"))
 }
 
 // buildFakeFCTgz creates a gzipped tar archive with a fake firecracker binary.

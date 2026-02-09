@@ -833,7 +833,7 @@ func TestCopyToSourceValidation(t *testing.T) {
 
 func TestCreateImageFromSandbox(t *testing.T) {
 	// createSandboxWithFiles creates a sandbox and the real kernel/rootfs files that
-	// the imagecreate service expects to find on disk.
+	// the snapshotcreate service expects to find on disk.
 	createSandboxWithFiles := func(t *testing.T, tc testClientWithDataDir, name string) string {
 		t.Helper()
 
@@ -852,7 +852,7 @@ func TestCreateImageFromSandbox(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		// Create the rootfs file at the path imagecreate expects: {dataDir}/vms/{id}/rootfs.ext4.
+		// Create the rootfs file at the path snapshotcreate expects: {dataDir}/vms/{id}/rootfs.ext4.
 		vmDir := filepath.Join(tc.DataDir, "vms", sb.ID)
 		require.NoError(t, os.MkdirAll(vmDir, 0755))
 		require.NoError(t, os.WriteFile(filepath.Join(vmDir, "rootfs.ext4"), []byte("fake-rootfs"), 0644))

@@ -209,9 +209,26 @@ func (c *Client) Doctor(ctx context.Context) ([]CheckResult, error) {
 	return fromInternalCheckResults(results), nil
 }
 
-// newSnapshotManager creates a local snapshot manager for snapshot operations.
-func (c *Client) newSnapshotManager() (image.SnapshotManager, error) {
-	return image.NewLocalSnapshotManager(image.LocalSnapshotManagerConfig{
+// newLocalImageManager creates a local image manager for image operations.
+func (c *Client) newLocalImageManager() (image.ImageManager, error) {
+	return image.NewLocalImageManager(image.LocalImageManagerConfig{
+		ImagesDir: c.imagesDir,
+		Logger:    c.logger,
+	})
+}
+
+// newImagePuller creates a GitHub image puller for remote image operations.
+func (c *Client) newImagePuller() (image.ImagePuller, error) {
+	return image.NewGitHubImagePuller(image.GitHubImagePullerConfig{
+		Repo:      c.imageRepo,
+		ImagesDir: c.imagesDir,
+		Logger:    c.logger,
+	})
+}
+
+// newSnapshotCreator creates a local snapshot creator for snapshot operations.
+func (c *Client) newSnapshotCreator() (image.SnapshotCreator, error) {
+	return image.NewLocalSnapshotCreator(image.LocalSnapshotCreatorConfig{
 		ImagesDir: c.imagesDir,
 		Logger:    c.logger,
 	})

@@ -11,9 +11,8 @@ import (
 
 // ServiceConfig is the configuration for the image inspect service.
 type ServiceConfig struct {
-	Manager         image.ImageManager
-	SnapshotManager image.SnapshotManager
-	Logger          log.Logger
+	Manager image.ImageManager
+	Logger  log.Logger
 }
 
 func (c *ServiceConfig) defaults() error {
@@ -26,11 +25,10 @@ func (c *ServiceConfig) defaults() error {
 	return nil
 }
 
-// Service handles inspecting image release manifests.
+// Service handles inspecting image manifests.
 type Service struct {
-	manager     image.ImageManager
-	snapshotMgr image.SnapshotManager
-	logger      log.Logger
+	manager image.ImageManager
+	logger  log.Logger
 }
 
 // NewService creates a new image inspect service.
@@ -39,9 +37,8 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 	return &Service{
-		manager:     cfg.Manager,
-		snapshotMgr: cfg.SnapshotManager,
-		logger:      cfg.Logger,
+		manager: cfg.Manager,
+		logger:  cfg.Logger,
 	}, nil
 }
 
@@ -50,20 +47,8 @@ type Request struct {
 	Version string
 }
 
-// Run retrieves the manifest for an image (snapshot first, then remote release).
+// Run retrieves the manifest for a locally installed image.
 func (s *Service) Run(ctx context.Context, req Request) (*model.ImageManifest, error) {
-	// Try snapshot manager first (local snapshots).
-	if s.snapshotMgr != nil {
-		exists, err := s.snapshotMgr.Exists(ctx, req.Version)
-		if err == nil && exists {
-			manifest, err := s.snapshotMgr.GetManifest(ctx, req.Version)
-			if err == nil {
-				return manifest, nil
-			}
-		}
-	}
-
-	// Fall back to remote image manager.
 	manifest, err := s.manager.GetManifest(ctx, req.Version)
 	if err != nil {
 		return nil, fmt.Errorf("inspecting image %s: %w", req.Version, err)

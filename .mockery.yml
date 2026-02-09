@@ -22,4 +22,5 @@ packages:
   github.com/slok/sbx/internal/image:
     interfaces:
       ImageManager:
-      SnapshotManager:
+      ImagePuller:
+      SnapshotCreator:

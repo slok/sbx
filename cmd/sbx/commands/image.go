@@ -33,28 +33,40 @@ func NewImageCommand(app *kingpin.Application) *ImageCommand {
 	return c
 }
 
-// newImageManager creates a GitHubImageManager from the image command config.
-func newImageManager(imgCmd *ImageCommand, logger log.Logger) (image.ImageManager, error) {
-	mgr, err := image.NewGitHubImageManager(image.GitHubImageManagerConfig{
+// newLocalImageManager creates a LocalImageManager for local image operations.
+func newLocalImageManager(imgCmd *ImageCommand, logger log.Logger) (image.ImageManager, error) {
+	mgr, err := image.NewLocalImageManager(image.LocalImageManagerConfig{
+		ImagesDir: imgCmd.imagesDir,
+		Logger:    logger,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("could not create local image manager: %w", err)
+	}
+	return mgr, nil
+}
+
+// newImagePuller creates a GitHubImagePuller for remote image operations.
+func newImagePuller(imgCmd *ImageCommand, logger log.Logger) (image.ImagePuller, error) {
+	p, err := image.NewGitHubImagePuller(image.GitHubImagePullerConfig{
 		Repo:       imgCmd.repo,
 		ImagesDir:  imgCmd.imagesDir,
 		HTTPClient: http.DefaultClient,
 		Logger:     logger,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("could not create image manager: %w", err)
+		return nil, fmt.Errorf("could not create image puller: %w", err)
 	}
-	return mgr, nil
+	return p, nil
 }
 
-// newSnapshotManager creates a LocalSnapshotManager from the image command config.
-func newSnapshotManager(imgCmd *ImageCommand, logger log.Logger) (image.SnapshotManager, error) {
-	mgr, err := image.NewLocalSnapshotManager(image.LocalSnapshotManagerConfig{
+// newSnapshotCreator creates a LocalSnapshotCreator for snapshot creation.
+func newSnapshotCreator(imgCmd *ImageCommand, logger log.Logger) (image.SnapshotCreator, error) {
+	sc, err := image.NewLocalSnapshotCreator(image.LocalSnapshotCreatorConfig{
 		ImagesDir: imgCmd.imagesDir,
 		Logger:    logger,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("could not create snapshot manager: %w", err)
+		return nil, fmt.Errorf("could not create snapshot creator: %w", err)
 	}
-	return mgr, nil
+	return sc, nil
 }

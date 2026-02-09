@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/slok/sbx/internal/log"
+	fileutil "github.com/slok/sbx/internal/utils/file"
 )
 
 func TestEngine_copyRootFSPreservesSparseAllocation(t *testing.T) {
@@ -34,7 +35,7 @@ func TestEngine_copyRootFSPreservesSparseAllocation(t *testing.T) {
 	require.NoError(e.copyRootFS(context.Background(), srcPath, vmDir))
 
 	dstPath := filepath.Join(vmDir, RootFSFile)
-	virtualSize, allocatedSize, err := snapshotSizeStats(dstPath)
+	virtualSize, allocatedSize, err := fileutil.SizeStats(dstPath)
 	require.NoError(err)
 
 	assert.Equal(int64(256*1024*1024), virtualSize)

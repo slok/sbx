@@ -40,8 +40,8 @@ func (_m *MockImageManager) EXPECT() *MockImageManager_Expecter {
 }
 
 // Exists provides a mock function for the type MockImageManager
-func (_mock *MockImageManager) Exists(ctx context.Context, version string) (bool, error) {
-	ret := _mock.Called(ctx, version)
+func (_mock *MockImageManager) Exists(ctx context.Context, name string) (bool, error) {
+	ret := _mock.Called(ctx, name)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Exists")
@@ -50,15 +50,15 @@ func (_mock *MockImageManager) Exists(ctx context.Context, version string) (bool
 	var r0 bool
 	var r1 error
 	if returnFunc, ok := ret.Get(0).(func(context.Context, string) (bool, error)); ok {
-		return returnFunc(ctx, version)
+		return returnFunc(ctx, name)
 	}
 	if returnFunc, ok := ret.Get(0).(func(context.Context, string) bool); ok {
-		r0 = returnFunc(ctx, version)
+		r0 = returnFunc(ctx, name)
 	} else {
 		r0 = ret.Get(0).(bool)
 	}
 	if returnFunc, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = returnFunc(ctx, version)
+		r1 = returnFunc(ctx, name)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -72,12 +72,12 @@ type MockImageManager_Exists_Call struct {
 
 // Exists is a helper method to define mock.On call
 //   - ctx context.Context
-//   - version string
-func (_e *MockImageManager_Expecter) Exists(ctx interface{}, version interface{}) *MockImageManager_Exists_Call {
-	return &MockImageManager_Exists_Call{Call: _e.mock.On("Exists", ctx, version)}
+//   - name string
+func (_e *MockImageManager_Expecter) Exists(ctx interface{}, name interface{}) *MockImageManager_Exists_Call {
+	return &MockImageManager_Exists_Call{Call: _e.mock.On("Exists", ctx, name)}
 }
 
-func (_c *MockImageManager_Exists_Call) Run(run func(ctx context.Context, version string)) *MockImageManager_Exists_Call {
+func (_c *MockImageManager_Exists_Call) Run(run func(ctx context.Context, name string)) *MockImageManager_Exists_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -100,14 +100,14 @@ func (_c *MockImageManager_Exists_Call) Return(b bool, err error) *MockImageMana
 	return _c
 }
 
-func (_c *MockImageManager_Exists_Call) RunAndReturn(run func(ctx context.Context, version string) (bool, error)) *MockImageManager_Exists_Call {
+func (_c *MockImageManager_Exists_Call) RunAndReturn(run func(ctx context.Context, name string) (bool, error)) *MockImageManager_Exists_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // FirecrackerPath provides a mock function for the type MockImageManager
-func (_mock *MockImageManager) FirecrackerPath(version string) string {
-	ret := _mock.Called(version)
+func (_mock *MockImageManager) FirecrackerPath(name string) string {
+	ret := _mock.Called(name)
 
 	if len(ret) == 0 {
 		panic("no return value specified for FirecrackerPath")
@@ -115,7 +115,7 @@ func (_mock *MockImageManager) FirecrackerPath(version string) string {
 
 	var r0 string
 	if returnFunc, ok := ret.Get(0).(func(string) string); ok {
-		r0 = returnFunc(version)
+		r0 = returnFunc(name)
 	} else {
 		r0 = ret.Get(0).(string)
 	}
@@ -128,12 +128,12 @@ type MockImageManager_FirecrackerPath_Call struct {
 }
 
 // FirecrackerPath is a helper method to define mock.On call
-//   - version string
-func (_e *MockImageManager_Expecter) FirecrackerPath(version interface{}) *MockImageManager_FirecrackerPath_Call {
-	return &MockImageManager_FirecrackerPath_Call{Call: _e.mock.On("FirecrackerPath", version)}
+//   - name string
+func (_e *MockImageManager_Expecter) FirecrackerPath(name interface{}) *MockImageManager_FirecrackerPath_Call {
+	return &MockImageManager_FirecrackerPath_Call{Call: _e.mock.On("FirecrackerPath", name)}
 }
 
-func (_c *MockImageManager_FirecrackerPath_Call) Run(run func(version string)) *MockImageManager_FirecrackerPath_Call {
+func (_c *MockImageManager_FirecrackerPath_Call) Run(run func(name string)) *MockImageManager_FirecrackerPath_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 string
 		if args[0] != nil {
@@ -151,14 +151,14 @@ func (_c *MockImageManager_FirecrackerPath_Call) Return(s string) *MockImageMana
 	return _c
 }
 
-func (_c *MockImageManager_FirecrackerPath_Call) RunAndReturn(run func(version string) string) *MockImageManager_FirecrackerPath_Call {
+func (_c *MockImageManager_FirecrackerPath_Call) RunAndReturn(run func(name string) string) *MockImageManager_FirecrackerPath_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // GetManifest provides a mock function for the type MockImageManager
-func (_mock *MockImageManager) GetManifest(ctx context.Context, version string) (*model.ImageManifest, error) {
-	ret := _mock.Called(ctx, version)
+func (_mock *MockImageManager) GetManifest(ctx context.Context, name string) (*model.ImageManifest, error) {
+	ret := _mock.Called(ctx, name)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetManifest")
@@ -167,17 +167,17 @@ func (_mock *MockImageManager) GetManifest(ctx context.Context, version string) 
 	var r0 *model.ImageManifest
 	var r1 error
 	if returnFunc, ok := ret.Get(0).(func(context.Context, string) (*model.ImageManifest, error)); ok {
-		return returnFunc(ctx, version)
+		return returnFunc(ctx, name)
 	}
 	if returnFunc, ok := ret.Get(0).(func(context.Context, string) *model.ImageManifest); ok {
-		r0 = returnFunc(ctx, version)
+		r0 = returnFunc(ctx, name)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*model.ImageManifest)
 		}
 	}
 	if returnFunc, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = returnFunc(ctx, version)
+		r1 = returnFunc(ctx, name)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -191,12 +191,12 @@ type MockImageManager_GetManifest_Call struct {
 
 // GetManifest is a helper method to define mock.On call
 //   - ctx context.Context
-//   - version string
-func (_e *MockImageManager_Expecter) GetManifest(ctx interface{}, version interface{}) *MockImageManager_GetManifest_Call {
-	return &MockImageManager_GetManifest_Call{Call: _e.mock.On("GetManifest", ctx, version)}
+//   - name string
+func (_e *MockImageManager_Expecter) GetManifest(ctx interface{}, name interface{}) *MockImageManager_GetManifest_Call {
+	return &MockImageManager_GetManifest_Call{Call: _e.mock.On("GetManifest", ctx, name)}
 }
 
-func (_c *MockImageManager_GetManifest_Call) Run(run func(ctx context.Context, version string)) *MockImageManager_GetManifest_Call {
+func (_c *MockImageManager_GetManifest_Call) Run(run func(ctx context.Context, name string)) *MockImageManager_GetManifest_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -219,14 +219,14 @@ func (_c *MockImageManager_GetManifest_Call) Return(imageManifest *model.ImageMa
 	return _c
 }
 
-func (_c *MockImageManager_GetManifest_Call) RunAndReturn(run func(ctx context.Context, version string) (*model.ImageManifest, error)) *MockImageManager_GetManifest_Call {
+func (_c *MockImageManager_GetManifest_Call) RunAndReturn(run func(ctx context.Context, name string) (*model.ImageManifest, error)) *MockImageManager_GetManifest_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // KernelPath provides a mock function for the type MockImageManager
-func (_mock *MockImageManager) KernelPath(version string) string {
-	ret := _mock.Called(version)
+func (_mock *MockImageManager) KernelPath(name string) string {
+	ret := _mock.Called(name)
 
 	if len(ret) == 0 {
 		panic("no return value specified for KernelPath")
@@ -234,7 +234,7 @@ func (_mock *MockImageManager) KernelPath(version string) string {
 
 	var r0 string
 	if returnFunc, ok := ret.Get(0).(func(string) string); ok {
-		r0 = returnFunc(version)
+		r0 = returnFunc(name)
 	} else {
 		r0 = ret.Get(0).(string)
 	}
@@ -247,12 +247,12 @@ type MockImageManager_KernelPath_Call struct {
 }
 
 // KernelPath is a helper method to define mock.On call
-//   - version string
-func (_e *MockImageManager_Expecter) KernelPath(version interface{}) *MockImageManager_KernelPath_Call {
-	return &MockImageManager_KernelPath_Call{Call: _e.mock.On("KernelPath", version)}
+//   - name string
+func (_e *MockImageManager_Expecter) KernelPath(name interface{}) *MockImageManager_KernelPath_Call {
+	return &MockImageManager_KernelPath_Call{Call: _e.mock.On("KernelPath", name)}
 }
 
-func (_c *MockImageManager_KernelPath_Call) Run(run func(version string)) *MockImageManager_KernelPath_Call {
+func (_c *MockImageManager_KernelPath_Call) Run(run func(name string)) *MockImageManager_KernelPath_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 string
 		if args[0] != nil {
@@ -270,577 +270,13 @@ func (_c *MockImageManager_KernelPath_Call) Return(s string) *MockImageManager_K
 	return _c
 }
 
-func (_c *MockImageManager_KernelPath_Call) RunAndReturn(run func(version string) string) *MockImageManager_KernelPath_Call {
+func (_c *MockImageManager_KernelPath_Call) RunAndReturn(run func(name string) string) *MockImageManager_KernelPath_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// ListReleases provides a mock function for the type MockImageManager
-func (_mock *MockImageManager) ListReleases(ctx context.Context) ([]model.ImageRelease, error) {
-	ret := _mock.Called(ctx)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ListReleases")
-	}
-
-	var r0 []model.ImageRelease
-	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context) ([]model.ImageRelease, error)); ok {
-		return returnFunc(ctx)
-	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context) []model.ImageRelease); ok {
-		r0 = returnFunc(ctx)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]model.ImageRelease)
-		}
-	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context) error); ok {
-		r1 = returnFunc(ctx)
-	} else {
-		r1 = ret.Error(1)
-	}
-	return r0, r1
-}
-
-// MockImageManager_ListReleases_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListReleases'
-type MockImageManager_ListReleases_Call struct {
-	*mock.Call
-}
-
-// ListReleases is a helper method to define mock.On call
-//   - ctx context.Context
-func (_e *MockImageManager_Expecter) ListReleases(ctx interface{}) *MockImageManager_ListReleases_Call {
-	return &MockImageManager_ListReleases_Call{Call: _e.mock.On("ListReleases", ctx)}
-}
-
-func (_c *MockImageManager_ListReleases_Call) Run(run func(ctx context.Context)) *MockImageManager_ListReleases_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		run(
-			arg0,
-		)
-	})
-	return _c
-}
-
-func (_c *MockImageManager_ListReleases_Call) Return(imageReleases []model.ImageRelease, err error) *MockImageManager_ListReleases_Call {
-	_c.Call.Return(imageReleases, err)
-	return _c
-}
-
-func (_c *MockImageManager_ListReleases_Call) RunAndReturn(run func(ctx context.Context) ([]model.ImageRelease, error)) *MockImageManager_ListReleases_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// Pull provides a mock function for the type MockImageManager
-func (_mock *MockImageManager) Pull(ctx context.Context, version string, opts image.PullOptions) (*image.PullResult, error) {
-	ret := _mock.Called(ctx, version, opts)
-
-	if len(ret) == 0 {
-		panic("no return value specified for Pull")
-	}
-
-	var r0 *image.PullResult
-	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, image.PullOptions) (*image.PullResult, error)); ok {
-		return returnFunc(ctx, version, opts)
-	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, image.PullOptions) *image.PullResult); ok {
-		r0 = returnFunc(ctx, version, opts)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*image.PullResult)
-		}
-	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, string, image.PullOptions) error); ok {
-		r1 = returnFunc(ctx, version, opts)
-	} else {
-		r1 = ret.Error(1)
-	}
-	return r0, r1
-}
-
-// MockImageManager_Pull_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Pull'
-type MockImageManager_Pull_Call struct {
-	*mock.Call
-}
-
-// Pull is a helper method to define mock.On call
-//   - ctx context.Context
-//   - version string
-//   - opts image.PullOptions
-func (_e *MockImageManager_Expecter) Pull(ctx interface{}, version interface{}, opts interface{}) *MockImageManager_Pull_Call {
-	return &MockImageManager_Pull_Call{Call: _e.mock.On("Pull", ctx, version, opts)}
-}
-
-func (_c *MockImageManager_Pull_Call) Run(run func(ctx context.Context, version string, opts image.PullOptions)) *MockImageManager_Pull_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 string
-		if args[1] != nil {
-			arg1 = args[1].(string)
-		}
-		var arg2 image.PullOptions
-		if args[2] != nil {
-			arg2 = args[2].(image.PullOptions)
-		}
-		run(
-			arg0,
-			arg1,
-			arg2,
-		)
-	})
-	return _c
-}
-
-func (_c *MockImageManager_Pull_Call) Return(pullResult *image.PullResult, err error) *MockImageManager_Pull_Call {
-	_c.Call.Return(pullResult, err)
-	return _c
-}
-
-func (_c *MockImageManager_Pull_Call) RunAndReturn(run func(ctx context.Context, version string, opts image.PullOptions) (*image.PullResult, error)) *MockImageManager_Pull_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// Remove provides a mock function for the type MockImageManager
-func (_mock *MockImageManager) Remove(ctx context.Context, version string) error {
-	ret := _mock.Called(ctx, version)
-
-	if len(ret) == 0 {
-		panic("no return value specified for Remove")
-	}
-
-	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string) error); ok {
-		r0 = returnFunc(ctx, version)
-	} else {
-		r0 = ret.Error(0)
-	}
-	return r0
-}
-
-// MockImageManager_Remove_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Remove'
-type MockImageManager_Remove_Call struct {
-	*mock.Call
-}
-
-// Remove is a helper method to define mock.On call
-//   - ctx context.Context
-//   - version string
-func (_e *MockImageManager_Expecter) Remove(ctx interface{}, version interface{}) *MockImageManager_Remove_Call {
-	return &MockImageManager_Remove_Call{Call: _e.mock.On("Remove", ctx, version)}
-}
-
-func (_c *MockImageManager_Remove_Call) Run(run func(ctx context.Context, version string)) *MockImageManager_Remove_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 string
-		if args[1] != nil {
-			arg1 = args[1].(string)
-		}
-		run(
-			arg0,
-			arg1,
-		)
-	})
-	return _c
-}
-
-func (_c *MockImageManager_Remove_Call) Return(err error) *MockImageManager_Remove_Call {
-	_c.Call.Return(err)
-	return _c
-}
-
-func (_c *MockImageManager_Remove_Call) RunAndReturn(run func(ctx context.Context, version string) error) *MockImageManager_Remove_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// RootFSPath provides a mock function for the type MockImageManager
-func (_mock *MockImageManager) RootFSPath(version string) string {
-	ret := _mock.Called(version)
-
-	if len(ret) == 0 {
-		panic("no return value specified for RootFSPath")
-	}
-
-	var r0 string
-	if returnFunc, ok := ret.Get(0).(func(string) string); ok {
-		r0 = returnFunc(version)
-	} else {
-		r0 = ret.Get(0).(string)
-	}
-	return r0
-}
-
-// MockImageManager_RootFSPath_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RootFSPath'
-type MockImageManager_RootFSPath_Call struct {
-	*mock.Call
-}
-
-// RootFSPath is a helper method to define mock.On call
-//   - version string
-func (_e *MockImageManager_Expecter) RootFSPath(version interface{}) *MockImageManager_RootFSPath_Call {
-	return &MockImageManager_RootFSPath_Call{Call: _e.mock.On("RootFSPath", version)}
-}
-
-func (_c *MockImageManager_RootFSPath_Call) Run(run func(version string)) *MockImageManager_RootFSPath_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 string
-		if args[0] != nil {
-			arg0 = args[0].(string)
-		}
-		run(
-			arg0,
-		)
-	})
-	return _c
-}
-
-func (_c *MockImageManager_RootFSPath_Call) Return(s string) *MockImageManager_RootFSPath_Call {
-	_c.Call.Return(s)
-	return _c
-}
-
-func (_c *MockImageManager_RootFSPath_Call) RunAndReturn(run func(version string) string) *MockImageManager_RootFSPath_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// NewMockSnapshotManager creates a new instance of MockSnapshotManager. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
-// The first argument is typically a *testing.T value.
-func NewMockSnapshotManager(t interface {
-	mock.TestingT
-	Cleanup(func())
-}) *MockSnapshotManager {
-	mock := &MockSnapshotManager{}
-	mock.Mock.Test(t)
-
-	t.Cleanup(func() { mock.AssertExpectations(t) })
-
-	return mock
-}
-
-// MockSnapshotManager is an autogenerated mock type for the SnapshotManager type
-type MockSnapshotManager struct {
-	mock.Mock
-}
-
-type MockSnapshotManager_Expecter struct {
-	mock *mock.Mock
-}
-
-func (_m *MockSnapshotManager) EXPECT() *MockSnapshotManager_Expecter {
-	return &MockSnapshotManager_Expecter{mock: &_m.Mock}
-}
-
-// Create provides a mock function for the type MockSnapshotManager
-func (_mock *MockSnapshotManager) Create(ctx context.Context, opts image.CreateSnapshotOptions) error {
-	ret := _mock.Called(ctx, opts)
-
-	if len(ret) == 0 {
-		panic("no return value specified for Create")
-	}
-
-	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, image.CreateSnapshotOptions) error); ok {
-		r0 = returnFunc(ctx, opts)
-	} else {
-		r0 = ret.Error(0)
-	}
-	return r0
-}
-
-// MockSnapshotManager_Create_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Create'
-type MockSnapshotManager_Create_Call struct {
-	*mock.Call
-}
-
-// Create is a helper method to define mock.On call
-//   - ctx context.Context
-//   - opts image.CreateSnapshotOptions
-func (_e *MockSnapshotManager_Expecter) Create(ctx interface{}, opts interface{}) *MockSnapshotManager_Create_Call {
-	return &MockSnapshotManager_Create_Call{Call: _e.mock.On("Create", ctx, opts)}
-}
-
-func (_c *MockSnapshotManager_Create_Call) Run(run func(ctx context.Context, opts image.CreateSnapshotOptions)) *MockSnapshotManager_Create_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 image.CreateSnapshotOptions
-		if args[1] != nil {
-			arg1 = args[1].(image.CreateSnapshotOptions)
-		}
-		run(
-			arg0,
-			arg1,
-		)
-	})
-	return _c
-}
-
-func (_c *MockSnapshotManager_Create_Call) Return(err error) *MockSnapshotManager_Create_Call {
-	_c.Call.Return(err)
-	return _c
-}
-
-func (_c *MockSnapshotManager_Create_Call) RunAndReturn(run func(ctx context.Context, opts image.CreateSnapshotOptions) error) *MockSnapshotManager_Create_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// Exists provides a mock function for the type MockSnapshotManager
-func (_mock *MockSnapshotManager) Exists(ctx context.Context, name string) (bool, error) {
-	ret := _mock.Called(ctx, name)
-
-	if len(ret) == 0 {
-		panic("no return value specified for Exists")
-	}
-
-	var r0 bool
-	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string) (bool, error)); ok {
-		return returnFunc(ctx, name)
-	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string) bool); ok {
-		r0 = returnFunc(ctx, name)
-	} else {
-		r0 = ret.Get(0).(bool)
-	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = returnFunc(ctx, name)
-	} else {
-		r1 = ret.Error(1)
-	}
-	return r0, r1
-}
-
-// MockSnapshotManager_Exists_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Exists'
-type MockSnapshotManager_Exists_Call struct {
-	*mock.Call
-}
-
-// Exists is a helper method to define mock.On call
-//   - ctx context.Context
-//   - name string
-func (_e *MockSnapshotManager_Expecter) Exists(ctx interface{}, name interface{}) *MockSnapshotManager_Exists_Call {
-	return &MockSnapshotManager_Exists_Call{Call: _e.mock.On("Exists", ctx, name)}
-}
-
-func (_c *MockSnapshotManager_Exists_Call) Run(run func(ctx context.Context, name string)) *MockSnapshotManager_Exists_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 string
-		if args[1] != nil {
-			arg1 = args[1].(string)
-		}
-		run(
-			arg0,
-			arg1,
-		)
-	})
-	return _c
-}
-
-func (_c *MockSnapshotManager_Exists_Call) Return(b bool, err error) *MockSnapshotManager_Exists_Call {
-	_c.Call.Return(b, err)
-	return _c
-}
-
-func (_c *MockSnapshotManager_Exists_Call) RunAndReturn(run func(ctx context.Context, name string) (bool, error)) *MockSnapshotManager_Exists_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// FirecrackerPath provides a mock function for the type MockSnapshotManager
-func (_mock *MockSnapshotManager) FirecrackerPath(name string) string {
-	ret := _mock.Called(name)
-
-	if len(ret) == 0 {
-		panic("no return value specified for FirecrackerPath")
-	}
-
-	var r0 string
-	if returnFunc, ok := ret.Get(0).(func(string) string); ok {
-		r0 = returnFunc(name)
-	} else {
-		r0 = ret.Get(0).(string)
-	}
-	return r0
-}
-
-// MockSnapshotManager_FirecrackerPath_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'FirecrackerPath'
-type MockSnapshotManager_FirecrackerPath_Call struct {
-	*mock.Call
-}
-
-// FirecrackerPath is a helper method to define mock.On call
-//   - name string
-func (_e *MockSnapshotManager_Expecter) FirecrackerPath(name interface{}) *MockSnapshotManager_FirecrackerPath_Call {
-	return &MockSnapshotManager_FirecrackerPath_Call{Call: _e.mock.On("FirecrackerPath", name)}
-}
-
-func (_c *MockSnapshotManager_FirecrackerPath_Call) Run(run func(name string)) *MockSnapshotManager_FirecrackerPath_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 string
-		if args[0] != nil {
-			arg0 = args[0].(string)
-		}
-		run(
-			arg0,
-		)
-	})
-	return _c
-}
-
-func (_c *MockSnapshotManager_FirecrackerPath_Call) Return(s string) *MockSnapshotManager_FirecrackerPath_Call {
-	_c.Call.Return(s)
-	return _c
-}
-
-func (_c *MockSnapshotManager_FirecrackerPath_Call) RunAndReturn(run func(name string) string) *MockSnapshotManager_FirecrackerPath_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// GetManifest provides a mock function for the type MockSnapshotManager
-func (_mock *MockSnapshotManager) GetManifest(ctx context.Context, name string) (*model.ImageManifest, error) {
-	ret := _mock.Called(ctx, name)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetManifest")
-	}
-
-	var r0 *model.ImageManifest
-	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string) (*model.ImageManifest, error)); ok {
-		return returnFunc(ctx, name)
-	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string) *model.ImageManifest); ok {
-		r0 = returnFunc(ctx, name)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*model.ImageManifest)
-		}
-	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = returnFunc(ctx, name)
-	} else {
-		r1 = ret.Error(1)
-	}
-	return r0, r1
-}
-
-// MockSnapshotManager_GetManifest_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetManifest'
-type MockSnapshotManager_GetManifest_Call struct {
-	*mock.Call
-}
-
-// GetManifest is a helper method to define mock.On call
-//   - ctx context.Context
-//   - name string
-func (_e *MockSnapshotManager_Expecter) GetManifest(ctx interface{}, name interface{}) *MockSnapshotManager_GetManifest_Call {
-	return &MockSnapshotManager_GetManifest_Call{Call: _e.mock.On("GetManifest", ctx, name)}
-}
-
-func (_c *MockSnapshotManager_GetManifest_Call) Run(run func(ctx context.Context, name string)) *MockSnapshotManager_GetManifest_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 string
-		if args[1] != nil {
-			arg1 = args[1].(string)
-		}
-		run(
-			arg0,
-			arg1,
-		)
-	})
-	return _c
-}
-
-func (_c *MockSnapshotManager_GetManifest_Call) Return(imageManifest *model.ImageManifest, err error) *MockSnapshotManager_GetManifest_Call {
-	_c.Call.Return(imageManifest, err)
-	return _c
-}
-
-func (_c *MockSnapshotManager_GetManifest_Call) RunAndReturn(run func(ctx context.Context, name string) (*model.ImageManifest, error)) *MockSnapshotManager_GetManifest_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// KernelPath provides a mock function for the type MockSnapshotManager
-func (_mock *MockSnapshotManager) KernelPath(name string) string {
-	ret := _mock.Called(name)
-
-	if len(ret) == 0 {
-		panic("no return value specified for KernelPath")
-	}
-
-	var r0 string
-	if returnFunc, ok := ret.Get(0).(func(string) string); ok {
-		r0 = returnFunc(name)
-	} else {
-		r0 = ret.Get(0).(string)
-	}
-	return r0
-}
-
-// MockSnapshotManager_KernelPath_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'KernelPath'
-type MockSnapshotManager_KernelPath_Call struct {
-	*mock.Call
-}
-
-// KernelPath is a helper method to define mock.On call
-//   - name string
-func (_e *MockSnapshotManager_Expecter) KernelPath(name interface{}) *MockSnapshotManager_KernelPath_Call {
-	return &MockSnapshotManager_KernelPath_Call{Call: _e.mock.On("KernelPath", name)}
-}
-
-func (_c *MockSnapshotManager_KernelPath_Call) Run(run func(name string)) *MockSnapshotManager_KernelPath_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 string
-		if args[0] != nil {
-			arg0 = args[0].(string)
-		}
-		run(
-			arg0,
-		)
-	})
-	return _c
-}
-
-func (_c *MockSnapshotManager_KernelPath_Call) Return(s string) *MockSnapshotManager_KernelPath_Call {
-	_c.Call.Return(s)
-	return _c
-}
-
-func (_c *MockSnapshotManager_KernelPath_Call) RunAndReturn(run func(name string) string) *MockSnapshotManager_KernelPath_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// List provides a mock function for the type MockSnapshotManager
-func (_mock *MockSnapshotManager) List(ctx context.Context) ([]model.ImageRelease, error) {
+// List provides a mock function for the type MockImageManager
+func (_mock *MockImageManager) List(ctx context.Context) ([]model.ImageRelease, error) {
 	ret := _mock.Called(ctx)
 
 	if len(ret) == 0 {
@@ -867,18 +303,18 @@ func (_mock *MockSnapshotManager) List(ctx context.Context) ([]model.ImageReleas
 	return r0, r1
 }
 
-// MockSnapshotManager_List_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'List'
-type MockSnapshotManager_List_Call struct {
+// MockImageManager_List_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'List'
+type MockImageManager_List_Call struct {
 	*mock.Call
 }
 
 // List is a helper method to define mock.On call
 //   - ctx context.Context
-func (_e *MockSnapshotManager_Expecter) List(ctx interface{}) *MockSnapshotManager_List_Call {
-	return &MockSnapshotManager_List_Call{Call: _e.mock.On("List", ctx)}
+func (_e *MockImageManager_Expecter) List(ctx interface{}) *MockImageManager_List_Call {
+	return &MockImageManager_List_Call{Call: _e.mock.On("List", ctx)}
 }
 
-func (_c *MockSnapshotManager_List_Call) Run(run func(ctx context.Context)) *MockSnapshotManager_List_Call {
+func (_c *MockImageManager_List_Call) Run(run func(ctx context.Context)) *MockImageManager_List_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -891,18 +327,18 @@ func (_c *MockSnapshotManager_List_Call) Run(run func(ctx context.Context)) *Moc
 	return _c
 }
 
-func (_c *MockSnapshotManager_List_Call) Return(imageReleases []model.ImageRelease, err error) *MockSnapshotManager_List_Call {
+func (_c *MockImageManager_List_Call) Return(imageReleases []model.ImageRelease, err error) *MockImageManager_List_Call {
 	_c.Call.Return(imageReleases, err)
 	return _c
 }
 
-func (_c *MockSnapshotManager_List_Call) RunAndReturn(run func(ctx context.Context) ([]model.ImageRelease, error)) *MockSnapshotManager_List_Call {
+func (_c *MockImageManager_List_Call) RunAndReturn(run func(ctx context.Context) ([]model.ImageRelease, error)) *MockImageManager_List_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// Remove provides a mock function for the type MockSnapshotManager
-func (_mock *MockSnapshotManager) Remove(ctx context.Context, name string) error {
+// Remove provides a mock function for the type MockImageManager
+func (_mock *MockImageManager) Remove(ctx context.Context, name string) error {
 	ret := _mock.Called(ctx, name)
 
 	if len(ret) == 0 {
@@ -918,19 +354,19 @@ func (_mock *MockSnapshotManager) Remove(ctx context.Context, name string) error
 	return r0
 }
 
-// MockSnapshotManager_Remove_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Remove'
-type MockSnapshotManager_Remove_Call struct {
+// MockImageManager_Remove_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Remove'
+type MockImageManager_Remove_Call struct {
 	*mock.Call
 }
 
 // Remove is a helper method to define mock.On call
 //   - ctx context.Context
 //   - name string
-func (_e *MockSnapshotManager_Expecter) Remove(ctx interface{}, name interface{}) *MockSnapshotManager_Remove_Call {
-	return &MockSnapshotManager_Remove_Call{Call: _e.mock.On("Remove", ctx, name)}
+func (_e *MockImageManager_Expecter) Remove(ctx interface{}, name interface{}) *MockImageManager_Remove_Call {
+	return &MockImageManager_Remove_Call{Call: _e.mock.On("Remove", ctx, name)}
 }
 
-func (_c *MockSnapshotManager_Remove_Call) Run(run func(ctx context.Context, name string)) *MockSnapshotManager_Remove_Call {
+func (_c *MockImageManager_Remove_Call) Run(run func(ctx context.Context, name string)) *MockImageManager_Remove_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -948,18 +384,18 @@ func (_c *MockSnapshotManager_Remove_Call) Run(run func(ctx context.Context, nam
 	return _c
 }
 
-func (_c *MockSnapshotManager_Remove_Call) Return(err error) *MockSnapshotManager_Remove_Call {
+func (_c *MockImageManager_Remove_Call) Return(err error) *MockImageManager_Remove_Call {
 	_c.Call.Return(err)
 	return _c
 }
 
-func (_c *MockSnapshotManager_Remove_Call) RunAndReturn(run func(ctx context.Context, name string) error) *MockSnapshotManager_Remove_Call {
+func (_c *MockImageManager_Remove_Call) RunAndReturn(run func(ctx context.Context, name string) error) *MockImageManager_Remove_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// RootFSPath provides a mock function for the type MockSnapshotManager
-func (_mock *MockSnapshotManager) RootFSPath(name string) string {
+// RootFSPath provides a mock function for the type MockImageManager
+func (_mock *MockImageManager) RootFSPath(name string) string {
 	ret := _mock.Called(name)
 
 	if len(ret) == 0 {
@@ -975,18 +411,18 @@ func (_mock *MockSnapshotManager) RootFSPath(name string) string {
 	return r0
 }
 
-// MockSnapshotManager_RootFSPath_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RootFSPath'
-type MockSnapshotManager_RootFSPath_Call struct {
+// MockImageManager_RootFSPath_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RootFSPath'
+type MockImageManager_RootFSPath_Call struct {
 	*mock.Call
 }
 
 // RootFSPath is a helper method to define mock.On call
 //   - name string
-func (_e *MockSnapshotManager_Expecter) RootFSPath(name interface{}) *MockSnapshotManager_RootFSPath_Call {
-	return &MockSnapshotManager_RootFSPath_Call{Call: _e.mock.On("RootFSPath", name)}
+func (_e *MockImageManager_Expecter) RootFSPath(name interface{}) *MockImageManager_RootFSPath_Call {
+	return &MockImageManager_RootFSPath_Call{Call: _e.mock.On("RootFSPath", name)}
 }
 
-func (_c *MockSnapshotManager_RootFSPath_Call) Run(run func(name string)) *MockSnapshotManager_RootFSPath_Call {
+func (_c *MockImageManager_RootFSPath_Call) Run(run func(name string)) *MockImageManager_RootFSPath_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 string
 		if args[0] != nil {
@@ -999,12 +435,259 @@ func (_c *MockSnapshotManager_RootFSPath_Call) Run(run func(name string)) *MockS
 	return _c
 }
 
-func (_c *MockSnapshotManager_RootFSPath_Call) Return(s string) *MockSnapshotManager_RootFSPath_Call {
+func (_c *MockImageManager_RootFSPath_Call) Return(s string) *MockImageManager_RootFSPath_Call {
 	_c.Call.Return(s)
 	return _c
 }
 
-func (_c *MockSnapshotManager_RootFSPath_Call) RunAndReturn(run func(name string) string) *MockSnapshotManager_RootFSPath_Call {
+func (_c *MockImageManager_RootFSPath_Call) RunAndReturn(run func(name string) string) *MockImageManager_RootFSPath_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// NewMockImagePuller creates a new instance of MockImagePuller. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
+// The first argument is typically a *testing.T value.
+func NewMockImagePuller(t interface {
+	mock.TestingT
+	Cleanup(func())
+}) *MockImagePuller {
+	mock := &MockImagePuller{}
+	mock.Mock.Test(t)
+
+	t.Cleanup(func() { mock.AssertExpectations(t) })
+
+	return mock
+}
+
+// MockImagePuller is an autogenerated mock type for the ImagePuller type
+type MockImagePuller struct {
+	mock.Mock
+}
+
+type MockImagePuller_Expecter struct {
+	mock *mock.Mock
+}
+
+func (_m *MockImagePuller) EXPECT() *MockImagePuller_Expecter {
+	return &MockImagePuller_Expecter{mock: &_m.Mock}
+}
+
+// ListRemote provides a mock function for the type MockImagePuller
+func (_mock *MockImagePuller) ListRemote(ctx context.Context) ([]model.ImageRelease, error) {
+	ret := _mock.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListRemote")
+	}
+
+	var r0 []model.ImageRelease
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context) ([]model.ImageRelease, error)); ok {
+		return returnFunc(ctx)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context) []model.ImageRelease); ok {
+		r0 = returnFunc(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]model.ImageRelease)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = returnFunc(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockImagePuller_ListRemote_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListRemote'
+type MockImagePuller_ListRemote_Call struct {
+	*mock.Call
+}
+
+// ListRemote is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockImagePuller_Expecter) ListRemote(ctx interface{}) *MockImagePuller_ListRemote_Call {
+	return &MockImagePuller_ListRemote_Call{Call: _e.mock.On("ListRemote", ctx)}
+}
+
+func (_c *MockImagePuller_ListRemote_Call) Run(run func(ctx context.Context)) *MockImagePuller_ListRemote_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockImagePuller_ListRemote_Call) Return(imageReleases []model.ImageRelease, err error) *MockImagePuller_ListRemote_Call {
+	_c.Call.Return(imageReleases, err)
+	return _c
+}
+
+func (_c *MockImagePuller_ListRemote_Call) RunAndReturn(run func(ctx context.Context) ([]model.ImageRelease, error)) *MockImagePuller_ListRemote_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Pull provides a mock function for the type MockImagePuller
+func (_mock *MockImagePuller) Pull(ctx context.Context, version string, opts image.PullOptions) (*image.PullResult, error) {
+	ret := _mock.Called(ctx, version, opts)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Pull")
+	}
+
+	var r0 *image.PullResult
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, image.PullOptions) (*image.PullResult, error)); ok {
+		return returnFunc(ctx, version, opts)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, image.PullOptions) *image.PullResult); ok {
+		r0 = returnFunc(ctx, version, opts)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*image.PullResult)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, image.PullOptions) error); ok {
+		r1 = returnFunc(ctx, version, opts)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockImagePuller_Pull_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Pull'
+type MockImagePuller_Pull_Call struct {
+	*mock.Call
+}
+
+// Pull is a helper method to define mock.On call
+//   - ctx context.Context
+//   - version string
+//   - opts image.PullOptions
+func (_e *MockImagePuller_Expecter) Pull(ctx interface{}, version interface{}, opts interface{}) *MockImagePuller_Pull_Call {
+	return &MockImagePuller_Pull_Call{Call: _e.mock.On("Pull", ctx, version, opts)}
+}
+
+func (_c *MockImagePuller_Pull_Call) Run(run func(ctx context.Context, version string, opts image.PullOptions)) *MockImagePuller_Pull_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 image.PullOptions
+		if args[2] != nil {
+			arg2 = args[2].(image.PullOptions)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockImagePuller_Pull_Call) Return(pullResult *image.PullResult, err error) *MockImagePuller_Pull_Call {
+	_c.Call.Return(pullResult, err)
+	return _c
+}
+
+func (_c *MockImagePuller_Pull_Call) RunAndReturn(run func(ctx context.Context, version string, opts image.PullOptions) (*image.PullResult, error)) *MockImagePuller_Pull_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// NewMockSnapshotCreator creates a new instance of MockSnapshotCreator. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
+// The first argument is typically a *testing.T value.
+func NewMockSnapshotCreator(t interface {
+	mock.TestingT
+	Cleanup(func())
+}) *MockSnapshotCreator {
+	mock := &MockSnapshotCreator{}
+	mock.Mock.Test(t)
+
+	t.Cleanup(func() { mock.AssertExpectations(t) })
+
+	return mock
+}
+
+// MockSnapshotCreator is an autogenerated mock type for the SnapshotCreator type
+type MockSnapshotCreator struct {
+	mock.Mock
+}
+
+type MockSnapshotCreator_Expecter struct {
+	mock *mock.Mock
+}
+
+func (_m *MockSnapshotCreator) EXPECT() *MockSnapshotCreator_Expecter {
+	return &MockSnapshotCreator_Expecter{mock: &_m.Mock}
+}
+
+// Create provides a mock function for the type MockSnapshotCreator
+func (_mock *MockSnapshotCreator) Create(ctx context.Context, opts image.CreateSnapshotOptions) error {
+	ret := _mock.Called(ctx, opts)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Create")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, image.CreateSnapshotOptions) error); ok {
+		r0 = returnFunc(ctx, opts)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockSnapshotCreator_Create_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Create'
+type MockSnapshotCreator_Create_Call struct {
+	*mock.Call
+}
+
+// Create is a helper method to define mock.On call
+//   - ctx context.Context
+//   - opts image.CreateSnapshotOptions
+func (_e *MockSnapshotCreator_Expecter) Create(ctx interface{}, opts interface{}) *MockSnapshotCreator_Create_Call {
+	return &MockSnapshotCreator_Create_Call{Call: _e.mock.On("Create", ctx, opts)}
+}
+
+func (_c *MockSnapshotCreator_Create_Call) Run(run func(ctx context.Context, opts image.CreateSnapshotOptions)) *MockSnapshotCreator_Create_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 image.CreateSnapshotOptions
+		if args[1] != nil {
+			arg1 = args[1].(image.CreateSnapshotOptions)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockSnapshotCreator_Create_Call) Return(err error) *MockSnapshotCreator_Create_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockSnapshotCreator_Create_Call) RunAndReturn(run func(ctx context.Context, opts image.CreateSnapshotOptions) error) *MockSnapshotCreator_Create_Call {
 	_c.Call.Return(run)
 	return _c
 }

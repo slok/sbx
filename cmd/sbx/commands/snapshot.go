@@ -8,7 +8,7 @@ import (
 	"github.com/alecthomas/kingpin/v2"
 	"k8s.io/client-go/util/homedir"
 
-	"github.com/slok/sbx/internal/app/imagecreate"
+	"github.com/slok/sbx/internal/app/snapshotcreate"
 	"github.com/slok/sbx/internal/image"
 	"github.com/slok/sbx/internal/storage/sqlite"
 )
@@ -49,20 +49,30 @@ func (c SnapshotCommand) Run(ctx context.Context) error {
 		return fmt.Errorf("could not create repository: %w", err)
 	}
 
-	// Initialize snapshot manager.
-	snapMgr, err := image.NewLocalSnapshotManager(image.LocalSnapshotManagerConfig{
+	// Initialize local image manager (for Exists check).
+	imgMgr, err := image.NewLocalImageManager(image.LocalImageManagerConfig{
 		ImagesDir: c.imagesDir,
 		Logger:    logger,
 	})
 	if err != nil {
-		return fmt.Errorf("could not create snapshot manager: %w", err)
+		return fmt.Errorf("could not create image manager: %w", err)
+	}
+
+	// Initialize snapshot creator.
+	snapCrt, err := image.NewLocalSnapshotCreator(image.LocalSnapshotCreatorConfig{
+		ImagesDir: c.imagesDir,
+		Logger:    logger,
+	})
+	if err != nil {
+		return fmt.Errorf("could not create snapshot creator: %w", err)
 	}
 
 	// Determine data dir from images dir (go up one level: ~/.sbx/images -> ~/.sbx).
 	dataDir := filepath.Dir(c.imagesDir)
 
-	svc, err := imagecreate.NewService(imagecreate.ServiceConfig{
-		SnapshotManager: snapMgr,
+	svc, err := snapshotcreate.NewService(snapshotcreate.ServiceConfig{
+		ImageManager:    imgMgr,
+		SnapshotCreator: snapCrt,
 		Repository:      repo,
 		Logger:          logger,
 		DataDir:         dataDir,
@@ -71,7 +81,7 @@ func (c SnapshotCommand) Run(ctx context.Context) error {
 		return fmt.Errorf("could not create service: %w", err)
 	}
 
-	imgName, err := svc.Run(ctx, imagecreate.Request{
+	imgName, err := svc.Run(ctx, snapshotcreate.Request{
 		NameOrID:  c.sandboxNameOrID,
 		ImageName: c.imageName,
 	})

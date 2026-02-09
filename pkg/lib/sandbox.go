@@ -36,40 +36,24 @@ func (c *Client) CreateSandbox(ctx context.Context, opts CreateSandboxOpts) (*Sa
 			return nil, fmt.Errorf("FromImage and Firecracker config cannot be used together: %w", ErrNotValid)
 		}
 
-		// Try snapshot manager first, then image manager.
-		snapMgr, err := c.newSnapshotManager()
+		mgr, err := c.newLocalImageManager()
 		if err != nil {
-			return nil, fmt.Errorf("could not create snapshot manager: %w", err)
+			return nil, fmt.Errorf("could not create image manager: %w", err)
 		}
 
-		exists, err := snapMgr.Exists(ctx, opts.FromImage)
-		if err == nil && exists {
-			opts.Firecracker = &FirecrackerConfig{
-				KernelImage: snapMgr.KernelPath(opts.FromImage),
-				RootFS:      snapMgr.RootFSPath(opts.FromImage),
-			}
-			firecrackerBinaryOverride = snapMgr.FirecrackerPath(opts.FromImage)
-		} else {
-			// Fall back to image manager (GitHub releases).
-			mgr, err := c.newImageManager()
-			if err != nil {
-				return nil, fmt.Errorf("could not create image manager: %w", err)
-			}
-
-			exists, err := mgr.Exists(ctx, opts.FromImage)
-			if err != nil {
-				return nil, fmt.Errorf("could not check image %s: %w", opts.FromImage, err)
-			}
-			if !exists {
-				return nil, fmt.Errorf("image %s is not installed: %w", opts.FromImage, ErrNotFound)
-			}
-
-			opts.Firecracker = &FirecrackerConfig{
-				KernelImage: mgr.KernelPath(opts.FromImage),
-				RootFS:      mgr.RootFSPath(opts.FromImage),
-			}
-			firecrackerBinaryOverride = mgr.FirecrackerPath(opts.FromImage)
+		exists, err := mgr.Exists(ctx, opts.FromImage)
+		if err != nil {
+			return nil, fmt.Errorf("could not check image %s: %w", opts.FromImage, err)
 		}
+		if !exists {
+			return nil, fmt.Errorf("image %s is not installed: %w", opts.FromImage, ErrNotFound)
+		}
+
+		opts.Firecracker = &FirecrackerConfig{
+			KernelImage: mgr.KernelPath(opts.FromImage),
+			RootFS:      mgr.RootFSPath(opts.FromImage),
+		}
+		firecrackerBinaryOverride = mgr.FirecrackerPath(opts.FromImage)
 	}
 
 	cfg := toInternalSandboxConfig(opts)

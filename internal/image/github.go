@@ -29,8 +29,8 @@ const (
 	defaultFirecrackerRepoName  = "firecracker"
 )
 
-// GitHubImageManagerConfig configures the GitHub-backed image manager.
-type GitHubImageManagerConfig struct {
+// GitHubImagePullerConfig configures the GitHub-backed image puller.
+type GitHubImagePullerConfig struct {
 	// Repo is the GitHub repository (e.g. "slok/sbx-images").
 	Repo string
 	// ImagesDir is the local directory for storing images.
@@ -41,7 +41,7 @@ type GitHubImageManagerConfig struct {
 	Logger log.Logger
 }
 
-func (c *GitHubImageManagerConfig) defaults() error {
+func (c *GitHubImagePullerConfig) defaults() error {
 	if c.Repo == "" {
 		c.Repo = DefaultRepo
 	}
@@ -61,8 +61,8 @@ func (c *GitHubImageManagerConfig) defaults() error {
 	return nil
 }
 
-// GitHubImageManager implements ImageManager using GitHub Releases.
-type GitHubImageManager struct {
+// GitHubImagePuller implements ImagePuller using GitHub Releases.
+type GitHubImagePuller struct {
 	repo       string
 	imagesDir  string
 	httpClient *http.Client
@@ -73,12 +73,12 @@ type GitHubImageManager struct {
 	downloadBaseURL string
 }
 
-// NewGitHubImageManager creates a new GitHub-backed image manager.
-func NewGitHubImageManager(cfg GitHubImageManagerConfig) (*GitHubImageManager, error) {
+// NewGitHubImagePuller creates a new GitHub-backed image puller.
+func NewGitHubImagePuller(cfg GitHubImagePullerConfig) (*GitHubImagePuller, error) {
 	if err := cfg.defaults(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
-	return &GitHubImageManager{
+	return &GitHubImagePuller{
 		repo:            cfg.Repo,
 		imagesDir:       cfg.ImagesDir,
 		httpClient:      cfg.HTTPClient,
@@ -88,15 +88,15 @@ func NewGitHubImageManager(cfg GitHubImageManagerConfig) (*GitHubImageManager, e
 	}, nil
 }
 
-// NewGitHubImageManagerWithBaseURL creates a manager with custom base URLs (for testing).
-func NewGitHubImageManagerWithBaseURL(cfg GitHubImageManagerConfig, apiBaseURL, downloadBaseURL string) (*GitHubImageManager, error) {
-	m, err := NewGitHubImageManager(cfg)
+// NewGitHubImagePullerWithBaseURL creates a puller with custom base URLs (for testing).
+func NewGitHubImagePullerWithBaseURL(cfg GitHubImagePullerConfig, apiBaseURL, downloadBaseURL string) (*GitHubImagePuller, error) {
+	p, err := NewGitHubImagePuller(cfg)
 	if err != nil {
 		return nil, err
 	}
-	m.apiBaseURL = apiBaseURL
-	m.downloadBaseURL = downloadBaseURL
-	return m, nil
+	p.apiBaseURL = apiBaseURL
+	p.downloadBaseURL = downloadBaseURL
+	return p, nil
 }
 
 // --- JSON wire types (private, for GitHub API and manifest parsing) ---
@@ -200,75 +200,44 @@ func (m *manifestJSON) toModel() *model.ImageManifest {
 	return manifest
 }
 
-// --- ImageManager interface implementation ---
+// --- ImagePuller interface implementation ---
 
-func (g *GitHubImageManager) ListReleases(ctx context.Context) ([]model.ImageRelease, error) {
+func (g *GitHubImagePuller) ListRemote(ctx context.Context) ([]model.ImageRelease, error) {
 	// Fetch remote releases from GitHub.
 	releases, err := g.fetchReleases(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("fetching releases: %w", err)
 	}
 
-	// Build result from remote releases, checking local installation.
 	result := make([]model.ImageRelease, 0, len(releases))
 	for _, r := range releases {
-		installed, _ := g.Exists(ctx, r.TagName)
 		result = append(result, model.ImageRelease{
-			Version:   r.TagName,
-			Installed: installed,
-			Source:    model.ImageSourceRelease,
+			Version: r.TagName,
+			Source:  model.ImageSourceRelease,
 		})
 	}
 
 	return result, nil
 }
 
-func (g *GitHubImageManager) GetManifest(ctx context.Context, version string) (*model.ImageManifest, error) {
-	// Fetch manifest from remote GitHub release.
-	url := fmt.Sprintf("%s/%s/releases/download/%s/manifest.json", g.downloadBaseURL, g.repo, version)
-
-	data, err := g.httpGet(ctx, url)
-	if err != nil {
-		return nil, fmt.Errorf("downloading manifest for %s: %w", version, err)
-	}
-
-	var mj manifestJSON
-	if err := json.Unmarshal(data, &mj); err != nil {
-		return nil, fmt.Errorf("parsing manifest for %s: %w", version, err)
-	}
-
-	// Validate schema version. A schema_version of 0 means the field was absent
-	// (pre-versioning manifests), which we treat as schema version 1 for backward compatibility.
-	if mj.SchemaVersion == 0 {
-		mj.SchemaVersion = 1
-	}
-	if mj.SchemaVersion != model.CurrentSchemaVersion {
-		return nil, fmt.Errorf("unsupported manifest schema version %d for %s (supported: %d), try updating sbx",
-			mj.SchemaVersion, version, model.CurrentSchemaVersion)
-	}
-
-	return mj.toModel(), nil
-}
-
-func (g *GitHubImageManager) Pull(ctx context.Context, version string, opts PullOptions) (*PullResult, error) {
+func (g *GitHubImagePuller) Pull(ctx context.Context, version string, opts PullOptions) (*PullResult, error) {
 	arch := HostArch()
 
-	// Check if already installed.
+	// Check if already installed (directory exists with a valid manifest).
 	if !opts.Force {
-		exists, _ := g.Exists(ctx, version)
-		if exists {
+		if _, err := readLocalManifest(g.imagesDir, version); err == nil {
 			return &PullResult{
 				Version:         version,
 				Skipped:         true,
-				KernelPath:      g.KernelPath(version),
-				RootFSPath:      g.RootFSPath(version),
-				FirecrackerPath: g.FirecrackerPath(version),
+				KernelPath:      filepath.Join(g.imagesDir, version, fmt.Sprintf("vmlinux-%s", arch)),
+				RootFSPath:      filepath.Join(g.imagesDir, version, fmt.Sprintf("rootfs-%s.ext4", arch)),
+				FirecrackerPath: filepath.Join(g.imagesDir, version, "firecracker"),
 			}, nil
 		}
 	}
 
 	// Fetch manifest to get artifact details and firecracker version.
-	manifest, err := g.GetManifest(ctx, version)
+	manifest, manifestRaw, err := g.getRemoteManifest(ctx, version)
 	if err != nil {
 		return nil, fmt.Errorf("getting manifest: %w", err)
 	}
@@ -315,6 +284,11 @@ func (g *GitHubImageManager) Pull(ctx context.Context, version string, opts Pull
 		return nil, fmt.Errorf("downloading firecracker: %w", err)
 	}
 
+	// Write manifest locally so LocalImageManager can read it.
+	if err := os.WriteFile(filepath.Join(versionDir, "manifest.json"), manifestRaw, 0o644); err != nil {
+		return nil, fmt.Errorf("writing local manifest: %w", err)
+	}
+
 	success = true
 	return &PullResult{
 		Version:         version,
@@ -325,81 +299,36 @@ func (g *GitHubImageManager) Pull(ctx context.Context, version string, opts Pull
 	}, nil
 }
 
-func (g *GitHubImageManager) Remove(_ context.Context, version string) error {
-	versionDir := filepath.Join(g.imagesDir, version)
-	if _, err := os.Stat(versionDir); os.IsNotExist(err) {
-		return fmt.Errorf("image %s is not installed", version)
-	}
-	if err := os.RemoveAll(versionDir); err != nil {
-		return fmt.Errorf("removing image %s: %w", version, err)
-	}
-	return nil
-}
+// getRemoteManifest fetches and parses a manifest from a remote GitHub release.
+// It returns both the parsed model and the raw JSON bytes (for writing to disk).
+func (g *GitHubImagePuller) getRemoteManifest(ctx context.Context, version string) (*model.ImageManifest, []byte, error) {
+	url := fmt.Sprintf("%s/%s/releases/download/%s/manifest.json", g.downloadBaseURL, g.repo, version)
 
-func (g *GitHubImageManager) Exists(_ context.Context, version string) (bool, error) {
-	versionDir := filepath.Join(g.imagesDir, version)
-	info, err := os.Stat(versionDir)
+	data, err := g.httpGet(ctx, url)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
-		return false, err
-	}
-	return info.IsDir(), nil
-}
-
-func (g *GitHubImageManager) KernelPath(version string) string {
-	return filepath.Join(g.imagesDir, version, fmt.Sprintf("vmlinux-%s", HostArch()))
-}
-
-func (g *GitHubImageManager) RootFSPath(version string) string {
-	return filepath.Join(g.imagesDir, version, fmt.Sprintf("rootfs-%s.ext4", HostArch()))
-}
-
-func (g *GitHubImageManager) FirecrackerPath(version string) string {
-	return filepath.Join(g.imagesDir, version, "firecracker")
-}
-
-// --- Internal helpers ---
-
-// readLocalManifest reads and parses a manifest.json from a local version directory.
-func readLocalManifest(imagesDir, version string) (*manifestJSON, error) {
-	manifestPath := filepath.Join(imagesDir, version, "manifest.json")
-	data, err := os.ReadFile(manifestPath)
-	if err != nil {
-		return nil, err
+		return nil, nil, fmt.Errorf("downloading manifest for %s: %w", version, err)
 	}
 
 	var mj manifestJSON
 	if err := json.Unmarshal(data, &mj); err != nil {
-		return nil, fmt.Errorf("parsing local manifest for %s: %w", version, err)
+		return nil, nil, fmt.Errorf("parsing manifest for %s: %w", version, err)
 	}
 
-	return &mj, nil
+	// Validate schema version.
+	if mj.SchemaVersion == 0 {
+		mj.SchemaVersion = 1
+	}
+	if mj.SchemaVersion != model.CurrentSchemaVersion {
+		return nil, nil, fmt.Errorf("unsupported manifest schema version %d for %s (supported: %d), try updating sbx",
+			mj.SchemaVersion, version, model.CurrentSchemaVersion)
+	}
+
+	return mj.toModel(), data, nil
 }
 
-// copyFile copies a file from src to dst using regular io.Copy.
-func copyFile(src, dst string) error {
-	srcFile, err := os.Open(src)
-	if err != nil {
-		return fmt.Errorf("opening source %s: %w", src, err)
-	}
-	defer srcFile.Close()
+// --- Internal helpers ---
 
-	dstFile, err := os.Create(dst)
-	if err != nil {
-		return fmt.Errorf("creating destination %s: %w", dst, err)
-	}
-	defer dstFile.Close()
-
-	if _, err := io.Copy(dstFile, srcFile); err != nil {
-		return fmt.Errorf("copying %s to %s: %w", src, dst, err)
-	}
-
-	return nil
-}
-
-func (g *GitHubImageManager) fetchReleases(ctx context.Context) ([]ghRelease, error) {
+func (g *GitHubImagePuller) fetchReleases(ctx context.Context) ([]ghRelease, error) {
 	var allReleases []ghRelease
 	page := 1
 	for {
@@ -425,7 +354,7 @@ func (g *GitHubImageManager) fetchReleases(ctx context.Context) ([]ghRelease, er
 	return allReleases, nil
 }
 
-func (g *GitHubImageManager) httpGet(ctx context.Context, url string) ([]byte, error) {
+func (g *GitHubImagePuller) httpGet(ctx context.Context, url string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
@@ -444,7 +373,7 @@ func (g *GitHubImageManager) httpGet(ctx context.Context, url string) ([]byte, e
 	return io.ReadAll(resp.Body)
 }
 
-func (g *GitHubImageManager) downloadFile(ctx context.Context, url, dstPath string, totalSize int64, statusWriter io.Writer) error {
+func (g *GitHubImagePuller) downloadFile(ctx context.Context, url, dstPath string, totalSize int64, statusWriter io.Writer) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return fmt.Errorf("creating request: %w", err)
@@ -481,7 +410,7 @@ func (g *GitHubImageManager) downloadFile(ctx context.Context, url, dstPath stri
 	return nil
 }
 
-func (g *GitHubImageManager) downloadFirecracker(ctx context.Context, fcVersion, arch, dstPath string, statusWriter io.Writer) error {
+func (g *GitHubImagePuller) downloadFirecracker(ctx context.Context, fcVersion, arch, dstPath string, statusWriter io.Writer) error {
 	// Download tgz from upstream Firecracker releases.
 	tgzURL := fmt.Sprintf("%s/%s/%s/releases/download/%s/firecracker-%s-%s.tgz",
 		g.downloadBaseURL, defaultFirecrackerRepoOwner, defaultFirecrackerRepoName, fcVersion, fcVersion, arch)

@@ -11,9 +11,9 @@ import (
 
 // ServiceConfig is the configuration for the image list service.
 type ServiceConfig struct {
-	Manager         image.ImageManager
-	SnapshotManager image.SnapshotManager
-	Logger          log.Logger
+	Manager image.ImageManager
+	Puller  image.ImagePuller
+	Logger  log.Logger
 }
 
 func (c *ServiceConfig) defaults() error {
@@ -28,9 +28,9 @@ func (c *ServiceConfig) defaults() error {
 
 // Service handles listing image releases.
 type Service struct {
-	manager     image.ImageManager
-	snapshotMgr image.SnapshotManager
-	logger      log.Logger
+	manager image.ImageManager
+	puller  image.ImagePuller
+	logger  log.Logger
 }
 
 // NewService creates a new image list service.
@@ -39,27 +39,42 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 	return &Service{
-		manager:     cfg.Manager,
-		snapshotMgr: cfg.SnapshotManager,
-		logger:      cfg.Logger,
+		manager: cfg.Manager,
+		puller:  cfg.Puller,
+		logger:  cfg.Logger,
 	}, nil
 }
 
-// Run lists available image releases and local snapshots.
+// Run lists available images (local + remote).
 func (s *Service) Run(ctx context.Context) ([]model.ImageRelease, error) {
-	releases, err := s.manager.ListReleases(ctx)
+	// Get locally installed images (releases and snapshots).
+	localImages, err := s.manager.List(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("listing releases: %w", err)
+		return nil, fmt.Errorf("listing local images: %w", err)
 	}
 
-	// Merge snapshot images if snapshot manager is available.
-	if s.snapshotMgr != nil {
-		snapshots, err := s.snapshotMgr.List(ctx)
+	// Build a set of installed image names for fast lookup.
+	installed := make(map[string]struct{}, len(localImages))
+	for _, img := range localImages {
+		installed[img.Version] = struct{}{}
+	}
+
+	// Merge with remote releases if puller is available.
+	if s.puller != nil {
+		remoteReleases, err := s.puller.ListRemote(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("listing snapshots: %w", err)
+			return nil, fmt.Errorf("listing remote releases: %w", err)
 		}
-		releases = append(releases, snapshots...)
+
+		for _, r := range remoteReleases {
+			if _, ok := installed[r.Version]; ok {
+				// Already in local list as installed, skip the remote entry.
+				continue
+			}
+			// Add remote-only release (not installed locally).
+			localImages = append(localImages, r)
+		}
 	}
 
-	return releases, nil
+	return localImages, nil
 }

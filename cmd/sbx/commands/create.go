@@ -3,7 +3,6 @@ package commands
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"path/filepath"
 
 	"github.com/alecthomas/kingpin/v2"
@@ -37,7 +36,6 @@ type CreateCommand struct {
 
 	// Image flags.
 	fromImage string
-	imageRepo string
 	imagesDir string
 }
 
@@ -49,7 +47,7 @@ func NewCreateCommand(rootCmd *RootCommand, app *kingpin.Application) *CreateCom
 
 	// Required flags.
 	c.Cmd.Flag("name", "Name for the sandbox.").Short('n').Required().StringVar(&c.name)
-	c.Cmd.Flag("engine", "Engine type (firecracker, fake).").Required().EnumVar(&c.engine, "firecracker", "fake")
+	c.Cmd.Flag("engine", "Engine type (firecracker, fake).").Default("firecracker").EnumVar(&c.engine, "firecracker", "fake")
 
 	// Resource flags.
 	c.Cmd.Flag("cpu", "Number of VCPUs (can be fractional, e.g., 0.5, 1.5).").Default("2").Float64Var(&c.cpu)
@@ -62,7 +60,6 @@ func NewCreateCommand(rootCmd *RootCommand, app *kingpin.Application) *CreateCom
 
 	// Image flags.
 	c.Cmd.Flag("from-image", "Use a pulled image version (e.g. v0.1.0). Run 'sbx image pull' first.").StringVar(&c.fromImage)
-	c.Cmd.Flag("image-repo", "GitHub repository for images (used with --from-image).").Default(image.DefaultRepo).StringVar(&c.imageRepo)
 
 	defaultImagesDir := filepath.Join(homedir.HomeDir(), image.DefaultImagesDir)
 	c.Cmd.Flag("images-dir", "Local directory for images (used with --from-image).").Default(defaultImagesDir).StringVar(&c.imagesDir)
@@ -94,44 +91,25 @@ func (c CreateCommand) Run(ctx context.Context) error {
 	// Resolve image paths if --from-image is set.
 	var firecrackerBinaryPath string
 	if c.fromImage != "" {
-		// Try snapshot manager first, then image manager.
-		snapMgr, err := image.NewLocalSnapshotManager(image.LocalSnapshotManagerConfig{
+		mgr, err := image.NewLocalImageManager(image.LocalImageManagerConfig{
 			ImagesDir: c.imagesDir,
 			Logger:    logger,
 		})
 		if err != nil {
-			return fmt.Errorf("could not create snapshot manager: %w", err)
+			return fmt.Errorf("could not create image manager: %w", err)
 		}
 
-		exists, err := snapMgr.Exists(ctx, c.fromImage)
-		if err == nil && exists {
-			c.firecrackerKernel = snapMgr.KernelPath(c.fromImage)
-			c.firecrackerRootFS = snapMgr.RootFSPath(c.fromImage)
-			firecrackerBinaryPath = snapMgr.FirecrackerPath(c.fromImage)
-		} else {
-			// Fall back to image manager (GitHub releases).
-			mgr, err := image.NewGitHubImageManager(image.GitHubImageManagerConfig{
-				Repo:       c.imageRepo,
-				ImagesDir:  c.imagesDir,
-				HTTPClient: http.DefaultClient,
-				Logger:     logger,
-			})
-			if err != nil {
-				return fmt.Errorf("could not create image manager: %w", err)
-			}
-
-			exists, err := mgr.Exists(ctx, c.fromImage)
-			if err != nil {
-				return fmt.Errorf("could not check image: %w", err)
-			}
-			if !exists {
-				return fmt.Errorf("image %s is not installed, run 'sbx image pull %s' first", c.fromImage, c.fromImage)
-			}
-
-			c.firecrackerKernel = mgr.KernelPath(c.fromImage)
-			c.firecrackerRootFS = mgr.RootFSPath(c.fromImage)
-			firecrackerBinaryPath = mgr.FirecrackerPath(c.fromImage)
+		exists, err := mgr.Exists(ctx, c.fromImage)
+		if err != nil {
+			return fmt.Errorf("could not check image: %w", err)
 		}
+		if !exists {
+			return fmt.Errorf("image %s is not installed, run 'sbx image pull %s' first", c.fromImage, c.fromImage)
+		}
+
+		c.firecrackerKernel = mgr.KernelPath(c.fromImage)
+		c.firecrackerRootFS = mgr.RootFSPath(c.fromImage)
+		firecrackerBinaryPath = mgr.FirecrackerPath(c.fromImage)
 	}
 
 	// Build SandboxConfig from CLI flags.

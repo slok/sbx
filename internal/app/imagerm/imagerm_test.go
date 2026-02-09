@@ -15,69 +15,31 @@ import (
 
 func TestServiceRun(t *testing.T) {
 	tests := map[string]struct {
-		version       string
-		mockErr       error
-		useSnapMgr    bool
-		snapExists    bool
-		snapRemoveErr error
-		expectImgCall bool // whether ImageManager.Remove should be called
-		expErr        bool
+		version string
+		mockErr error
+		expErr  bool
 	}{
-		"Removing a release image should use the image manager.": {
-			version:       "v0.1.0",
-			expectImgCall: true,
+		"Removing an installed image should succeed.": {
+			version: "v0.1.0",
+		},
+
+		"Removing a snapshot image should succeed.": {
+			version: "my-snap",
 		},
 
 		"An error from the image manager should propagate.": {
-			version:       "v0.1.0",
-			mockErr:       fmt.Errorf("not installed"),
-			expectImgCall: true,
-			expErr:        true,
-		},
-
-		"Removing a snapshot should use the snapshot manager.": {
-			version:       "my-snap",
-			useSnapMgr:    true,
-			snapExists:    true,
-			expectImgCall: false,
-		},
-
-		"When snapshot doesn't exist, should fall back to image manager.": {
-			version:       "v0.2.0",
-			useSnapMgr:    true,
-			snapExists:    false,
-			expectImgCall: true,
-		},
-
-		"An error from snapshot remove should propagate.": {
-			version:       "my-snap",
-			useSnapMgr:    true,
-			snapExists:    true,
-			snapRemoveErr: fmt.Errorf("disk error"),
-			expectImgCall: false,
-			expErr:        true,
+			version: "v0.1.0",
+			mockErr: fmt.Errorf("not installed"),
+			expErr:  true,
 		},
 	}
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			mgr := imagemock.NewMockImageManager(t)
-			if tc.expectImgCall {
-				mgr.On("Remove", mock.Anything, tc.version).Return(tc.mockErr)
-			}
+			mgr.On("Remove", mock.Anything, tc.version).Return(tc.mockErr)
 
-			cfg := imagerm.ServiceConfig{Manager: mgr}
-
-			if tc.useSnapMgr {
-				snapMgr := imagemock.NewMockSnapshotManager(t)
-				snapMgr.On("Exists", mock.Anything, tc.version).Return(tc.snapExists, nil)
-				if tc.snapExists {
-					snapMgr.On("Remove", mock.Anything, tc.version).Return(tc.snapRemoveErr)
-				}
-				cfg.SnapshotManager = snapMgr
-			}
-
-			svc, err := imagerm.NewService(cfg)
+			svc, err := imagerm.NewService(imagerm.ServiceConfig{Manager: mgr})
 			require.NoError(t, err)
 
 			err = svc.Run(context.Background(), imagerm.Request{Version: tc.version})

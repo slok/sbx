@@ -1,4 +1,4 @@
-package imagecreate
+package snapshotcreate
 
 import (
 	"context"
@@ -14,9 +14,10 @@ import (
 	"github.com/slok/sbx/internal/storage"
 )
 
-// ServiceConfig is the configuration for the image create service.
+// ServiceConfig is the configuration for the snapshot create service.
 type ServiceConfig struct {
-	SnapshotManager image.SnapshotManager
+	ImageManager    image.ImageManager
+	SnapshotCreator image.SnapshotCreator
 	Repository      storage.Repository
 	Logger          log.Logger
 	// DataDir is the base sbx data directory (default: ~/.sbx).
@@ -24,8 +25,11 @@ type ServiceConfig struct {
 }
 
 func (c *ServiceConfig) defaults() error {
-	if c.SnapshotManager == nil {
-		return fmt.Errorf("snapshot manager is required")
+	if c.ImageManager == nil {
+		return fmt.Errorf("image manager is required")
+	}
+	if c.SnapshotCreator == nil {
+		return fmt.Errorf("snapshot creator is required")
 	}
 	if c.Repository == nil {
 		return fmt.Errorf("repository is required")
@@ -36,38 +40,40 @@ func (c *ServiceConfig) defaults() error {
 	if c.DataDir == "" {
 		return fmt.Errorf("data dir is required")
 	}
-	c.Logger = c.Logger.WithValues(log.Kv{"svc": "app.ImageCreate"})
+	c.Logger = c.Logger.WithValues(log.Kv{"svc": "app.SnapshotCreate"})
 	return nil
 }
 
-// Service creates local images from sandboxes.
+// Service creates local snapshot images from sandboxes.
 type Service struct {
-	snapMgr image.SnapshotManager
+	imgMgr  image.ImageManager
+	snapCrt image.SnapshotCreator
 	repo    storage.Repository
 	logger  log.Logger
 	dataDir string
 }
 
-// NewService creates a new image create service.
+// NewService creates a new snapshot create service.
 func NewService(cfg ServiceConfig) (*Service, error) {
 	if err := cfg.defaults(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 	return &Service{
-		snapMgr: cfg.SnapshotManager,
+		imgMgr:  cfg.ImageManager,
+		snapCrt: cfg.SnapshotCreator,
 		repo:    cfg.Repository,
 		logger:  cfg.Logger,
 		dataDir: cfg.DataDir,
 	}, nil
 }
 
-// Request represents an image creation request.
+// Request represents a snapshot creation request.
 type Request struct {
 	NameOrID  string
 	ImageName string
 }
 
-// Run creates a local image from an existing sandbox.
+// Run creates a local snapshot image from an existing sandbox.
 func (s *Service) Run(ctx context.Context, req Request) (string, error) {
 	if req.ImageName != "" {
 		if err := model.ValidateImageName(req.ImageName); err != nil {
@@ -115,14 +121,28 @@ func (s *Service) Run(ctx context.Context, req Request) (string, error) {
 	// Try to detect parent snapshot (if sandbox was created from a snapshot image).
 	parentSnapshot := detectParentSnapshot(sb)
 
-	if err := s.snapMgr.Create(ctx, image.CreateSnapshotOptions{
+	// Read source image manifest if available (to inherit metadata).
+	var sourceManifest *model.ImageManifest
+	var firecrackerSrc string
+	if sourceImage != "" {
+		manifest, err := s.imgMgr.GetManifest(ctx, sourceImage)
+		if err == nil {
+			sourceManifest = manifest
+			// Use the firecracker binary from the source image.
+			firecrackerSrc = s.imgMgr.FirecrackerPath(sourceImage)
+		}
+	}
+
+	if err := s.snapCrt.Create(ctx, image.CreateSnapshotOptions{
 		Name:              imgName,
 		KernelSrc:         kernelPath,
 		RootFSSrc:         rootfsPath,
+		FirecrackerSrc:    firecrackerSrc,
 		SourceSandboxID:   sb.ID,
 		SourceSandboxName: sb.Name,
 		SourceImage:       sourceImage,
 		ParentSnapshot:    parentSnapshot,
+		SourceManifest:    sourceManifest,
 	}); err != nil {
 		return "", fmt.Errorf("could not create image: %w", err)
 	}
@@ -142,8 +162,8 @@ func (s *Service) resolveImageName(ctx context.Context, sandboxName, requestedNa
 		return "", fmt.Errorf("invalid image name: %w", err)
 	}
 
-	// Check if name already exists.
-	exists, err := s.snapMgr.Exists(ctx, name)
+	// Check if name already exists using ImageManager (local read).
+	exists, err := s.imgMgr.Exists(ctx, name)
 	if err != nil {
 		return "", fmt.Errorf("could not check image name uniqueness: %w", err)
 	}
@@ -157,7 +177,7 @@ func (s *Service) resolveImageName(ctx context.Context, sandboxName, requestedNa
 		if err := model.ValidateImageName(name); err != nil {
 			return "", fmt.Errorf("invalid auto-generated image name: %w", err)
 		}
-		exists, err = s.snapMgr.Exists(ctx, name)
+		exists, err = s.imgMgr.Exists(ctx, name)
 		if err != nil {
 			return "", fmt.Errorf("could not check image name uniqueness: %w", err)
 		}

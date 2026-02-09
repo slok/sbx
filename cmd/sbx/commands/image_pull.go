@@ -36,14 +36,14 @@ func (c ImagePullCommand) Name() string { return c.Cmd.FullCommand() }
 func (c ImagePullCommand) Run(ctx context.Context) error {
 	logger := c.rootCmd.Logger
 
-	mgr, err := newImageManager(c.imgCmd, logger)
+	puller, err := newImagePuller(c.imgCmd, logger)
 	if err != nil {
 		return err
 	}
 
 	svc, err := imagepull.NewService(imagepull.ServiceConfig{
-		Manager: mgr,
-		Logger:  logger,
+		Puller: puller,
+		Logger: logger,
 	})
 	if err != nil {
 		return fmt.Errorf("could not create service: %w", err)

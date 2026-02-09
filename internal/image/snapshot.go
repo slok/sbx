@@ -12,15 +12,15 @@ import (
 	"github.com/slok/sbx/internal/model"
 )
 
-// LocalSnapshotManagerConfig configures the local snapshot manager.
-type LocalSnapshotManagerConfig struct {
+// LocalSnapshotCreatorConfig configures the local snapshot creator.
+type LocalSnapshotCreatorConfig struct {
 	// ImagesDir is the local directory for storing images.
 	ImagesDir string
 	// Logger for logging.
 	Logger log.Logger
 }
 
-func (c *LocalSnapshotManagerConfig) defaults() error {
+func (c *LocalSnapshotCreatorConfig) defaults() error {
 	if c.ImagesDir == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -34,24 +34,24 @@ func (c *LocalSnapshotManagerConfig) defaults() error {
 	return nil
 }
 
-// LocalSnapshotManager implements SnapshotManager using the local filesystem.
-type LocalSnapshotManager struct {
+// LocalSnapshotCreator implements SnapshotCreator using the local filesystem.
+type LocalSnapshotCreator struct {
 	imagesDir string
 	logger    log.Logger
 }
 
-// NewLocalSnapshotManager creates a new local snapshot manager.
-func NewLocalSnapshotManager(cfg LocalSnapshotManagerConfig) (*LocalSnapshotManager, error) {
+// NewLocalSnapshotCreator creates a new local snapshot creator.
+func NewLocalSnapshotCreator(cfg LocalSnapshotCreatorConfig) (*LocalSnapshotCreator, error) {
 	if err := cfg.defaults(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
-	return &LocalSnapshotManager{
+	return &LocalSnapshotCreator{
 		imagesDir: cfg.ImagesDir,
 		logger:    cfg.Logger,
 	}, nil
 }
 
-func (m *LocalSnapshotManager) Create(_ context.Context, opts CreateSnapshotOptions) error {
+func (m *LocalSnapshotCreator) Create(_ context.Context, opts CreateSnapshotOptions) error {
 	// Validate name.
 	if err := model.ValidateImageName(opts.Name); err != nil {
 		return fmt.Errorf("invalid snapshot image name: %w", err)
@@ -92,6 +92,18 @@ func (m *LocalSnapshotManager) Create(_ context.Context, opts CreateSnapshotOpti
 		return fmt.Errorf("copying rootfs: %w", err)
 	}
 
+	// Copy firecracker binary if available.
+	if opts.FirecrackerSrc != "" {
+		fcDst := filepath.Join(versionDir, "firecracker")
+		if err := copyFile(opts.FirecrackerSrc, fcDst); err != nil {
+			m.logger.Infof("Could not copy firecracker binary: %v", err)
+		} else {
+			if err := os.Chmod(fcDst, 0o755); err != nil {
+				return fmt.Errorf("chmod firecracker binary: %w", err)
+			}
+		}
+	}
+
 	// Get file sizes for the manifest.
 	kernelInfo, err := os.Stat(kernelDst)
 	if err != nil {
@@ -102,10 +114,30 @@ func (m *LocalSnapshotManager) Create(_ context.Context, opts CreateSnapshotOpti
 		return fmt.Errorf("stat rootfs: %w", err)
 	}
 
-	// Build and write manifest.
-	fcVersion := opts.FirecrackerVersion
-	if fcVersion == "" {
-		fcVersion = "unknown"
+	// Build artifact metadata, inheriting from source manifest if available.
+	kernelMeta := kernelJSON{
+		File:      kernelFile,
+		SizeBytes: kernelInfo.Size(),
+	}
+	rootfsMeta := rootfsJSON{
+		File:      rootfsFile,
+		SizeBytes: rootfsInfo.Size(),
+	}
+	fcMeta := firecrackerJSON{}
+	buildMeta := buildJSON{}
+
+	if src := opts.SourceManifest; src != nil {
+		if archInfo, ok := src.Artifacts[arch]; ok {
+			kernelMeta.Version = archInfo.Kernel.Version
+			kernelMeta.Source = archInfo.Kernel.Source
+			rootfsMeta.Distro = archInfo.Rootfs.Distro
+			rootfsMeta.DistroVersion = archInfo.Rootfs.DistroVersion
+			rootfsMeta.Profile = archInfo.Rootfs.Profile
+		}
+		fcMeta.Version = src.Firecracker.Version
+		fcMeta.Source = src.Firecracker.Source
+		buildMeta.Date = src.Build.Date
+		buildMeta.Commit = src.Build.Commit
 	}
 
 	mj := manifestJSON{
@@ -113,20 +145,12 @@ func (m *LocalSnapshotManager) Create(_ context.Context, opts CreateSnapshotOpti
 		Version:       opts.Name,
 		Artifacts: map[string]archArtifactsJSON{
 			arch: {
-				Kernel: kernelJSON{
-					File:      kernelFile,
-					SizeBytes: kernelInfo.Size(),
-				},
-				Rootfs: rootfsJSON{
-					File:      rootfsFile,
-					SizeBytes: rootfsInfo.Size(),
-				},
+				Kernel: kernelMeta,
+				Rootfs: rootfsMeta,
 			},
 		},
-		FC: firecrackerJSON{
-			Version: fcVersion,
-		},
-		Build: buildJSON{},
+		FC:    fcMeta,
+		Build: buildMeta,
 		Snapshot: &snapshotInfoJSON{
 			SourceSandboxID:   opts.SourceSandboxID,
 			SourceSandboxName: opts.SourceSandboxName,
@@ -148,91 +172,4 @@ func (m *LocalSnapshotManager) Create(_ context.Context, opts CreateSnapshotOpti
 
 	success = true
 	return nil
-}
-
-func (m *LocalSnapshotManager) List(_ context.Context) ([]model.ImageRelease, error) {
-	entries, err := os.ReadDir(m.imagesDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("reading images directory: %w", err)
-	}
-
-	var result []model.ImageRelease
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-
-		// Only include dirs with a snapshot manifest.
-		mj, err := readLocalManifest(m.imagesDir, name)
-		if err != nil {
-			continue
-		}
-		if mj.Snapshot == nil {
-			continue
-		}
-
-		result = append(result, model.ImageRelease{
-			Version:   name,
-			Installed: true,
-			Source:    model.ImageSourceSnapshot,
-		})
-	}
-
-	return result, nil
-}
-
-func (m *LocalSnapshotManager) GetManifest(_ context.Context, name string) (*model.ImageManifest, error) {
-	mj, err := readLocalManifest(m.imagesDir, name)
-	if err != nil {
-		return nil, fmt.Errorf("reading manifest for %s: %w", name, err)
-	}
-
-	if mj.SchemaVersion == 0 {
-		mj.SchemaVersion = 1
-	}
-	if mj.SchemaVersion != model.CurrentSchemaVersion {
-		return nil, fmt.Errorf("unsupported manifest schema version %d for %s (supported: %d), try updating sbx",
-			mj.SchemaVersion, name, model.CurrentSchemaVersion)
-	}
-
-	return mj.toModel(), nil
-}
-
-func (m *LocalSnapshotManager) Remove(_ context.Context, name string) error {
-	versionDir := filepath.Join(m.imagesDir, name)
-	if _, err := os.Stat(versionDir); os.IsNotExist(err) {
-		return fmt.Errorf("snapshot image %s is not installed", name)
-	}
-	if err := os.RemoveAll(versionDir); err != nil {
-		return fmt.Errorf("removing snapshot image %s: %w", name, err)
-	}
-	return nil
-}
-
-func (m *LocalSnapshotManager) Exists(_ context.Context, name string) (bool, error) {
-	versionDir := filepath.Join(m.imagesDir, name)
-	info, err := os.Stat(versionDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
-		return false, err
-	}
-	return info.IsDir(), nil
-}
-
-func (m *LocalSnapshotManager) KernelPath(name string) string {
-	return filepath.Join(m.imagesDir, name, fmt.Sprintf("vmlinux-%s", HostArch()))
-}
-
-func (m *LocalSnapshotManager) RootFSPath(name string) string {
-	return filepath.Join(m.imagesDir, name, fmt.Sprintf("rootfs-%s.ext4", HostArch()))
-}
-
-func (m *LocalSnapshotManager) FirecrackerPath(name string) string {
-	return filepath.Join(m.imagesDir, name, "firecracker")
 }
