@@ -39,10 +39,16 @@ func (c *Client) Exec(ctx context.Context, nameOrID string, command []string, op
 		return nil, fmt.Errorf("could not create service: %w", err)
 	}
 
+	var files []string
+	if opts != nil {
+		files = opts.Files
+	}
+
 	result, err := svc.Run(ctx, appexec.Request{
 		NameOrID: nameOrID,
 		Command:  command,
 		Opts:     toInternalExecOpts(opts),
+		Files:    files,
 	})
 	if err != nil {
 		return nil, mapError(err)

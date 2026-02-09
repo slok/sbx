@@ -5,6 +5,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -363,4 +365,250 @@ func TestServiceRunWithOutput(t *testing.T) {
 
 	mEngine.AssertExpectations(t)
 	mRepo.AssertExpectations(t)
+}
+
+func TestServiceRunWithFiles(t *testing.T) {
+	// Helper to create a temp file that exists on disk.
+	createTempFile := func(t *testing.T, name string) string {
+		t.Helper()
+		f, err := os.CreateTemp(t.TempDir(), name)
+		require.NoError(t, err)
+		f.Close()
+		return f.Name()
+	}
+
+	tests := map[string]struct {
+		mock   func(t *testing.T, mEngine *sandboxmock.MockEngine, mRepo *storagemock.MockRepository) Request
+		expErr bool
+		expRes *model.ExecResult
+	}{
+		"Single file upload with workdir should create dir, upload, then exec": {
+			mock: func(t *testing.T, mEngine *sandboxmock.MockEngine, mRepo *storagemock.MockRepository) Request {
+				tmpFile := createTempFile(t, "script.sh")
+
+				sandbox := &model.Sandbox{
+					ID:     "test-id",
+					Name:   "test-sandbox",
+					Status: model.SandboxStatusRunning,
+				}
+				mRepo.On("GetSandboxByName", mock.Anything, "test-sandbox").Once().Return(sandbox, nil)
+
+				// Expect mkdir -p for the workdir.
+				mkdirResult := &model.ExecResult{ExitCode: 0}
+				mEngine.On("Exec", mock.Anything, "test-id", []string{"mkdir", "-p", "/app"}, mock.Anything).Once().Return(mkdirResult, nil)
+
+				// Expect CopyTo with workdir destination.
+				expectedRemote := filepath.Join("/app", filepath.Base(tmpFile))
+				mEngine.On("CopyTo", mock.Anything, "test-id", tmpFile, expectedRemote).Once().Return(nil)
+
+				// Then the actual exec.
+				result := &model.ExecResult{ExitCode: 0}
+				mEngine.On("Exec", mock.Anything, "test-id", []string{"bash", "script.sh"}, mock.Anything).Once().Return(result, nil)
+
+				return Request{
+					NameOrID: "test-sandbox",
+					Command:  []string{"bash", "script.sh"},
+					Files:    []string{tmpFile},
+					Opts:     model.ExecOpts{WorkingDir: "/app"},
+				}
+			},
+			expRes: &model.ExecResult{ExitCode: 0},
+		},
+
+		"Single file upload without workdir should create root dir, upload, then exec": {
+			mock: func(t *testing.T, mEngine *sandboxmock.MockEngine, mRepo *storagemock.MockRepository) Request {
+				tmpFile := createTempFile(t, "data.txt")
+
+				sandbox := &model.Sandbox{
+					ID:     "test-id",
+					Name:   "test-sandbox",
+					Status: model.SandboxStatusRunning,
+				}
+				mRepo.On("GetSandboxByName", mock.Anything, "test-sandbox").Once().Return(sandbox, nil)
+
+				// Expect mkdir -p for "/" (no-op but consistent).
+				mkdirResult := &model.ExecResult{ExitCode: 0}
+				mEngine.On("Exec", mock.Anything, "test-id", []string{"mkdir", "-p", "/"}, mock.Anything).Once().Return(mkdirResult, nil)
+
+				// Expect CopyTo with "/" destination.
+				expectedRemote := filepath.Join("/", filepath.Base(tmpFile))
+				mEngine.On("CopyTo", mock.Anything, "test-id", tmpFile, expectedRemote).Once().Return(nil)
+
+				result := &model.ExecResult{ExitCode: 0}
+				mEngine.On("Exec", mock.Anything, "test-id", []string{"cat", "data.txt"}, mock.Anything).Once().Return(result, nil)
+
+				return Request{
+					NameOrID: "test-sandbox",
+					Command:  []string{"cat", "data.txt"},
+					Files:    []string{tmpFile},
+					Opts:     model.ExecOpts{},
+				}
+			},
+			expRes: &model.ExecResult{ExitCode: 0},
+		},
+
+		"Multiple files should create dir, upload all, then exec": {
+			mock: func(t *testing.T, mEngine *sandboxmock.MockEngine, mRepo *storagemock.MockRepository) Request {
+				tmpFile1 := createTempFile(t, "a.sh")
+				tmpFile2 := createTempFile(t, "b.txt")
+
+				sandbox := &model.Sandbox{
+					ID:     "test-id",
+					Name:   "test-sandbox",
+					Status: model.SandboxStatusRunning,
+				}
+				mRepo.On("GetSandboxByName", mock.Anything, "test-sandbox").Once().Return(sandbox, nil)
+
+				// Expect mkdir -p for /tmp.
+				mkdirResult := &model.ExecResult{ExitCode: 0}
+				mEngine.On("Exec", mock.Anything, "test-id", []string{"mkdir", "-p", "/tmp"}, mock.Anything).Once().Return(mkdirResult, nil)
+
+				// Both files uploaded to /tmp.
+				mEngine.On("CopyTo", mock.Anything, "test-id", tmpFile1, filepath.Join("/tmp", filepath.Base(tmpFile1))).Once().Return(nil)
+				mEngine.On("CopyTo", mock.Anything, "test-id", tmpFile2, filepath.Join("/tmp", filepath.Base(tmpFile2))).Once().Return(nil)
+
+				result := &model.ExecResult{ExitCode: 0}
+				mEngine.On("Exec", mock.Anything, "test-id", []string{"ls"}, mock.Anything).Once().Return(result, nil)
+
+				return Request{
+					NameOrID: "test-sandbox",
+					Command:  []string{"ls"},
+					Files:    []string{tmpFile1, tmpFile2},
+					Opts:     model.ExecOpts{WorkingDir: "/tmp"},
+				}
+			},
+			expRes: &model.ExecResult{ExitCode: 0},
+		},
+
+		"File upload failure should stop and not exec": {
+			mock: func(t *testing.T, mEngine *sandboxmock.MockEngine, mRepo *storagemock.MockRepository) Request {
+				tmpFile := createTempFile(t, "fail.sh")
+
+				sandbox := &model.Sandbox{
+					ID:     "test-id",
+					Name:   "test-sandbox",
+					Status: model.SandboxStatusRunning,
+				}
+				mRepo.On("GetSandboxByName", mock.Anything, "test-sandbox").Once().Return(sandbox, nil)
+
+				// mkdir -p succeeds.
+				mkdirResult := &model.ExecResult{ExitCode: 0}
+				mEngine.On("Exec", mock.Anything, "test-id", []string{"mkdir", "-p", "/app"}, mock.Anything).Once().Return(mkdirResult, nil)
+
+				// CopyTo fails.
+				mEngine.On("CopyTo", mock.Anything, "test-id", tmpFile, mock.Anything).Once().Return(fmt.Errorf("scp failed"))
+
+				// User exec should NOT be called.
+
+				return Request{
+					NameOrID: "test-sandbox",
+					Command:  []string{"bash", "fail.sh"},
+					Files:    []string{tmpFile},
+					Opts:     model.ExecOpts{WorkingDir: "/app"},
+				}
+			},
+			expErr: true,
+		},
+
+		"mkdir -p failure should stop before any uploads": {
+			mock: func(t *testing.T, mEngine *sandboxmock.MockEngine, mRepo *storagemock.MockRepository) Request {
+				tmpFile := createTempFile(t, "wont-upload.sh")
+
+				sandbox := &model.Sandbox{
+					ID:     "test-id",
+					Name:   "test-sandbox",
+					Status: model.SandboxStatusRunning,
+				}
+				mRepo.On("GetSandboxByName", mock.Anything, "test-sandbox").Once().Return(sandbox, nil)
+
+				// mkdir -p fails.
+				mEngine.On("Exec", mock.Anything, "test-id", []string{"mkdir", "-p", "/app"}, mock.Anything).Once().Return(nil, fmt.Errorf("mkdir failed"))
+
+				// No CopyTo or user exec expected.
+
+				return Request{
+					NameOrID: "test-sandbox",
+					Command:  []string{"bash", "wont-upload.sh"},
+					Files:    []string{tmpFile},
+					Opts:     model.ExecOpts{WorkingDir: "/app"},
+				}
+			},
+			expErr: true,
+		},
+
+		"Non-existent local file should fail before any engine call": {
+			mock: func(t *testing.T, mEngine *sandboxmock.MockEngine, mRepo *storagemock.MockRepository) Request {
+				sandbox := &model.Sandbox{
+					ID:     "test-id",
+					Name:   "test-sandbox",
+					Status: model.SandboxStatusRunning,
+				}
+				mRepo.On("GetSandboxByName", mock.Anything, "test-sandbox").Once().Return(sandbox, nil)
+
+				// No engine calls expected.
+
+				return Request{
+					NameOrID: "test-sandbox",
+					Command:  []string{"bash", "nope.sh"},
+					Files:    []string{"/nonexistent/path/nope.sh"},
+					Opts:     model.ExecOpts{},
+				}
+			},
+			expErr: true,
+		},
+
+		"Empty files list should exec without any uploads": {
+			mock: func(t *testing.T, mEngine *sandboxmock.MockEngine, mRepo *storagemock.MockRepository) Request {
+				sandbox := &model.Sandbox{
+					ID:     "test-id",
+					Name:   "test-sandbox",
+					Status: model.SandboxStatusRunning,
+				}
+				mRepo.On("GetSandboxByName", mock.Anything, "test-sandbox").Once().Return(sandbox, nil)
+
+				result := &model.ExecResult{ExitCode: 0}
+				mEngine.On("Exec", mock.Anything, "test-id", []string{"echo", "hi"}, mock.Anything).Once().Return(result, nil)
+
+				// No CopyTo expected.
+
+				return Request{
+					NameOrID: "test-sandbox",
+					Command:  []string{"echo", "hi"},
+					Files:    []string{},
+					Opts:     model.ExecOpts{},
+				}
+			},
+			expRes: &model.ExecResult{ExitCode: 0},
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert := assert.New(t)
+			require := require.New(t)
+
+			mEngine := &sandboxmock.MockEngine{}
+			mRepo := &storagemock.MockRepository{}
+			req := test.mock(t, mEngine, mRepo)
+
+			svc, err := NewService(ServiceConfig{
+				Engine:     mEngine,
+				Repository: mRepo,
+				Logger:     log.Noop,
+			})
+			require.NoError(err)
+
+			result, err := svc.Run(context.TODO(), req)
+
+			if test.expErr {
+				assert.Error(err)
+			} else {
+				assert.NoError(err)
+				assert.Equal(test.expRes, result)
+			}
+
+			mEngine.AssertExpectations(t)
+			mRepo.AssertExpectations(t)
+		})
+	}
 }

@@ -22,6 +22,7 @@ type ExecCommand struct {
 	workingDir string
 	envSpecs   []string
 	tty        bool
+	files      []string
 }
 
 // NewExecCommand returns the exec command.
@@ -34,6 +35,7 @@ func NewExecCommand(rootCmd *RootCommand, app *kingpin.Application) *ExecCommand
 	c.Cmd.Flag("workdir", "Working directory for command execution.").Short('w').StringVar(&c.workingDir)
 	c.Cmd.Flag("env", "Environment variables (KEY=VALUE or KEY from current environment). Can be repeated.").Short('e').StringsVar(&c.envSpecs)
 	c.Cmd.Flag("tty", "Allocate a pseudo-TTY.").Short('t').BoolVar(&c.tty)
+	c.Cmd.Flag("file", "Upload local file to sandbox before exec (into workdir). Can be repeated.").Short('f').StringsVar(&c.files)
 
 	return c
 }
@@ -87,6 +89,7 @@ func (c ExecCommand) Run(ctx context.Context) error {
 	result, err := svc.Run(ctx, exec.Request{
 		NameOrID: c.nameOrID,
 		Command:  c.command,
+		Files:    c.files,
 		Opts: model.ExecOpts{
 			WorkingDir: c.workingDir,
 			Env:        cmdEnv,

@@ -19,6 +19,7 @@ type ShellCommand struct {
 
 	nameOrID string
 	envSpecs []string
+	files    []string
 }
 
 // NewShellCommand returns the shell command.
@@ -28,6 +29,7 @@ func NewShellCommand(rootCmd *RootCommand, app *kingpin.Application) *ShellComma
 	c.Cmd = app.Command("shell", "Open an interactive shell in a running sandbox.")
 	c.Cmd.Arg("name-or-id", "Sandbox name or ID.").Required().StringVar(&c.nameOrID)
 	c.Cmd.Flag("env", "Environment variables (KEY=VALUE or KEY from current environment). Can be repeated.").Short('e').StringsVar(&c.envSpecs)
+	c.Cmd.Flag("file", "Upload local file to sandbox before shell (into /). Can be repeated.").Short('f').StringsVar(&c.files)
 
 	return c
 }
@@ -81,6 +83,7 @@ func (c ShellCommand) Run(ctx context.Context) error {
 	result, err := svc.Run(ctx, exec.Request{
 		NameOrID: c.nameOrID,
 		Command:  []string{"/bin/sh"},
+		Files:    c.files,
 		Opts: model.ExecOpts{
 			Stdin:  os.Stdin,
 			Stdout: os.Stdout,
