@@ -166,11 +166,6 @@ func (c *Client) newEngine(cfg model.SandboxConfig) (sandbox.Engine, error) {
 	}
 }
 
-// newEngineForCreate creates the engine for sandbox creation.
-func (c *Client) newEngineForCreate(engineType EngineType) (sandbox.Engine, error) {
-	return c.newEngineForCreateWithBinary(engineType, c.firecrackerBinary)
-}
-
 // newEngineForCreateWithBinary creates the engine for sandbox creation with a specific firecracker binary.
 func (c *Client) newEngineForCreateWithBinary(engineType EngineType, firecrackerBinary string) (sandbox.Engine, error) {
 	switch engineType {

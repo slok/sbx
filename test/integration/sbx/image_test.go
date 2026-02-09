@@ -15,6 +15,7 @@ import (
 // imageListItem matches the JSON output of `sbx image list --format json`.
 type imageListItem struct {
 	Version   string `json:"version"`
+	Source    string `json:"source"`
 	Installed bool   `json:"installed"`
 }
 

@@ -142,20 +142,11 @@ func RunExec(ctx context.Context, config Config, dbPath, name string, command []
 	return testutils.RunSBXArgs(ctx, env, config.Binary, args, true)
 }
 
-// RunSnapshotCreate creates a snapshot from a sandbox.
+// RunSnapshotCreate creates a snapshot image from a sandbox.
+// Uses the new top-level `snapshot` command which stores images under --images-dir.
 func RunSnapshotCreate(ctx context.Context, config Config, dbPath, sandboxName, snapshotName string) (stdout, stderr []byte, err error) {
-	args := fmt.Sprintf("snapshot create %s %s", sandboxName, snapshotName)
+	args := fmt.Sprintf("snapshot %s --name %s --images-dir %s", sandboxName, snapshotName, config.ImagesDir)
 	return RunSBXCmd(ctx, config, dbPath, args)
-}
-
-// RunSnapshotList lists snapshots in JSON format.
-func RunSnapshotList(ctx context.Context, config Config, dbPath string) (stdout, stderr []byte, err error) {
-	return RunSBXCmd(ctx, config, dbPath, "snapshot list --format json")
-}
-
-// RunSnapshotRm removes a snapshot.
-func RunSnapshotRm(ctx context.Context, config Config, dbPath, nameOrID string) (stdout, stderr []byte, err error) {
-	return RunSBXCmd(ctx, config, dbPath, fmt.Sprintf("snapshot rm %s", nameOrID))
 }
 
 // RunForward starts port forwarding (blocks until context is cancelled).
