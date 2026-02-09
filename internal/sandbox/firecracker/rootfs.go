@@ -1,6 +1,7 @@
 package firecracker
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/slok/sbx/internal/conventions"
+	"github.com/slok/sbx/internal/ssh"
 	fileutil "github.com/slok/sbx/internal/utils/file"
 )
 
@@ -204,10 +206,7 @@ func (e *Engine) resizeRootFS(vmDir string, sizeGB int, baseImagePath string) er
 // This must be called after the VM boots and network is configured (SSH access required).
 // Retries with exponential backoff to wait for SSH to be available after boot.
 func (e *Engine) expandFilesystem(ctx context.Context, sandboxID, vmIP string) error {
-	// Get per-sandbox SSH key path
-	keyPath := e.sshKeyManager.PrivateKeyPath(sandboxID)
-
-	// Retry logic: VM needs time to boot and start SSH service
+	// Retry logic: VM needs time to boot and start SSH service.
 	maxRetries := 10
 	baseDelay := 500 * time.Millisecond
 
@@ -228,39 +227,36 @@ func (e *Engine) expandFilesystem(ctx context.Context, sandboxID, vmIP string) e
 			}
 		}
 
-		// Run resize2fs via SSH
-		// -o StrictHostKeyChecking=no: Don't prompt for host key verification
-		// -o UserKnownHostsFile=/dev/null: Don't save host key
-		// -o ConnectTimeout=5: Timeout for connection (shorter for retries)
-		cmd := exec.CommandContext(ctx, "ssh",
-			"-i", keyPath,
-			"-o", "StrictHostKeyChecking=no",
-			"-o", "UserKnownHostsFile=/dev/null",
-			"-o", "ConnectTimeout=5",
-			fmt.Sprintf("root@%s", vmIP),
-			"resize2fs", "/dev/vda",
-		)
-
-		output, err := cmd.CombinedOutput()
+		// Connect via Go SSH client with short timeout for retries.
+		client, err := e.newSSHClientWithTimeout(ctx, sandboxID, 5*time.Second)
 		if err != nil {
-			outputStr := string(output)
-			// Check if it's a connection error (SSH not ready yet)
-			if strings.Contains(outputStr, "Connection refused") ||
-				strings.Contains(outputStr, "Connection timed out") ||
-				strings.Contains(outputStr, "No route to host") {
-				lastErr = fmt.Errorf("SSH not ready: %w", err)
-				e.logger.Debugf("SSH connection failed (attempt %d/%d): %v", attempt+1, maxRetries, err)
-				continue
-			}
-			// Other errors are not retryable
-			return fmt.Errorf("resize2fs failed: %w, output: %s", err, outputStr)
+			lastErr = fmt.Errorf("SSH not ready: %w", err)
+			e.logger.Debugf("SSH connection failed (attempt %d/%d): %v", attempt+1, maxRetries, err)
+			continue
+		}
+
+		var stdout bytes.Buffer
+		exitCode, err := client.Exec(ctx, "resize2fs /dev/vda", ssh.ExecOpts{
+			Stdout: &stdout,
+			Stderr: &stdout,
+		})
+		client.Close()
+
+		if err != nil {
+			lastErr = fmt.Errorf("SSH not ready: %w", err)
+			e.logger.Debugf("SSH exec failed (attempt %d/%d): %v", attempt+1, maxRetries, err)
+			continue
+		}
+
+		if exitCode != 0 {
+			return fmt.Errorf("resize2fs failed with exit code %d: %s", exitCode, stdout.String())
 		}
 
 		// Success!
-		e.logger.Debugf("Expanded filesystem inside VM: %s", strings.TrimSpace(string(output)))
+		e.logger.Debugf("Expanded filesystem inside VM: %s", strings.TrimSpace(stdout.String()))
 		return nil
 	}
 
-	// All retries exhausted
+	// All retries exhausted.
 	return fmt.Errorf("failed to expand filesystem after %d attempts: %w", maxRetries, lastErr)
 }
