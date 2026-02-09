@@ -118,9 +118,6 @@ func (s *Service) Run(ctx context.Context, req Request) (string, error) {
 	// Try to detect source image from kernel path.
 	sourceImage := detectSourceImage(kernelPath)
 
-	// Try to detect parent snapshot (if sandbox was created from a snapshot image).
-	parentSnapshot := detectParentSnapshot(sb)
-
 	// Read source image manifest if available (to inherit metadata).
 	var sourceManifest *model.ImageManifest
 	var firecrackerSrc string
@@ -141,8 +138,8 @@ func (s *Service) Run(ctx context.Context, req Request) (string, error) {
 		SourceSandboxID:   sb.ID,
 		SourceSandboxName: sb.Name,
 		SourceImage:       sourceImage,
-		ParentSnapshot:    parentSnapshot,
-		SourceManifest:    sourceManifest,
+
+		SourceManifest: sourceManifest,
 	}); err != nil {
 		return "", fmt.Errorf("could not create image: %w", err)
 	}
@@ -227,27 +224,6 @@ func detectSourceImage(kernelPath string) string {
 	for i, p := range parts {
 		if p == "images" && i+1 < len(parts) {
 			return parts[i+1]
-		}
-	}
-	return ""
-}
-
-// detectParentSnapshot detects if the sandbox was created from a snapshot image.
-func detectParentSnapshot(sb *model.Sandbox) string {
-	if sb.Config.FirecrackerEngine == nil {
-		return ""
-	}
-	// Check if the rootfs path comes from the images dir (snapshot images).
-	rootfs := sb.Config.FirecrackerEngine.RootFS
-	parts := strings.Split(filepath.ToSlash(rootfs), "/")
-	for i, p := range parts {
-		if p == "images" && i+1 < len(parts) {
-			version := parts[i+1]
-			// If the source image path IS in images dir, it might be a snapshot.
-			// We can't easily tell if it was a release or snapshot from just the path,
-			// but the source_image field already captures the release version.
-			// Leave parent_snapshot empty unless we can confirm it was a snapshot.
-			_ = version
 		}
 	}
 	return ""
