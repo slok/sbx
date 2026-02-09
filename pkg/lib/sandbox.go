@@ -22,9 +22,40 @@ import (
 // [CreateSandboxOpts].Firecracker. For the fake engine (testing), these are
 // auto-populated with stub values.
 //
+// When [CreateSandboxOpts].FromImage is set, the kernel and rootfs paths are
+// resolved from the installed image (release or snapshot). The Firecracker field
+// must not be set when using FromImage.
+//
 // Returns [ErrAlreadyExists] if a sandbox with the same name exists,
 // or [ErrNotValid] if the configuration is invalid.
 func (c *Client) CreateSandbox(ctx context.Context, opts CreateSandboxOpts) (*Sandbox, error) {
+	// Resolve image paths when FromImage is set.
+	var firecrackerBinaryOverride string
+	if opts.FromImage != "" {
+		if opts.Firecracker != nil {
+			return nil, fmt.Errorf("FromImage and Firecracker config cannot be used together: %w", ErrNotValid)
+		}
+
+		mgr, err := c.newImageManager()
+		if err != nil {
+			return nil, fmt.Errorf("could not create image manager: %w", err)
+		}
+
+		exists, err := mgr.Exists(ctx, opts.FromImage)
+		if err != nil {
+			return nil, fmt.Errorf("could not check image %s: %w", opts.FromImage, err)
+		}
+		if !exists {
+			return nil, fmt.Errorf("image %s is not installed: %w", opts.FromImage, ErrNotFound)
+		}
+
+		opts.Firecracker = &FirecrackerConfig{
+			KernelImage: mgr.KernelPath(opts.FromImage),
+			RootFS:      mgr.RootFSPath(opts.FromImage),
+		}
+		firecrackerBinaryOverride = mgr.FirecrackerPath(opts.FromImage)
+	}
+
 	cfg := toInternalSandboxConfig(opts)
 
 	// For fake engine, provide stub paths so validation passes.
@@ -35,7 +66,13 @@ func (c *Client) CreateSandbox(ctx context.Context, opts CreateSandboxOpts) (*Sa
 		}
 	}
 
-	eng, err := c.newEngineForCreate(opts.Engine)
+	// Use the image's firecracker binary if available, otherwise fall back to client config.
+	fcBinary := c.firecrackerBinary
+	if firecrackerBinaryOverride != "" {
+		fcBinary = firecrackerBinaryOverride
+	}
+
+	eng, err := c.newEngineForCreateWithBinary(opts.Engine, fcBinary)
 	if err != nil {
 		return nil, mapError(fmt.Errorf("could not create engine: %w", err))
 	}
