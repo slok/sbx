@@ -58,15 +58,3 @@ func newImagePuller(imgCmd *ImageCommand, logger log.Logger) (image.ImagePuller,
 	}
 	return p, nil
 }
-
-// newSnapshotCreator creates a LocalSnapshotCreator for snapshot creation.
-func newSnapshotCreator(imgCmd *ImageCommand, logger log.Logger) (image.SnapshotCreator, error) {
-	sc, err := image.NewLocalSnapshotCreator(image.LocalSnapshotCreatorConfig{
-		ImagesDir: imgCmd.imagesDir,
-		Logger:    logger,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("could not create snapshot creator: %w", err)
-	}
-	return sc, nil
-}
