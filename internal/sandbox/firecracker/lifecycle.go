@@ -13,6 +13,7 @@ import (
 
 	"github.com/vishvananda/netlink"
 
+	"github.com/slok/sbx/internal/conventions"
 	"github.com/slok/sbx/internal/model"
 )
 
@@ -55,7 +56,7 @@ func (e *Engine) Start(ctx context.Context, id string) error {
 		return fmt.Errorf("kernel image not found at %s", kernelPath)
 	}
 
-	socketPath := filepath.Join(vmDir, "firecracker.sock")
+	socketPath := filepath.Join(vmDir, conventions.SocketFile)
 
 	e.logger.Infof("Starting Firecracker sandbox: %s", id)
 	e.logger.Debugf("Network: MAC=%s, Gateway=%s, VM IP=%s, TAP=%s", mac, gateway, vmIP, tapDevice)
@@ -95,7 +96,7 @@ func (e *Engine) Start(ctx context.Context, id string) error {
 
 	// Task 5: Expand filesystem inside VM to fill resized disk
 	e.logger.Debugf("[5/5] Expanding filesystem inside VM")
-	if err := e.expandFilesystem(ctx, vmIP); err != nil {
+	if err := e.expandFilesystem(ctx, id, vmIP); err != nil {
 		startErr = err
 		goto cleanup
 	}
@@ -216,7 +217,7 @@ func (e *Engine) Status(ctx context.Context, id string) (*model.Sandbox, error) 
 	}
 
 	// Read PID file
-	pidPath := filepath.Join(vmDir, "firecracker.pid")
+	pidPath := filepath.Join(vmDir, conventions.PIDFile)
 	pidData, err := os.ReadFile(pidPath)
 	if err != nil {
 		// No PID file means VM was never started or already cleaned up
@@ -250,7 +251,7 @@ func (e *Engine) Status(ctx context.Context, id string) (*model.Sandbox, error) 
 
 	// Get network info from deterministic allocation
 	_, _, vmIP, tapDevice := e.allocateNetwork(id)
-	socketPath := filepath.Join(vmDir, "firecracker.sock")
+	socketPath := filepath.Join(vmDir, conventions.SocketFile)
 
 	return &model.Sandbox{
 		ID:         id,
@@ -270,7 +271,7 @@ func (e *Engine) Exec(ctx context.Context, id string, command []string, opts mod
 
 	// Get VM IP from deterministic allocation
 	_, _, vmIP, _ := e.allocateNetwork(id)
-	sshKeyPath := e.sshKeyManager.PrivateKeyPath()
+	sshKeyPath := e.sshKeyManager.PrivateKeyPath(id)
 
 	// Build SSH command
 	args := []string{
@@ -359,7 +360,7 @@ func shellSingleQuote(s string) string {
 func (e *Engine) CopyTo(ctx context.Context, id string, srcLocal string, dstRemote string) error {
 	// Get VM IP from deterministic allocation
 	_, _, vmIP, _ := e.allocateNetwork(id)
-	sshKeyPath := e.sshKeyManager.PrivateKeyPath()
+	sshKeyPath := e.sshKeyManager.PrivateKeyPath(id)
 
 	// Build SCP command with -r for recursive copy
 	args := []string{
@@ -395,7 +396,7 @@ func (e *Engine) CopyTo(ctx context.Context, id string, srcLocal string, dstRemo
 func (e *Engine) CopyFrom(ctx context.Context, id string, srcRemote string, dstLocal string) error {
 	// Get VM IP from deterministic allocation
 	_, _, vmIP, _ := e.allocateNetwork(id)
-	sshKeyPath := e.sshKeyManager.PrivateKeyPath()
+	sshKeyPath := e.sshKeyManager.PrivateKeyPath(id)
 
 	// Build SCP command with -r for recursive copy
 	args := []string{
@@ -436,7 +437,7 @@ func (e *Engine) Forward(ctx context.Context, id string, ports []model.PortMappi
 
 	// Get VM IP from deterministic allocation
 	_, _, vmIP, _ := e.allocateNetwork(id)
-	sshKeyPath := e.sshKeyManager.PrivateKeyPath()
+	sshKeyPath := e.sshKeyManager.PrivateKeyPath(id)
 
 	// Build SSH command with -N (no command) and -L flags for port forwarding
 	args := []string{
@@ -478,7 +479,7 @@ func (e *Engine) Forward(ctx context.Context, id string, ports []model.PortMappi
 // gracefulShutdown attempts to gracefully shutdown the VM via SSH.
 func (e *Engine) gracefulShutdown(ctx context.Context, id string) error {
 	_, _, vmIP, _ := e.allocateNetwork(id)
-	sshKeyPath := e.sshKeyManager.PrivateKeyPath()
+	sshKeyPath := e.sshKeyManager.PrivateKeyPath(id)
 
 	// Try to run shutdown command
 	return e.sshExec(ctx, vmIP, sshKeyPath, []string{"poweroff"})
@@ -486,7 +487,7 @@ func (e *Engine) gracefulShutdown(ctx context.Context, id string) error {
 
 // killFirecracker kills the firecracker process.
 func (e *Engine) killFirecracker(vmDir string) error {
-	pidPath := filepath.Join(vmDir, "firecracker.pid")
+	pidPath := filepath.Join(vmDir, conventions.PIDFile)
 	pidData, err := os.ReadFile(pidPath)
 	if err != nil {
 		if os.IsNotExist(err) {

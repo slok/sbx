@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/slok/sbx/internal/conventions"
 	"github.com/slok/sbx/internal/log"
 	"github.com/slok/sbx/internal/model"
 )
@@ -298,7 +299,7 @@ func TestEngine_apiPUT_error(t *testing.T) {
 func TestMockFirecrackerAPI_configureVM(t *testing.T) {
 	// Create a mock Firecracker API server
 	tmpDir := t.TempDir()
-	socketPath := filepath.Join(tmpDir, "firecracker.sock")
+	socketPath := filepath.Join(tmpDir, conventions.SocketFile)
 
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
@@ -363,7 +364,7 @@ func TestMockFirecrackerAPI_configureVM(t *testing.T) {
 
 func TestMockFirecrackerAPI_bootVM(t *testing.T) {
 	tmpDir := t.TempDir()
-	socketPath := filepath.Join(tmpDir, "firecracker.sock")
+	socketPath := filepath.Join(tmpDir, conventions.SocketFile)
 
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {

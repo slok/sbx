@@ -11,19 +11,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/slok/sbx/internal/conventions"
 	fileutil "github.com/slok/sbx/internal/utils/file"
-)
-
-const (
-	// RootFSFile is the filename for the VM's rootfs copy.
-	RootFSFile = "rootfs.ext4"
-	// AuthorizedKeysPath is the path inside the rootfs for SSH authorized keys.
-	AuthorizedKeysPath = "/root/.ssh/authorized_keys"
 )
 
 // copyRootFS copies the base rootfs to the VM directory.
 func (e *Engine) copyRootFS(ctx context.Context, srcPath, vmDir string) error {
-	dstPath := filepath.Join(vmDir, RootFSFile)
+	dstPath := filepath.Join(vmDir, conventions.RootFSFile)
 
 	// Open source file
 	src, err := os.Open(srcPath)
@@ -70,13 +64,13 @@ func (e *Engine) copyRootFS(ctx context.Context, srcPath, vmDir string) error {
 	return nil
 }
 
-// patchRootFSSSH patches the rootfs with the SSH public key.
+// patchRootFSSSH patches the rootfs with the sandbox's SSH public key.
 // This uses debugfs (from e2fsprogs) to inject the key without mounting.
-func (e *Engine) patchRootFSSSH(vmDir string) error {
-	rootfsPath := filepath.Join(vmDir, RootFSFile)
+func (e *Engine) patchRootFSSSH(sandboxID, vmDir string) error {
+	rootfsPath := filepath.Join(vmDir, conventions.RootFSFile)
 
-	// Get the SSH public key
-	pubKey, err := e.sshKeyManager.LoadPublicKey()
+	// Get the per-sandbox SSH public key
+	pubKey, err := e.sshKeyManager.LoadPublicKey(sandboxID)
 	if err != nil {
 		return fmt.Errorf("could not load SSH public key: %w", err)
 	}
@@ -151,7 +145,7 @@ set_inode_field /root/.ssh/authorized_keys mode 0100600
 
 // RootFSPath returns the path to the VM's rootfs.
 func (e *Engine) RootFSPath(vmDir string) string {
-	return filepath.Join(vmDir, RootFSFile)
+	return filepath.Join(vmDir, conventions.RootFSFile)
 }
 
 // MaxDiskGB is the maximum allowed disk size in GB.
@@ -209,9 +203,9 @@ func (e *Engine) resizeRootFS(vmDir string, sizeGB int, baseImagePath string) er
 // expandFilesystem expands the ext4 filesystem inside the VM to fill the available space.
 // This must be called after the VM boots and network is configured (SSH access required).
 // Retries with exponential backoff to wait for SSH to be available after boot.
-func (e *Engine) expandFilesystem(ctx context.Context, vmIP string) error {
-	// Get SSH key path
-	keyPath := e.sshKeyManager.PrivateKeyPath()
+func (e *Engine) expandFilesystem(ctx context.Context, sandboxID, vmIP string) error {
+	// Get per-sandbox SSH key path
+	keyPath := e.sshKeyManager.PrivateKeyPath(sandboxID)
 
 	// Retry logic: VM needs time to boot and start SSH service
 	maxRetries := 10

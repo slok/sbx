@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/mock"
 
+	"github.com/slok/sbx/internal/conventions"
 	"github.com/slok/sbx/internal/log"
 	"github.com/slok/sbx/internal/model"
 	"github.com/slok/sbx/internal/storage/storagemock"
@@ -81,7 +82,7 @@ func TestEngine_Status_InvalidPIDFile(t *testing.T) {
 	}
 
 	// Create invalid PID file
-	pidPath := filepath.Join(vmDir, "firecracker.pid")
+	pidPath := filepath.Join(vmDir, conventions.PIDFile)
 	if err := os.WriteFile(pidPath, []byte("not-a-number"), 0644); err != nil {
 		t.Fatalf("failed to write pid file: %v", err)
 	}
@@ -110,7 +111,7 @@ func TestEngine_Status_WithPID(t *testing.T) {
 
 	// Create PID file with a PID that doesn't exist
 	// Use a very high PID that's unlikely to be real
-	pidPath := filepath.Join(vmDir, "firecracker.pid")
+	pidPath := filepath.Join(vmDir, conventions.PIDFile)
 	if err := os.WriteFile(pidPath, []byte("999999"), 0644); err != nil {
 		t.Fatalf("failed to write pid file: %v", err)
 	}
@@ -359,7 +360,7 @@ func TestEngine_killFirecracker_InvalidPID(t *testing.T) {
 	}
 
 	vmDir := t.TempDir()
-	pidPath := filepath.Join(vmDir, "firecracker.pid")
+	pidPath := filepath.Join(vmDir, conventions.PIDFile)
 	_ = os.WriteFile(pidPath, []byte("not-a-number"), 0644)
 
 	err := e.killFirecracker(vmDir)
@@ -374,7 +375,7 @@ func TestEngine_killFirecracker_ProcessNotExist(t *testing.T) {
 	}
 
 	vmDir := t.TempDir()
-	pidPath := filepath.Join(vmDir, "firecracker.pid")
+	pidPath := filepath.Join(vmDir, conventions.PIDFile)
 	// Use a PID that almost certainly doesn't exist
 	_ = os.WriteFile(pidPath, []byte("999999"), 0644)
 
@@ -449,7 +450,7 @@ func TestEngine_Stop_WithTasks(t *testing.T) {
 	}
 
 	// Create a PID file with non-existent process
-	pidPath := filepath.Join(vmDir, "firecracker.pid")
+	pidPath := filepath.Join(vmDir, conventions.PIDFile)
 	_ = os.WriteFile(pidPath, []byte("999999"), 0644)
 
 	// Stop should complete without errors (no running process)
@@ -476,7 +477,7 @@ func TestEngine_ImagesPath(t *testing.T) {
 	}
 }
 
-func TestEngine_SSHKeyManager(t *testing.T) {
+func TestEngine_sshKeyManager(t *testing.T) {
 	tmpDir := t.TempDir()
 	e, err := NewEngine(EngineConfig{
 		DataDir: tmpDir,
@@ -486,9 +487,18 @@ func TestEngine_SSHKeyManager(t *testing.T) {
 		t.Fatalf("failed to create engine: %v", err)
 	}
 
-	km := e.SSHKeyManager()
-	if km == nil {
-		t.Error("SSHKeyManager should not be nil")
+	// The injected key manager should derive per-sandbox paths from conventions.
+	expectedPath1 := conventions.SSHPrivateKeyPath(tmpDir, "sandbox-a")
+	expectedPath2 := conventions.SSHPrivateKeyPath(tmpDir, "sandbox-b")
+
+	if e.sshKeyManager.PrivateKeyPath("sandbox-a") != expectedPath1 {
+		t.Errorf("expected %s, got %s", expectedPath1, e.sshKeyManager.PrivateKeyPath("sandbox-a"))
+	}
+	if e.sshKeyManager.PrivateKeyPath("sandbox-b") != expectedPath2 {
+		t.Errorf("expected %s, got %s", expectedPath2, e.sshKeyManager.PrivateKeyPath("sandbox-b"))
+	}
+	if e.sshKeyManager.PrivateKeyPath("sandbox-a") == e.sshKeyManager.PrivateKeyPath("sandbox-b") {
+		t.Error("different sandboxes should have different key paths")
 	}
 }
 
