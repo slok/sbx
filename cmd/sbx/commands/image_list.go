@@ -34,13 +34,19 @@ func (c ImageListCommand) Name() string { return c.Cmd.FullCommand() }
 func (c ImageListCommand) Run(ctx context.Context) error {
 	logger := c.rootCmd.Logger
 
-	mgr, err := newImageManager(c.imgCmd, logger)
+	mgr, err := newLocalImageManager(c.imgCmd, logger)
+	if err != nil {
+		return err
+	}
+
+	puller, err := newImagePuller(c.imgCmd, logger)
 	if err != nil {
 		return err
 	}
 
 	svc, err := imagelist.NewService(imagelist.ServiceConfig{
 		Manager: mgr,
+		Puller:  puller,
 		Logger:  logger,
 	})
 	if err != nil {

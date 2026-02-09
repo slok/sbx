@@ -34,20 +34,6 @@ func sandboxFixture(id, name string) model.Sandbox {
 	}
 }
 
-func snapshotFixture(id, name string) model.Snapshot {
-	now := time.Now().UTC()
-	return model.Snapshot{
-		ID:                 id,
-		Name:               name,
-		Path:               "/home/user/.sbx/snapshots/" + id + ".ext4",
-		SourceSandboxID:    "sb-id-1",
-		SourceSandboxName:  "sandbox-1",
-		VirtualSizeBytes:   1024,
-		AllocatedSizeBytes: 512,
-		CreatedAt:          now,
-	}
-}
-
 func newRepo(t *testing.T) *sqlite.Repository {
 	t.Helper()
 	repo, err := sqlite.NewRepository(context.Background(), sqlite.RepositoryConfig{
@@ -123,75 +109,4 @@ func TestRepositoryConstraints(t *testing.T) {
 	err = repo.DeleteSandbox(ctx, "id-x")
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, model.ErrNotFound))
-}
-
-func TestRepositorySnapshotCRUD(t *testing.T) {
-	ctx := context.Background()
-	repo := newRepo(t)
-
-	snap := snapshotFixture("snap-1", "snapshot-1")
-	require.NoError(t, repo.CreateSnapshot(ctx, snap))
-
-	got, err := repo.GetSnapshot(ctx, "snap-1")
-	require.NoError(t, err)
-	assert.Equal(t, "snapshot-1", got.Name)
-	assert.Equal(t, "/home/user/.sbx/snapshots/snap-1.ext4", got.Path)
-	assert.Equal(t, int64(1024), got.VirtualSizeBytes)
-	assert.Equal(t, int64(512), got.AllocatedSizeBytes)
-
-	gotByName, err := repo.GetSnapshotByName(ctx, "snapshot-1")
-	require.NoError(t, err)
-	assert.Equal(t, "snap-1", gotByName.ID)
-
-	all, err := repo.ListSnapshots(ctx)
-	require.NoError(t, err)
-	assert.Len(t, all, 1)
-
-	_, err = repo.GetSnapshot(ctx, "snap-x")
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, model.ErrNotFound))
-}
-
-func TestRepositoryDeleteSnapshot(t *testing.T) {
-	ctx := context.Background()
-	repo := newRepo(t)
-
-	snap := snapshotFixture("snap-del-1", "snapshot-del-1")
-	require.NoError(t, repo.CreateSnapshot(ctx, snap))
-
-	// Delete should succeed.
-	require.NoError(t, repo.DeleteSnapshot(ctx, "snap-del-1"))
-
-	// Should be gone.
-	_, err := repo.GetSnapshot(ctx, "snap-del-1")
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, model.ErrNotFound))
-
-	// Deleting non-existent should fail.
-	err = repo.DeleteSnapshot(ctx, "snap-x")
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, model.ErrNotFound))
-}
-
-func TestRepositorySnapshotConstraints(t *testing.T) {
-	ctx := context.Background()
-	repo := newRepo(t)
-
-	snap := snapshotFixture("snap-1", "snapshot-1")
-	require.NoError(t, repo.CreateSnapshot(ctx, snap))
-
-	dupID := snapshotFixture("snap-1", "snapshot-2")
-	err := repo.CreateSnapshot(ctx, dupID)
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, model.ErrAlreadyExists))
-
-	dupName := snapshotFixture("snap-2", "snapshot-1")
-	err = repo.CreateSnapshot(ctx, dupName)
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, model.ErrAlreadyExists))
-
-	invalid := snapshotFixture("", "bad")
-	err = repo.CreateSnapshot(ctx, invalid)
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, model.ErrNotValid))
 }

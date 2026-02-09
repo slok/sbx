@@ -36,7 +36,7 @@ func (c ImageInspectCommand) Name() string { return c.Cmd.FullCommand() }
 func (c ImageInspectCommand) Run(ctx context.Context) error {
 	logger := c.rootCmd.Logger
 
-	mgr, err := newImageManager(c.imgCmd, logger)
+	mgr, err := newLocalImageManager(c.imgCmd, logger)
 	if err != nil {
 		return err
 	}
@@ -52,6 +52,13 @@ func (c ImageInspectCommand) Run(ctx context.Context) error {
 	manifest, err := svc.Run(ctx, imageinspect.Request{Version: c.version})
 	if err != nil {
 		return fmt.Errorf("could not inspect image: %w", err)
+	}
+
+	// Replace artifact file names with full local paths.
+	for arch, artifacts := range manifest.Artifacts {
+		artifacts.Kernel.File = mgr.KernelPath(c.version)
+		artifacts.Rootfs.File = mgr.RootFSPath(c.version)
+		manifest.Artifacts[arch] = artifacts
 	}
 
 	// Print output.

@@ -296,144 +296,6 @@ func (r *Repository) DeleteSandbox(ctx context.Context, id string) error {
 	return nil
 }
 
-// CreateSnapshot creates a new snapshot in the repository.
-func (r *Repository) CreateSnapshot(ctx context.Context, s model.Snapshot) error {
-	if err := s.Validate(); err != nil {
-		return fmt.Errorf("invalid snapshot: %w", err)
-	}
-
-	query := `
-		INSERT INTO snapshots (
-			id, name, path,
-			source_sandbox_id, source_sandbox_name,
-			virtual_size_bytes, allocated_size_bytes,
-			created_at
-		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`
-
-	_, err := r.db.ExecContext(
-		ctx,
-		query,
-		s.ID,
-		s.Name,
-		s.Path,
-		s.SourceSandboxID,
-		s.SourceSandboxName,
-		s.VirtualSizeBytes,
-		s.AllocatedSizeBytes,
-		s.CreatedAt.Unix(),
-	)
-	if err != nil {
-		if strings.Contains(err.Error(), "UNIQUE constraint failed: snapshots.") {
-			return fmt.Errorf("snapshot already exists: %w", model.ErrAlreadyExists)
-		}
-		return fmt.Errorf("could not insert snapshot: %w", err)
-	}
-
-	r.logger.Debugf("Created snapshot in repository: %s", s.ID)
-	return nil
-}
-
-// GetSnapshot retrieves a snapshot by ID.
-func (r *Repository) GetSnapshot(ctx context.Context, id string) (*model.Snapshot, error) {
-	query := `
-		SELECT
-			id, name, path,
-			source_sandbox_id, source_sandbox_name,
-			virtual_size_bytes, allocated_size_bytes,
-			created_at
-		FROM snapshots
-		WHERE id = ?
-	`
-
-	snapshot, err := r.scanOneSnapshot(ctx, query, id)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("snapshot %s: %w", id, model.ErrNotFound)
-		}
-		return nil, fmt.Errorf("could not query snapshot: %w", err)
-	}
-
-	return snapshot, nil
-}
-
-// GetSnapshotByName retrieves a snapshot by name.
-func (r *Repository) GetSnapshotByName(ctx context.Context, name string) (*model.Snapshot, error) {
-	query := `
-		SELECT
-			id, name, path,
-			source_sandbox_id, source_sandbox_name,
-			virtual_size_bytes, allocated_size_bytes,
-			created_at
-		FROM snapshots
-		WHERE name = ?
-	`
-
-	snapshot, err := r.scanOneSnapshot(ctx, query, name)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("snapshot with name %s: %w", name, model.ErrNotFound)
-		}
-		return nil, fmt.Errorf("could not query snapshot: %w", err)
-	}
-
-	return snapshot, nil
-}
-
-// ListSnapshots returns all snapshots.
-func (r *Repository) ListSnapshots(ctx context.Context) ([]model.Snapshot, error) {
-	query := `
-		SELECT
-			id, name, path,
-			source_sandbox_id, source_sandbox_name,
-			virtual_size_bytes, allocated_size_bytes,
-			created_at
-		FROM snapshots
-		ORDER BY created_at DESC
-	`
-
-	rows, err := r.db.QueryContext(ctx, query)
-	if err != nil {
-		return nil, fmt.Errorf("could not query snapshots: %w", err)
-	}
-	defer rows.Close()
-
-	var snapshots []model.Snapshot
-	for rows.Next() {
-		snapshot, err := r.scanSnapshotRow(rows)
-		if err != nil {
-			return nil, fmt.Errorf("could not scan snapshot row: %w", err)
-		}
-		snapshots = append(snapshots, snapshot)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating snapshot rows: %w", err)
-	}
-
-	return snapshots, nil
-}
-
-// DeleteSnapshot deletes a snapshot by ID.
-func (r *Repository) DeleteSnapshot(ctx context.Context, id string) error {
-	result, err := r.db.ExecContext(ctx, `DELETE FROM snapshots WHERE id = ?`, id)
-	if err != nil {
-		return fmt.Errorf("could not delete snapshot: %w", err)
-	}
-
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("could not get rows affected: %w", err)
-	}
-	if rows == 0 {
-		return fmt.Errorf("snapshot %s: %w", id, model.ErrNotFound)
-	}
-
-	r.logger.Debugf("Deleted snapshot from repository: %s", id)
-	return nil
-}
-
 func (r *Repository) scanOne(ctx context.Context, query string, arg any) (*model.Sandbox, error) {
 	row := r.db.QueryRowContext(ctx, query, arg)
 	sandbox, err := r.scanRow(row)
@@ -441,16 +303,6 @@ func (r *Repository) scanOne(ctx context.Context, query string, arg any) (*model
 		return nil, err
 	}
 	return &sandbox, nil
-}
-
-func (r *Repository) scanOneSnapshot(ctx context.Context, query string, arg any) (*model.Snapshot, error) {
-	row := r.db.QueryRowContext(ctx, query, arg)
-	snapshot, err := r.scanSnapshotRow(row)
-	if err != nil {
-		return nil, err
-	}
-
-	return &snapshot, nil
 }
 
 type scanner interface {
@@ -498,29 +350,6 @@ func (r *Repository) scanRow(s scanner) (model.Sandbox, error) {
 	}
 
 	return sandbox, nil
-}
-
-func (r *Repository) scanSnapshotRow(s scanner) (model.Snapshot, error) {
-	var snapshot model.Snapshot
-	var createdAt int64
-
-	err := s.Scan(
-		&snapshot.ID,
-		&snapshot.Name,
-		&snapshot.Path,
-		&snapshot.SourceSandboxID,
-		&snapshot.SourceSandboxName,
-		&snapshot.VirtualSizeBytes,
-		&snapshot.AllocatedSizeBytes,
-		&createdAt,
-	)
-	if err != nil {
-		return model.Snapshot{}, err
-	}
-
-	snapshot.CreatedAt = timeFromUnix(createdAt)
-
-	return snapshot, nil
 }
 
 func (r *Repository) setTimestamps(s *model.Sandbox, createdAt, startedAt, stoppedAt sql.NullInt64) error {

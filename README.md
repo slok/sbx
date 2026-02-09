@@ -39,7 +39,16 @@ make build
 - `sbx start` - Start a stopped sandbox
 - `sbx stop` - Stop a running sandbox
 - `sbx rm` - Remove a sandbox
-- `sbx snapshot create` - Create a rootfs snapshot from a stopped sandbox
+- `sbx exec` - Execute a command in a running sandbox
+- `sbx shell` - Open an interactive shell in a running sandbox
+- `sbx cp` - Copy files between host and sandbox
+- `sbx forward` - Forward ports from localhost to a running sandbox
+- `sbx snapshot` - Create a snapshot image from a sandbox
+- `sbx image list` - List available images (releases and snapshots)
+- `sbx image pull` - Pull an image release
+- `sbx image rm` - Remove an installed image
+- `sbx image inspect` - Inspect an image manifest
+- `sbx doctor` - Run preflight checks for sandbox engines
 
 ### Create a Sandbox
 
@@ -51,15 +60,20 @@ sbx create --name example-sandbox --engine firecracker \
   --firecracker-kernel /path/to/vmlinux
 ```
 
-Create a sandbox directly from a snapshot (auto-uses snapshot rootfs):
+Create a sandbox from a pulled image (includes kernel + rootfs):
 
 ```bash
-sbx create --name example-sandbox-2 --engine firecracker \
-  --from-snapshot base-dev-image \
-  --firecracker-kernel /path/to/vmlinux
+sbx image pull v0.1.0
+sbx create --name example-sandbox --engine firecracker --from-image v0.1.0
 ```
 
-When `--from-snapshot` is used, `--firecracker-root-fs` must not be provided.
+Create a sandbox from a snapshot image (see [Snapshots](#snapshots)):
+
+```bash
+sbx create --name restored --engine firecracker --from-image my-snapshot
+```
+
+When `--from-image` is used, `--firecracker-root-fs` and `--firecracker-kernel` are not needed.
 
 Example configuration (`sandbox.yaml`):
 
@@ -199,40 +213,70 @@ Force remove a running sandbox (stops it first):
 sbx rm example-sandbox --force
 ```
 
-### Create a Snapshot
+### Snapshots
 
-Create a rootfs snapshot from an existing sandbox:
+Snapshots are local images created from an existing sandbox. They bundle both the kernel and rootfs into `~/.sbx/images/<name>/`, making them indistinguishable from pulled release images. This means `--from-image` works for both releases and snapshots.
 
-```bash
-sbx snapshot create example-sandbox base-dev-image
-```
-
-You can omit the snapshot name, and `sbx` will auto-generate one as:
-
-```text
-<sandbox-name>-<YYYYMMDD-HHMM>
-```
-
-Example:
+Create a snapshot:
 
 ```bash
-sbx snapshot create example-sandbox
-# example-sandbox-20260207-0935
+sbx snapshot example-sandbox --name my-snapshot
 ```
 
-Important snapshot behavior in v1:
-
-- Snapshot source sandbox must be in `created` or `stopped` status
-- Snapshot names are globally unique and can only use `[a-zA-Z0-9._-]`
-- Snapshots are stored under `~/.sbx/snapshots` and remain even if the source sandbox is removed
-- Snapshot captures rootfs disk state only (no memory/device state)
-
-Use snapshot as source for `create`:
+Auto-generate the name:
 
 ```bash
-sbx create --name restored-sandbox --engine firecracker \
-  --from-snapshot base-dev-image \
-  --firecracker-kernel /path/to/vmlinux
+sbx snapshot example-sandbox
+# → example-sandbox-20260207-0935
+```
+
+List all images (releases and snapshots):
+
+```bash
+sbx image list
+```
+
+The `SOURCE` column shows `release` or `snapshot` to distinguish them.
+
+Use a snapshot to create a new sandbox:
+
+```bash
+sbx create --name restored --engine firecracker --from-image my-snapshot
+```
+
+Important snapshot behavior:
+
+- Source sandbox must be in `created` or `stopped` status
+- Snapshot names must be unique across all images and use `[a-zA-Z0-9._-]`
+- Snapshots are stored under `~/.sbx/images/` alongside release images
+- Snapshots capture rootfs + kernel (no memory/device state)
+- Snapshots persist even if the source sandbox is removed
+- Use `sbx image rm <name>` to remove a snapshot
+
+### Image Management
+
+List available images (both remote releases and local snapshots):
+
+```bash
+sbx image list
+```
+
+Pull a release image:
+
+```bash
+sbx image pull v0.1.0
+```
+
+Inspect an image manifest:
+
+```bash
+sbx image inspect v0.1.0
+```
+
+Remove an image (release or snapshot):
+
+```bash
+sbx image rm v0.1.0
 ```
 
 ### Complete Lifecycle Example
@@ -346,6 +390,7 @@ make go-gen
 Mocks are generated for:
 - `internal/sandbox.Engine`
 - `internal/storage.Repository`
+- `internal/image.ImageManager`
 
 ### Code Quality
 
@@ -363,20 +408,27 @@ make ci-check
 sbx/
 ├── cmd/sbx/              # CLI entry point
 │   ├── main.go
-│   └── commands/         # CLI commands (create, list, status, etc.)
+│   └── commands/         # CLI commands
 ├── internal/
 │   ├── model/            # Domain models
+│   ├── image/            # Image manager (GitHub releases + local snapshots)
 │   ├── log/              # Logging interface
 │   ├── printer/          # Output formatting (table, JSON)
-│   ├── sandbox/           # Sandbox engine interface + implementations
-│   ├── storage/          # Storage interface + implementations
+│   ├── sandbox/          # Sandbox engine interface + implementations
+│   ├── storage/          # Storage interface + implementations (SQLite)
 │   └── app/              # Business logic services
-│       ├── create/       # Create sandbox service
-│       ├── list/         # List sandboxes service
-│       ├── status/       # Get sandbox status service
-│       ├── start/        # Start sandbox service
-│       ├── stop/         # Stop sandbox service
-│       └── remove/       # Remove sandbox service
+│       ├── create/       # Create sandbox
+│       ├── imagecreate/  # Create snapshot image from sandbox
+│       ├── imagelist/    # List images
+│       ├── imageinspect/ # Inspect image manifest
+│       ├── imagepull/    # Pull image release
+│       ├── imagerm/      # Remove image
+│       ├── list/         # List sandboxes
+│       ├── status/       # Get sandbox status
+│       ├── start/        # Start sandbox
+│       ├── stop/         # Stop sandbox
+│       └── remove/       # Remove sandbox
+├── pkg/lib/              # Public SDK for programmatic access
 ├── test/integration/     # End-to-end tests
 ├── testdata/             # Example configs
 └── scripts/              # CI and image scripts

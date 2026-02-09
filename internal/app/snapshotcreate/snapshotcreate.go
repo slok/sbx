@@ -2,63 +2,55 @@ package snapshotcreate
 
 import (
 	"context"
-	"crypto/rand"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/oklog/ulid/v2"
-
+	"github.com/slok/sbx/internal/image"
 	"github.com/slok/sbx/internal/log"
 	"github.com/slok/sbx/internal/model"
-	"github.com/slok/sbx/internal/sandbox"
 	"github.com/slok/sbx/internal/storage"
 )
 
 // ServiceConfig is the configuration for the snapshot create service.
 type ServiceConfig struct {
-	Engine     sandbox.Engine
-	Repository storage.Repository
-	Logger     log.Logger
-	// SnapshotsDir is the directory where snapshot files are stored.
-	// If empty, defaults to ~/.sbx/snapshots.
-	SnapshotsDir string
+	ImageManager    image.ImageManager
+	SnapshotCreator image.SnapshotCreator
+	Repository      storage.Repository
+	Logger          log.Logger
+	// DataDir is the base sbx data directory (default: ~/.sbx).
+	DataDir string
 }
 
 func (c *ServiceConfig) defaults() error {
-	if c.Engine == nil {
-		return fmt.Errorf("engine is required")
+	if c.ImageManager == nil {
+		return fmt.Errorf("image manager is required")
 	}
-
+	if c.SnapshotCreator == nil {
+		return fmt.Errorf("snapshot creator is required")
+	}
 	if c.Repository == nil {
 		return fmt.Errorf("repository is required")
 	}
-
 	if c.Logger == nil {
 		c.Logger = log.Noop
 	}
-
-	if c.SnapshotsDir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return fmt.Errorf("could not get user home dir: %w", err)
-		}
-		c.SnapshotsDir = filepath.Join(home, ".sbx", "snapshots")
+	if c.DataDir == "" {
+		return fmt.Errorf("data dir is required")
 	}
-
 	c.Logger = c.Logger.WithValues(log.Kv{"svc": "app.SnapshotCreate"})
 	return nil
 }
 
-// Service creates snapshots from sandboxes.
+// Service creates local snapshot images from sandboxes.
 type Service struct {
-	engine       sandbox.Engine
-	repo         storage.Repository
-	logger       log.Logger
-	snapshotsDir string
+	imgMgr  image.ImageManager
+	snapCrt image.SnapshotCreator
+	repo    storage.Repository
+	logger  log.Logger
+	dataDir string
 }
 
 // NewService creates a new snapshot create service.
@@ -66,133 +58,148 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 	if err := cfg.defaults(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
-
 	return &Service{
-		engine:       cfg.Engine,
-		repo:         cfg.Repository,
-		logger:       cfg.Logger,
-		snapshotsDir: cfg.SnapshotsDir,
+		imgMgr:  cfg.ImageManager,
+		snapCrt: cfg.SnapshotCreator,
+		repo:    cfg.Repository,
+		logger:  cfg.Logger,
+		dataDir: cfg.DataDir,
 	}, nil
 }
 
 // Request represents a snapshot creation request.
 type Request struct {
-	NameOrID     string
-	SnapshotName string
+	NameOrID  string
+	ImageName string
 }
 
-// Run creates a snapshot for an existing sandbox.
-func (s *Service) Run(ctx context.Context, req Request) (*model.Snapshot, error) {
-	if req.SnapshotName != "" {
-		if err := model.ValidateSnapshotName(req.SnapshotName); err != nil {
-			return nil, fmt.Errorf("invalid snapshot name: %w", err)
+// Run creates a local snapshot image from an existing sandbox.
+func (s *Service) Run(ctx context.Context, req Request) (string, error) {
+	if req.ImageName != "" {
+		if err := model.ValidateImageName(req.ImageName); err != nil {
+			return "", fmt.Errorf("invalid image name: %w", err)
 		}
 	}
 
-	sandbox, err := s.repo.GetSandboxByName(ctx, req.NameOrID)
+	// Resolve sandbox.
+	sb, err := s.repo.GetSandboxByName(ctx, req.NameOrID)
 	if errors.Is(err, model.ErrNotFound) && looksLikeULID(req.NameOrID) {
-		sandbox, err = s.repo.GetSandbox(ctx, req.NameOrID)
+		sb, err = s.repo.GetSandbox(ctx, req.NameOrID)
 	}
 	if err != nil {
 		if errors.Is(err, model.ErrNotFound) {
-			return nil, fmt.Errorf("sandbox not found: %s: %w", req.NameOrID, model.ErrNotFound)
+			return "", fmt.Errorf("sandbox not found: %s: %w", req.NameOrID, model.ErrNotFound)
 		}
-		return nil, fmt.Errorf("could not get sandbox: %w", err)
+		return "", fmt.Errorf("could not get sandbox: %w", err)
 	}
 
-	if sandbox.Status != model.SandboxStatusCreated && sandbox.Status != model.SandboxStatusStopped {
-		return nil, fmt.Errorf("cannot snapshot sandbox in status %q (must be created or stopped): %w", sandbox.Status, model.ErrNotValid)
+	if sb.Status != model.SandboxStatusCreated && sb.Status != model.SandboxStatusStopped {
+		return "", fmt.Errorf("cannot snapshot sandbox in status %q (must be created or stopped): %w", sb.Status, model.ErrNotValid)
 	}
 
-	snapshotName, err := s.resolveSnapshotName(ctx, sandbox.Name, req.SnapshotName)
+	// Resolve image name.
+	imgName, err := s.resolveImageName(ctx, sb.Name, req.ImageName)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
-	snapshotID := ulid.MustNew(ulid.Timestamp(time.Now().UTC()), rand.Reader).String()
-	dstPath := filepath.Join(s.snapshotsDir, fmt.Sprintf("%s.ext4", snapshotID))
+	// Determine rootfs path (the actual VM rootfs, not base image).
+	rootfsPath := filepath.Join(s.dataDir, "vms", sb.ID, "rootfs.ext4")
 
-	virtualSize, allocatedSize, err := s.engine.CreateSnapshot(ctx, sandbox.ID, snapshotID, dstPath)
-	if err != nil {
-		return nil, fmt.Errorf("could not create engine snapshot: %w", err)
+	// Determine kernel path from sandbox config.
+	var kernelPath string
+	if sb.Config.FirecrackerEngine != nil {
+		kernelPath = sb.Config.FirecrackerEngine.KernelImage
+	}
+	if kernelPath == "" {
+		return "", fmt.Errorf("sandbox has no kernel image configured: %w", model.ErrNotValid)
 	}
 
-	now := time.Now().UTC()
-	snapshot := model.Snapshot{
-		ID:                 snapshotID,
-		Name:               snapshotName,
-		Path:               dstPath,
-		SourceSandboxID:    sandbox.ID,
-		SourceSandboxName:  sandbox.Name,
-		VirtualSizeBytes:   virtualSize,
-		AllocatedSizeBytes: allocatedSize,
-		CreatedAt:          now,
-	}
+	// Try to detect source image from kernel path.
+	sourceImage := detectSourceImage(kernelPath)
 
-	if err := s.repo.CreateSnapshot(ctx, snapshot); err != nil {
-		if rmErr := os.Remove(snapshot.Path); rmErr != nil {
-			s.logger.Warningf("could not remove snapshot file after persistence failure: %v", rmErr)
+	// Read source image manifest if available (to inherit metadata).
+	var sourceManifest *model.ImageManifest
+	var firecrackerSrc string
+	if sourceImage != "" {
+		manifest, err := s.imgMgr.GetManifest(ctx, sourceImage)
+		if err == nil {
+			sourceManifest = manifest
+			// Use the firecracker binary from the source image.
+			firecrackerSrc = s.imgMgr.FirecrackerPath(sourceImage)
 		}
-		return nil, fmt.Errorf("could not persist snapshot: %w", err)
 	}
 
-	s.logger.Infof("Created snapshot %s (%s) from sandbox %s", snapshot.Name, snapshot.ID, sandbox.ID)
+	if err := s.snapCrt.Create(ctx, image.CreateSnapshotOptions{
+		Name:              imgName,
+		KernelSrc:         kernelPath,
+		RootFSSrc:         rootfsPath,
+		FirecrackerSrc:    firecrackerSrc,
+		SourceSandboxID:   sb.ID,
+		SourceSandboxName: sb.Name,
+		SourceImage:       sourceImage,
 
-	return &snapshot, nil
+		SourceManifest: sourceManifest,
+	}); err != nil {
+		return "", fmt.Errorf("could not create image: %w", err)
+	}
+
+	s.logger.Infof("Created image %s from sandbox %s (%s)", imgName, sb.Name, sb.ID)
+	return imgName, nil
 }
 
-func makeDefaultSnapshotName(sandboxName string, now time.Time) string {
-	base := sanitizeSnapshotNamePart(sandboxName)
-	if base == "" {
-		base = "snapshot"
-	}
-
-	return fmt.Sprintf("%s-%s", base, now.UTC().Format("20060102-1504"))
-}
-
-func (s *Service) resolveSnapshotName(ctx context.Context, sandboxName, requestedName string) (string, error) {
+func (s *Service) resolveImageName(ctx context.Context, sandboxName, requestedName string) (string, error) {
 	autoName := requestedName == ""
 	name := requestedName
 	if autoName {
-		name = makeDefaultSnapshotName(sandboxName, time.Now().UTC())
+		name = makeDefaultImageName(sandboxName, time.Now().UTC())
 	}
 
-	if err := model.ValidateSnapshotName(name); err != nil {
-		return "", fmt.Errorf("invalid snapshot name: %w", err)
+	if err := model.ValidateImageName(name); err != nil {
+		return "", fmt.Errorf("invalid image name: %w", err)
 	}
 
-	_, err := s.repo.GetSnapshotByName(ctx, name)
-	if err == nil {
+	// Check if name already exists using ImageManager (local read).
+	exists, err := s.imgMgr.Exists(ctx, name)
+	if err != nil {
+		return "", fmt.Errorf("could not check image name uniqueness: %w", err)
+	}
+
+	if exists {
 		if !autoName {
-			return "", fmt.Errorf("snapshot with name %q already exists: %w", name, model.ErrAlreadyExists)
+			return "", fmt.Errorf("image with name %q already exists: %w", name, model.ErrAlreadyExists)
 		}
-
+		// Add unix timestamp suffix for auto-generated names.
 		name = fmt.Sprintf("%s-%d", name, time.Now().UTC().Unix())
-		if err := model.ValidateSnapshotName(name); err != nil {
-			return "", fmt.Errorf("invalid auto-generated snapshot name: %w", err)
+		if err := model.ValidateImageName(name); err != nil {
+			return "", fmt.Errorf("invalid auto-generated image name: %w", err)
 		}
-
-		_, err = s.repo.GetSnapshotByName(ctx, name)
-		if err == nil {
-			return "", fmt.Errorf("snapshot with name %q already exists: %w", name, model.ErrAlreadyExists)
+		exists, err = s.imgMgr.Exists(ctx, name)
+		if err != nil {
+			return "", fmt.Errorf("could not check image name uniqueness: %w", err)
 		}
-	}
-
-	if err != nil && !errors.Is(err, model.ErrNotFound) {
-		return "", fmt.Errorf("could not check snapshot name uniqueness: %w", err)
+		if exists {
+			return "", fmt.Errorf("image with name %q already exists: %w", name, model.ErrAlreadyExists)
+		}
 	}
 
 	return name, nil
 }
 
-func sanitizeSnapshotNamePart(raw string) string {
+func makeDefaultImageName(sandboxName string, now time.Time) string {
+	base := sanitizeImageNamePart(sandboxName)
+	if base == "" {
+		base = "snapshot"
+	}
+	return fmt.Sprintf("%s-%s", base, now.UTC().Format("20060102-1504"))
+}
+
+func sanitizeImageNamePart(raw string) string {
 	if raw == "" {
 		return ""
 	}
-
 	var b strings.Builder
 	b.Grow(len(raw))
-
 	for _, r := range raw {
 		switch {
 		case r >= 'a' && r <= 'z':
@@ -207,11 +214,21 @@ func sanitizeSnapshotNamePart(raw string) string {
 			b.WriteRune('-')
 		}
 	}
-
 	return strings.Trim(b.String(), "-._")
 }
 
-// looksLikeULID checks if a string looks like a ULID (26 characters, alphanumeric uppercase).
+// detectSourceImage tries to extract the image version from the kernel path.
+// E.g., /home/user/.sbx/images/v0.1.0/vmlinux-x86_64 -> "v0.1.0".
+func detectSourceImage(kernelPath string) string {
+	parts := strings.Split(filepath.ToSlash(kernelPath), "/")
+	for i, p := range parts {
+		if p == "images" && i+1 < len(parts) {
+			return parts[i+1]
+		}
+	}
+	return ""
+}
+
 func looksLikeULID(s string) bool {
 	if len(s) != 26 {
 		return false

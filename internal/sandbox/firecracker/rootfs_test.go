@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/slok/sbx/internal/log"
+	fileutil "github.com/slok/sbx/internal/utils/file"
 )
 
 func TestEngine_copyRootFSPreservesSparseAllocation(t *testing.T) {
@@ -18,7 +19,14 @@ func TestEngine_copyRootFSPreservesSparseAllocation(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	srcPath := filepath.Join(tmpDir, "src.ext4")
-	require.NoError(createSparseRootFS(srcPath, 256*1024*1024))
+	require.NoError(createSparseFile(srcPath, 256*1024*1024))
+
+	// Write some real data so the file has both data extents and holes.
+	f, err := os.OpenFile(srcPath, os.O_WRONLY, 0644)
+	require.NoError(err)
+	_, err = f.Write(make([]byte, 4096))
+	require.NoError(f.Close())
+	require.NoError(err)
 
 	vmDir := filepath.Join(tmpDir, "vm")
 	require.NoError(os.MkdirAll(vmDir, 0755))
@@ -27,7 +35,7 @@ func TestEngine_copyRootFSPreservesSparseAllocation(t *testing.T) {
 	require.NoError(e.copyRootFS(context.Background(), srcPath, vmDir))
 
 	dstPath := filepath.Join(vmDir, RootFSFile)
-	virtualSize, allocatedSize, err := snapshotSizeStats(dstPath)
+	virtualSize, allocatedSize, err := fileutil.SizeStats(dstPath)
 	require.NoError(err)
 
 	assert.Equal(int64(256*1024*1024), virtualSize)

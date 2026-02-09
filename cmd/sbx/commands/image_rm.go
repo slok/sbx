@@ -34,7 +34,7 @@ func (c ImageRmCommand) Name() string { return c.Cmd.FullCommand() }
 func (c ImageRmCommand) Run(ctx context.Context) error {
 	logger := c.rootCmd.Logger
 
-	mgr, err := newImageManager(c.imgCmd, logger)
+	mgr, err := newLocalImageManager(c.imgCmd, logger)
 	if err != nil {
 		return err
 	}

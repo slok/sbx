@@ -49,17 +49,6 @@ type listItem struct {
 	CreatedAt string `json:"created_at"`
 }
 
-// snapshotItem matches the JSON output of `sbx snapshot list --format json`.
-type snapshotItem struct {
-	ID                 string `json:"id"`
-	Name               string `json:"name"`
-	SourceSandboxID    string `json:"source_sandbox_id"`
-	SourceSandboxName  string `json:"source_sandbox_name"`
-	VirtualSizeBytes   int64  `json:"virtual_size_bytes"`
-	AllocatedSizeBytes int64  `json:"allocated_size_bytes"`
-	CreatedAt          string `json:"created_at"`
-}
-
 // statusOutput matches the JSON output of `sbx status --format json`.
 type statusOutput struct {
 	ID       string  `json:"id"`
@@ -80,24 +69,6 @@ func parseSandboxList(t *testing.T, data []byte) []listItem {
 
 // findSandboxInList finds a sandbox by name in the list output.
 func findSandboxInList(items []listItem, name string) *listItem {
-	for _, item := range items {
-		if item.Name == name {
-			return &item
-		}
-	}
-	return nil
-}
-
-// parseSnapshotList parses the JSON snapshot list output.
-func parseSnapshotList(t *testing.T, data []byte) []snapshotItem {
-	t.Helper()
-	var items []snapshotItem
-	require.NoError(t, json.Unmarshal(data, &items))
-	return items
-}
-
-// findSnapshotInList finds a snapshot by name in the list output.
-func findSnapshotInList(items []snapshotItem, name string) *snapshotItem {
 	for _, item := range items {
 		if item.Name == name {
 			return &item
@@ -295,29 +266,31 @@ func TestSnapshotLifecycle(t *testing.T) {
 	_, stderr, err := intsbx.RunCreate(ctx, config, dbPath, name)
 	require.NoError(t, err, "create failed: stderr=%s", stderr)
 
-	// 1. Create snapshot.
+	// 1. Create snapshot (now creates a local image).
 	stdout, stderr, err := intsbx.RunSnapshotCreate(ctx, config, dbPath, name, snapName)
 	require.NoError(t, err, "snapshot create failed: stdout=%s stderr=%s", stdout, stderr)
-	assert.Contains(t, string(stdout), "Snapshot created successfully")
+	assert.Contains(t, string(stdout), "Snapshot image created")
 
-	// 2. List snapshots - should contain our snapshot.
-	stdout, stderr, err = intsbx.RunSnapshotList(ctx, config, dbPath)
-	require.NoError(t, err, "snapshot list failed: stdout=%s stderr=%s", stdout, stderr)
-	snapshots := parseSnapshotList(t, stdout)
-	foundSnap := findSnapshotInList(snapshots, snapName)
-	require.NotNil(t, foundSnap, "snapshot %s not found in list", snapName)
-	assert.Equal(t, name, foundSnap.SourceSandboxName)
+	// 2. List images - should contain our snapshot image.
+	imagesDir := fmt.Sprintf("--images-dir %s", config.ImagesDir)
+	stdout, stderr, err = intsbx.RunImageList(ctx, config, dbPath, imagesDir)
+	require.NoError(t, err, "image list failed: stdout=%s stderr=%s", stdout, stderr)
+	images := parseImageList(t, stdout)
+	foundImg := findImageInList(images, snapName)
+	require.NotNil(t, foundImg, "snapshot image %s not found in list", snapName)
+	assert.Equal(t, "snapshot", foundImg.Source)
+	assert.True(t, foundImg.Installed)
 
-	// 3. Remove snapshot.
-	stdout, stderr, err = intsbx.RunSnapshotRm(ctx, config, dbPath, snapName)
-	require.NoError(t, err, "snapshot rm failed: stdout=%s stderr=%s", stdout, stderr)
+	// 3. Remove snapshot image.
+	stdout, stderr, err = intsbx.RunImageRm(ctx, config, dbPath, snapName, imagesDir)
+	require.NoError(t, err, "image rm failed: stdout=%s stderr=%s", stdout, stderr)
 
-	// 4. Verify snapshot is gone.
-	stdout, stderr, err = intsbx.RunSnapshotList(ctx, config, dbPath)
-	require.NoError(t, err, "snapshot list after rm failed: stdout=%s stderr=%s", stdout, stderr)
-	snapshots = parseSnapshotList(t, stdout)
-	foundSnap = findSnapshotInList(snapshots, snapName)
-	assert.Nil(t, foundSnap, "snapshot %s should not be in list after rm", snapName)
+	// 4. Verify snapshot image is gone.
+	stdout, stderr, err = intsbx.RunImageList(ctx, config, dbPath, imagesDir)
+	require.NoError(t, err, "image list after rm failed: stdout=%s stderr=%s", stdout, stderr)
+	images = parseImageList(t, stdout)
+	foundImg = findImageInList(images, snapName)
+	assert.Nil(t, foundImg, "snapshot image %s should not be in list after rm", snapName)
 
 	// 5. Clean up the sandbox.
 	_, _, _ = intsbx.RunRm(ctx, config, dbPath, name)
@@ -543,23 +516,22 @@ func TestCreateFromSnapshot(t *testing.T) {
 	_, stderr, err = intsbx.RunStop(ctx, config, dbPath, srcName)
 	require.NoError(t, err, "stop source failed: stderr=%s", stderr)
 
-	// Create snapshot from source.
+	// Create snapshot from source (creates a local image).
 	stdout, stderr, err = intsbx.RunSnapshotCreate(ctx, config, dbPath, srcName, snapName)
 	require.NoError(t, err, "snapshot create failed: stdout=%s stderr=%s", stdout, stderr)
-	// Register cleanup for the snapshot.
+	// Register cleanup for the snapshot image.
+	imagesDir := fmt.Sprintf("--images-dir %s", config.ImagesDir)
 	t.Cleanup(func() {
 		cleanCtx, cleanCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cleanCancel()
-		_, _, _ = intsbx.RunSnapshotRm(cleanCtx, config, dbPath, snapName)
+		_, _, _ = intsbx.RunImageRm(cleanCtx, config, dbPath, snapName, imagesDir)
 	})
 
-	// Create new sandbox from snapshot. --from-snapshot conflicts with --from-image,
-	// so we pass explicit kernel path from the pulled image directory.
-	kernelPath := filepath.Join(config.ImagesDir, config.ImageVersion, "vmlinux-x86_64")
-	args := fmt.Sprintf("create --name %s --engine firecracker --from-snapshot %s --firecracker-kernel %s --cpu 1 --mem 512 --disk 2",
-		dstName, snapName, kernelPath)
+	// Create new sandbox from snapshot image using --from-image.
+	args := fmt.Sprintf("create --name %s --engine firecracker --from-image %s --images-dir %s --cpu 1 --mem 512 --disk 2",
+		dstName, snapName, config.ImagesDir)
 	stdout, stderr, err = intsbx.RunSBXCmd(ctx, config, dbPath, args)
-	require.NoError(t, err, "create from snapshot failed: stdout=%s stderr=%s", stdout, stderr)
+	require.NoError(t, err, "create from snapshot image failed: stdout=%s stderr=%s", stdout, stderr)
 	assert.Contains(t, string(stdout), "Sandbox created successfully")
 
 	// Start the new sandbox.

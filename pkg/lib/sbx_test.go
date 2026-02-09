@@ -34,6 +34,36 @@ func newTestClient(t *testing.T) *lib.Client {
 	return client
 }
 
+// testClientWithDataDir holds a test client and its associated data directory
+// so tests that need to create real files (e.g., snapshot tests) can access it.
+type testClientWithDataDir struct {
+	Client  *lib.Client
+	DataDir string
+}
+
+// newTestClientWithDataDir creates a client like newTestClient but also returns
+// the data directory for tests that need to create real files.
+func newTestClientWithDataDir(t *testing.T) testClientWithDataDir {
+	t.Helper()
+
+	dataDir := t.TempDir()
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	ctx := context.Background()
+
+	client, err := lib.New(ctx, lib.Config{
+		DBPath:  dbPath,
+		DataDir: dataDir,
+		Engine:  lib.EngineFake,
+	})
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		_ = client.Close()
+	})
+
+	return testClientWithDataDir{Client: client, DataDir: dataDir}
+}
+
 func TestCreateSandbox(t *testing.T) {
 	tests := map[string]struct {
 		opts   lib.CreateSandboxOpts
@@ -801,51 +831,67 @@ func TestCopyToSourceValidation(t *testing.T) {
 	assert.True(errors.Is(err, lib.ErrNotValid), "expected ErrNotValid, got: %v", err)
 }
 
-func TestCreateSnapshot(t *testing.T) {
+func TestCreateImageFromSandbox(t *testing.T) {
+	// createSandboxWithFiles creates a sandbox and the real kernel/rootfs files that
+	// the snapshotcreate service expects to find on disk.
+	createSandboxWithFiles := func(t *testing.T, tc testClientWithDataDir, name string) string {
+		t.Helper()
+
+		// Create a real temp kernel file.
+		kernelPath := filepath.Join(tc.DataDir, "fake-vmlinux")
+		require.NoError(t, os.WriteFile(kernelPath, []byte("fake-kernel"), 0644))
+
+		sb, err := tc.Client.CreateSandbox(context.Background(), lib.CreateSandboxOpts{
+			Name:   name,
+			Engine: lib.EngineFake,
+			Firecracker: &lib.FirecrackerConfig{
+				RootFS:      "/unused/rootfs.ext4",
+				KernelImage: kernelPath,
+			},
+			Resources: lib.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
+		})
+		require.NoError(t, err)
+
+		// Create the rootfs file at the path snapshotcreate expects: {dataDir}/vms/{id}/rootfs.ext4.
+		vmDir := filepath.Join(tc.DataDir, "vms", sb.ID)
+		require.NoError(t, os.MkdirAll(vmDir, 0755))
+		require.NoError(t, os.WriteFile(filepath.Join(vmDir, "rootfs.ext4"), []byte("fake-rootfs"), 0644))
+
+		return sb.Name
+	}
+
 	tests := map[string]struct {
-		setup  func(t *testing.T, c *lib.Client) string
-		opts   *lib.CreateSnapshotOpts
+		setup  func(t *testing.T, tc testClientWithDataDir) string
+		opts   *lib.CreateImageFromSandboxOpts
 		expErr bool
 		expIs  error
 	}{
-		"Creating a snapshot of a created sandbox should work.": {
-			setup: func(t *testing.T, c *lib.Client) string {
+		"Creating an image from a created sandbox should work.": {
+			setup: func(t *testing.T, tc testClientWithDataDir) string {
 				t.Helper()
-				sb, err := c.CreateSandbox(context.Background(), lib.CreateSandboxOpts{
-					Name:      "snap-created",
-					Engine:    lib.EngineFake,
-					Resources: lib.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
-				})
-				require.NoError(t, err)
-				return sb.Name
+				return createSandboxWithFiles(t, tc, "snap-created")
 			},
 		},
 
-		"Creating a snapshot with a custom name should work.": {
-			setup: func(t *testing.T, c *lib.Client) string {
+		"Creating an image with a custom name should work.": {
+			setup: func(t *testing.T, tc testClientWithDataDir) string {
 				t.Helper()
-				sb, err := c.CreateSandbox(context.Background(), lib.CreateSandboxOpts{
-					Name:      "snap-named",
-					Engine:    lib.EngineFake,
-					Resources: lib.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
-				})
-				require.NoError(t, err)
-				return sb.Name
+				return createSandboxWithFiles(t, tc, "snap-named")
 			},
-			opts: &lib.CreateSnapshotOpts{SnapshotName: "my-snapshot"},
+			opts: &lib.CreateImageFromSandboxOpts{ImageName: "my-snapshot"},
 		},
 
-		"Creating a snapshot of a running sandbox should fail.": {
-			setup: func(t *testing.T, c *lib.Client) string {
+		"Creating an image from a running sandbox should fail.": {
+			setup: func(t *testing.T, tc testClientWithDataDir) string {
 				t.Helper()
 				ctx := context.Background()
-				sb, err := c.CreateSandbox(ctx, lib.CreateSandboxOpts{
+				sb, err := tc.Client.CreateSandbox(ctx, lib.CreateSandboxOpts{
 					Name:      "snap-running",
 					Engine:    lib.EngineFake,
 					Resources: lib.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
 				})
 				require.NoError(t, err)
-				_, err = c.StartSandbox(ctx, sb.Name, nil)
+				_, err = tc.Client.StartSandbox(ctx, sb.Name, nil)
 				require.NoError(t, err)
 				return sb.Name
 			},
@@ -853,8 +899,8 @@ func TestCreateSnapshot(t *testing.T) {
 			expIs:  lib.ErrNotValid,
 		},
 
-		"Creating a snapshot of a non-existent sandbox should fail.": {
-			setup: func(t *testing.T, c *lib.Client) string {
+		"Creating an image from a non-existent sandbox should fail.": {
+			setup: func(t *testing.T, tc testClientWithDataDir) string {
 				return "ghost"
 			},
 			expErr: true,
@@ -865,96 +911,10 @@ func TestCreateSnapshot(t *testing.T) {
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			assert := assert.New(t)
-			client := newTestClient(t)
-			nameOrID := test.setup(t, client)
+			tc := newTestClientWithDataDir(t)
+			nameOrID := test.setup(t, tc)
 
-			snap, err := client.CreateSnapshot(context.Background(), nameOrID, test.opts)
-
-			if test.expErr {
-				assert.Error(err)
-				if test.expIs != nil {
-					assert.True(errors.Is(err, test.expIs), "expected error %v, got: %v", test.expIs, err)
-				}
-				return
-			}
-
-			assert.NoError(err)
-			assert.NotEmpty(snap.ID)
-			assert.NotEmpty(snap.Name)
-			assert.False(snap.CreatedAt.IsZero())
-		})
-	}
-}
-
-func TestListSnapshots(t *testing.T) {
-	assert := assert.New(t)
-	require := require.New(t)
-	client := newTestClient(t)
-	ctx := context.Background()
-
-	// Initially empty.
-	snaps, err := client.ListSnapshots(ctx)
-	require.NoError(err)
-	assert.Len(snaps, 0)
-
-	// Create sandbox + snapshot.
-	_, err = client.CreateSandbox(ctx, lib.CreateSandboxOpts{
-		Name:      "list-snap",
-		Engine:    lib.EngineFake,
-		Resources: lib.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
-	})
-	require.NoError(err)
-
-	_, err = client.CreateSnapshot(ctx, "list-snap", &lib.CreateSnapshotOpts{SnapshotName: "snap-1"})
-	require.NoError(err)
-
-	_, err = client.CreateSnapshot(ctx, "list-snap", &lib.CreateSnapshotOpts{SnapshotName: "snap-2"})
-	require.NoError(err)
-
-	// Should have 2.
-	snaps, err = client.ListSnapshots(ctx)
-	require.NoError(err)
-	assert.Len(snaps, 2)
-}
-
-func TestRemoveSnapshot(t *testing.T) {
-	tests := map[string]struct {
-		setup  func(t *testing.T, c *lib.Client) string // returns snapshot nameOrID to remove
-		expErr bool
-		expIs  error
-	}{
-		"Removing a snapshot by name should work.": {
-			setup: func(t *testing.T, c *lib.Client) string {
-				t.Helper()
-				ctx := context.Background()
-				_, err := c.CreateSandbox(ctx, lib.CreateSandboxOpts{
-					Name:      "rm-snap",
-					Engine:    lib.EngineFake,
-					Resources: lib.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
-				})
-				require.NoError(t, err)
-				snap, err := c.CreateSnapshot(ctx, "rm-snap", &lib.CreateSnapshotOpts{SnapshotName: "to-remove"})
-				require.NoError(t, err)
-				return snap.Name
-			},
-		},
-
-		"Removing a non-existent snapshot should fail.": {
-			setup: func(t *testing.T, c *lib.Client) string {
-				return "ghost-snapshot"
-			},
-			expErr: true,
-			expIs:  lib.ErrNotFound,
-		},
-	}
-
-	for name, test := range tests {
-		t.Run(name, func(t *testing.T) {
-			assert := assert.New(t)
-			client := newTestClient(t)
-			nameOrID := test.setup(t, client)
-
-			snap, err := client.RemoveSnapshot(context.Background(), nameOrID)
+			imgName, err := tc.Client.CreateImageFromSandbox(context.Background(), nameOrID, test.opts)
 
 			if test.expErr {
 				assert.Error(err)
@@ -965,53 +925,9 @@ func TestRemoveSnapshot(t *testing.T) {
 			}
 
 			assert.NoError(err)
-			assert.NotEmpty(snap.ID)
-
-			// Verify snapshot is gone.
-			snaps, err := client.ListSnapshots(context.Background())
-			assert.NoError(err)
-			assert.Len(snaps, 0)
+			assert.NotEmpty(imgName)
 		})
 	}
-}
-
-func TestSnapshotLifecycle(t *testing.T) {
-	assert := assert.New(t)
-	require := require.New(t)
-	client := newTestClient(t)
-	ctx := context.Background()
-
-	// Create a sandbox.
-	_, err := client.CreateSandbox(ctx, lib.CreateSandboxOpts{
-		Name:      "snap-lifecycle",
-		Engine:    lib.EngineFake,
-		Resources: lib.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 5},
-	})
-	require.NoError(err)
-
-	// Create snapshot.
-	snap, err := client.CreateSnapshot(ctx, "snap-lifecycle", &lib.CreateSnapshotOpts{
-		SnapshotName: "my-snap",
-	})
-	require.NoError(err)
-	assert.Equal("my-snap", snap.Name)
-	assert.NotEmpty(snap.ID)
-
-	// List should have 1.
-	snaps, err := client.ListSnapshots(ctx)
-	require.NoError(err)
-	assert.Len(snaps, 1)
-	assert.Equal("my-snap", snaps[0].Name)
-
-	// Remove.
-	removed, err := client.RemoveSnapshot(ctx, "my-snap")
-	require.NoError(err)
-	assert.Equal(snap.ID, removed.ID)
-
-	// List should be empty.
-	snaps, err = client.ListSnapshots(ctx)
-	require.NoError(err)
-	assert.Len(snaps, 0)
 }
 
 func TestForward(t *testing.T) {

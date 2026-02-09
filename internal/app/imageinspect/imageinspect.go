@@ -25,7 +25,7 @@ func (c *ServiceConfig) defaults() error {
 	return nil
 }
 
-// Service handles inspecting image release manifests.
+// Service handles inspecting image manifests.
 type Service struct {
 	manager image.ImageManager
 	logger  log.Logger
@@ -36,7 +36,10 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 	if err := cfg.defaults(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
-	return &Service{manager: cfg.Manager, logger: cfg.Logger}, nil
+	return &Service{
+		manager: cfg.Manager,
+		logger:  cfg.Logger,
+	}, nil
 }
 
 // Request is the inspect request parameters.
@@ -44,7 +47,7 @@ type Request struct {
 	Version string
 }
 
-// Run retrieves the manifest for an image release.
+// Run retrieves the manifest for a locally installed image.
 func (s *Service) Run(ctx context.Context, req Request) (*model.ImageManifest, error) {
 	manifest, err := s.manager.GetManifest(ctx, req.Version)
 	if err != nil {

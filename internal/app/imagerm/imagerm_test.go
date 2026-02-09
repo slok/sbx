@@ -19,10 +19,15 @@ func TestServiceRun(t *testing.T) {
 		mockErr error
 		expErr  bool
 	}{
-		"successful remove": {
+		"Removing an installed image should succeed.": {
 			version: "v0.1.0",
 		},
-		"error from manager": {
+
+		"Removing a snapshot image should succeed.": {
+			version: "my-snap",
+		},
+
+		"An error from the image manager should propagate.": {
 			version: "v0.1.0",
 			mockErr: fmt.Errorf("not installed"),
 			expErr:  true,

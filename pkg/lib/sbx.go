@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/slok/sbx/internal/image"
 	"github.com/slok/sbx/internal/log"
 	"github.com/slok/sbx/internal/model"
 	"github.com/slok/sbx/internal/sandbox"
@@ -166,13 +167,13 @@ func (c *Client) newEngine(cfg model.SandboxConfig) (sandbox.Engine, error) {
 	}
 }
 
-// newEngineForCreate creates the engine for sandbox creation.
-func (c *Client) newEngineForCreate(engineType EngineType) (sandbox.Engine, error) {
+// newEngineForCreateWithBinary creates the engine for sandbox creation with a specific firecracker binary.
+func (c *Client) newEngineForCreateWithBinary(engineType EngineType, firecrackerBinary string) (sandbox.Engine, error) {
 	switch engineType {
 	case EngineFirecracker:
 		return firecracker.NewEngine(firecracker.EngineConfig{
 			DataDir:           c.dataDir,
-			FirecrackerBinary: c.firecrackerBinary,
+			FirecrackerBinary: firecrackerBinary,
 			Repository:        c.repo,
 			Logger:            c.logger,
 		})
@@ -206,6 +207,31 @@ func (c *Client) Doctor(ctx context.Context) ([]CheckResult, error) {
 
 	results := eng.Check(ctx)
 	return fromInternalCheckResults(results), nil
+}
+
+// newLocalImageManager creates a local image manager for image operations.
+func (c *Client) newLocalImageManager() (image.ImageManager, error) {
+	return image.NewLocalImageManager(image.LocalImageManagerConfig{
+		ImagesDir: c.imagesDir,
+		Logger:    c.logger,
+	})
+}
+
+// newImagePuller creates a GitHub image puller for remote image operations.
+func (c *Client) newImagePuller() (image.ImagePuller, error) {
+	return image.NewGitHubImagePuller(image.GitHubImagePullerConfig{
+		Repo:      c.imageRepo,
+		ImagesDir: c.imagesDir,
+		Logger:    c.logger,
+	})
+}
+
+// newSnapshotCreator creates a local snapshot creator for snapshot operations.
+func (c *Client) newSnapshotCreator() (image.SnapshotCreator, error) {
+	return image.NewLocalSnapshotCreator(image.LocalSnapshotCreatorConfig{
+		ImagesDir: c.imagesDir,
+		Logger:    c.logger,
+	})
 }
 
 // resolveEngineType determines which engine to use for a sandbox.

@@ -22,7 +22,7 @@ func TestServiceRun(t *testing.T) {
 		expManifest *model.ImageManifest
 		expErr      bool
 	}{
-		"successful inspect": {
+		"Inspecting a local release image should return its manifest.": {
 			version: "v0.1.0",
 			mockResult: &model.ImageManifest{
 				Version: "v0.1.0",
@@ -37,7 +37,24 @@ func TestServiceRun(t *testing.T) {
 				},
 			},
 		},
-		"error from manager": {
+
+		"Inspecting a local snapshot image should return its manifest.": {
+			version: "my-snap",
+			mockResult: &model.ImageManifest{
+				Version: "my-snap",
+				Snapshot: &model.SnapshotInfo{
+					SourceSandboxName: "test-sb",
+				},
+			},
+			expManifest: &model.ImageManifest{
+				Version: "my-snap",
+				Snapshot: &model.SnapshotInfo{
+					SourceSandboxName: "test-sb",
+				},
+			},
+		},
+
+		"An error from the image manager should propagate.": {
 			version: "v99.0.0",
 			mockErr: fmt.Errorf("not found"),
 			expErr:  true,

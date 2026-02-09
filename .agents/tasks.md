@@ -204,7 +204,7 @@ When stopping, provide:
   - 13 unit tests covering resize, validation, and error cases
   - No integration tests (unit tests only as requested)
 
-- **Task 0011**: Image Management Rework - In progress
+- **Task 0011**: Image Management Rework (PR #30) - Merged on 2026-02-08
   - Complete rewrite of image management from file-based to release-centric versioned bundles
   - Companion repo `slok/sbx-images` builds and publishes kernel+rootfs as GitHub Releases
   - `ImageManager` interface with GitHub implementation (`internal/image/`)
@@ -214,3 +214,25 @@ When stopping, provide:
   - Printer support: `PrintImageList` and `PrintImageInspect` in table and JSON formats
   - Firecracker binary downloaded from upstream during pull (not bundled in sbx-images)
   - Local storage: `~/.sbx/images/{version}/` with kernel, rootfs, and firecracker binary
+
+- **Task 0012**: SDK Complete Feature Parity (PR #31 + PR #32) - Merged on 2026-02-08
+  - PR #31: Core SDK (`pkg/lib`) with `Client`, lifecycle (create/start/stop/remove/list/get), exec, copy
+  - PR #32: Full feature parity — snapshots, images, forward, doctor
+  - New SDK methods: `CreateSnapshot`, `ListSnapshots`, `RemoveSnapshot`, `ListImages`, `PullImage`, `InspectImage`, `RemoveImage`, `Forward`, `Doctor`
+  - `CreateSandboxOpts.FromSnapshot` for creating sandboxes from snapshots
+  - Config fields: `ImagesDir`, `ImageRepo`, `FirecrackerBinary` for full control
+  - `SnapshotsDir` support in `snapshotcreate` service to avoid hardcoded `~/.sbx/snapshots/` (fixes CI permission issue)
+  - Unit tests: 13 new tests (snapshot CRUD, forward validation, doctor, CopyTo source validation)
+  - Integration tests: 4 new Firecracker tests (snapshot lifecycle with create-from-snapshot, image lifecycle, port forward with netcat, doctor checks)
+  - Updated `doc.go` with all features documented
+
+- **Task 0013**: Merge Snapshots into Images - Pending PR on 2026-02-09
+  - Merged the "snapshot" concept into the "image" system for unified UX
+  - `sbx snapshot` is now a top-level verb that creates a local image (kernel + rootfs + manifest.json)
+  - Removed `sbx snapshot list`, `sbx snapshot rm`, `--from-snapshot` — `sbx image list/rm` and `--from-image` handle both
+  - Dropped DB snapshots table (migration 000004), all image metadata as filesystem manifest.json
+  - Image listing shows `SOURCE` column (release/snapshot), snapshot manifests record lineage
+  - Deleted old services: `snapshotcreate`, `snapshotlist`, `snapshotremove`; new: `imagecreate`
+  - Removed `CreateSnapshot` from Engine interface, moved sparse copy to `firecracker/sparse.go`
+  - SDK: replaced `CreateSnapshot/ListSnapshots/RemoveSnapshot` with `CreateImageFromSandbox`
+  - All unit and integration tests rewritten for new API, build and tests pass

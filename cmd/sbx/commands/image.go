@@ -33,16 +33,28 @@ func NewImageCommand(app *kingpin.Application) *ImageCommand {
 	return c
 }
 
-// newImageManager creates a GitHubImageManager from the image command config.
-func newImageManager(imgCmd *ImageCommand, logger log.Logger) (image.ImageManager, error) {
-	mgr, err := image.NewGitHubImageManager(image.GitHubImageManagerConfig{
+// newLocalImageManager creates a LocalImageManager for local image operations.
+func newLocalImageManager(imgCmd *ImageCommand, logger log.Logger) (image.ImageManager, error) {
+	mgr, err := image.NewLocalImageManager(image.LocalImageManagerConfig{
+		ImagesDir: imgCmd.imagesDir,
+		Logger:    logger,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("could not create local image manager: %w", err)
+	}
+	return mgr, nil
+}
+
+// newImagePuller creates a GitHubImagePuller for remote image operations.
+func newImagePuller(imgCmd *ImageCommand, logger log.Logger) (image.ImagePuller, error) {
+	p, err := image.NewGitHubImagePuller(image.GitHubImagePullerConfig{
 		Repo:       imgCmd.repo,
 		ImagesDir:  imgCmd.imagesDir,
 		HTTPClient: http.DefaultClient,
 		Logger:     logger,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("could not create image manager: %w", err)
+		return nil, fmt.Errorf("could not create image puller: %w", err)
 	}
-	return mgr, nil
+	return p, nil
 }

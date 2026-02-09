@@ -2,12 +2,16 @@ package firecracker
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
+
+	fileutil "github.com/slok/sbx/internal/utils/file"
 )
 
 const (
@@ -35,18 +39,21 @@ func (e *Engine) copyRootFS(ctx context.Context, srcPath, vmDir string) error {
 	}
 	defer dst.Close()
 
-	copyErr := copyFileSparse(ctx, src, dst)
+	copyErr := fileutil.CopyFileSparse(ctx, src, dst)
 	if copyErr != nil {
-		if isSeekDataUnsupported(copyErr) {
-			if _, err := src.Seek(0, 0); err != nil {
+		if errors.Is(copyErr, fileutil.ErrSparseUnsupported) {
+			if _, err := src.Seek(0, io.SeekStart); err != nil {
 				return fmt.Errorf("could not seek source file before fallback copy: %w", err)
 			}
-			if _, err := dst.Seek(0, 0); err != nil {
+			if err := dst.Truncate(0); err != nil {
+				return fmt.Errorf("could not truncate destination before fallback copy: %w", err)
+			}
+			if _, err := dst.Seek(0, io.SeekStart); err != nil {
 				return fmt.Errorf("could not seek destination file before fallback copy: %w", err)
 			}
 
 			e.logger.Debugf("Sparse copy unsupported by filesystem/kernel while copying rootfs, using regular copy fallback")
-			if err := copyFileRegular(ctx, src, dst); err != nil {
+			if _, err := io.Copy(dst, src); err != nil {
 				return fmt.Errorf("could not copy rootfs: %w", err)
 			}
 		} else {

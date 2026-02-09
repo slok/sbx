@@ -16,37 +16,92 @@ import (
 
 func TestServiceRun(t *testing.T) {
 	tests := map[string]struct {
-		mockReleases []model.ImageRelease
-		mockErr      error
-		expReleases  []model.ImageRelease
-		expErr       bool
+		mockLocal   func(m *imagemock.MockImageManager)
+		mockPuller  func(m *imagemock.MockImagePuller)
+		usePuller   bool
+		expReleases []model.ImageRelease
+		expErr      bool
 	}{
-		"successful list": {
-			mockReleases: []model.ImageRelease{
-				{Version: "v0.2.0", Installed: false},
-				{Version: "v0.1.0", Installed: true},
+		"Listing local images without puller should return only local images.": {
+			mockLocal: func(m *imagemock.MockImageManager) {
+				m.On("List", mock.Anything).Return([]model.ImageRelease{
+					{Version: "v0.1.0", Installed: true, Source: model.ImageSourceRelease},
+					{Version: "my-snap", Installed: true, Source: model.ImageSourceSnapshot},
+				}, nil)
 			},
 			expReleases: []model.ImageRelease{
-				{Version: "v0.2.0", Installed: false},
-				{Version: "v0.1.0", Installed: true},
+				{Version: "v0.1.0", Installed: true, Source: model.ImageSourceRelease},
+				{Version: "my-snap", Installed: true, Source: model.ImageSourceSnapshot},
 			},
 		},
-		"empty list": {
-			mockReleases: []model.ImageRelease{},
-			expReleases:  []model.ImageRelease{},
+
+		"Listing with puller should merge local and remote images.": {
+			usePuller: true,
+			mockLocal: func(m *imagemock.MockImageManager) {
+				m.On("List", mock.Anything).Return([]model.ImageRelease{
+					{Version: "v0.1.0", Installed: true, Source: model.ImageSourceRelease},
+				}, nil)
+			},
+			mockPuller: func(m *imagemock.MockImagePuller) {
+				m.On("ListRemote", mock.Anything).Return([]model.ImageRelease{
+					{Version: "v0.2.0", Source: model.ImageSourceRelease},
+					{Version: "v0.1.0", Source: model.ImageSourceRelease},
+				}, nil)
+			},
+			expReleases: []model.ImageRelease{
+				{Version: "v0.1.0", Installed: true, Source: model.ImageSourceRelease},
+				{Version: "v0.2.0", Source: model.ImageSourceRelease},
+			},
 		},
-		"error from manager": {
-			mockErr: fmt.Errorf("API error"),
-			expErr:  true,
+
+		"An error from the local image manager should propagate.": {
+			mockLocal: func(m *imagemock.MockImageManager) {
+				m.On("List", mock.Anything).Return(nil, fmt.Errorf("disk error"))
+			},
+			expErr: true,
+		},
+
+		"An error from the puller should propagate.": {
+			usePuller: true,
+			mockLocal: func(m *imagemock.MockImageManager) {
+				m.On("List", mock.Anything).Return([]model.ImageRelease{}, nil)
+			},
+			mockPuller: func(m *imagemock.MockImagePuller) {
+				m.On("ListRemote", mock.Anything).Return(nil, fmt.Errorf("API error"))
+			},
+			expErr: true,
+		},
+
+		"Listing with empty local and empty remote should return empty.": {
+			usePuller: true,
+			mockLocal: func(m *imagemock.MockImageManager) {
+				m.On("List", mock.Anything).Return([]model.ImageRelease{}, nil)
+			},
+			mockPuller: func(m *imagemock.MockImagePuller) {
+				m.On("ListRemote", mock.Anything).Return([]model.ImageRelease{}, nil)
+			},
+			expReleases: []model.ImageRelease{},
 		},
 	}
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			mgr := imagemock.NewMockImageManager(t)
-			mgr.On("ListReleases", mock.Anything).Return(tc.mockReleases, tc.mockErr)
+			if tc.mockLocal != nil {
+				tc.mockLocal(mgr)
+			}
 
-			svc, err := imagelist.NewService(imagelist.ServiceConfig{Manager: mgr})
+			cfg := imagelist.ServiceConfig{Manager: mgr}
+
+			if tc.usePuller {
+				puller := imagemock.NewMockImagePuller(t)
+				if tc.mockPuller != nil {
+					tc.mockPuller(puller)
+				}
+				cfg.Puller = puller
+			}
+
+			svc, err := imagelist.NewService(cfg)
 			require.NoError(t, err)
 
 			got, err := svc.Run(context.Background())

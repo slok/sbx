@@ -24,7 +24,7 @@ func (c *ServiceConfig) defaults() error {
 	return nil
 }
 
-// Service handles removing image releases.
+// Service handles removing installed images.
 type Service struct {
 	manager image.ImageManager
 	logger  log.Logger
@@ -35,7 +35,10 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 	if err := cfg.defaults(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
-	return &Service{manager: cfg.Manager, logger: cfg.Logger}, nil
+	return &Service{
+		manager: cfg.Manager,
+		logger:  cfg.Logger,
+	}, nil
 }
 
 // Request is the remove request parameters.
@@ -43,7 +46,7 @@ type Request struct {
 	Version string
 }
 
-// Run removes an installed image.
+// Run removes a locally installed image.
 func (s *Service) Run(ctx context.Context, req Request) error {
 	if err := s.manager.Remove(ctx, req.Version); err != nil {
 		return fmt.Errorf("removing image %s: %w", req.Version, err)

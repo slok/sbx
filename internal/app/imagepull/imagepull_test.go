@@ -22,7 +22,7 @@ func TestServiceRun(t *testing.T) {
 		expResult  *image.PullResult
 		expErr     bool
 	}{
-		"successful pull": {
+		"Successful pull should return result.": {
 			req: imagepull.Request{Version: "v0.1.0"},
 			mockResult: &image.PullResult{
 				Version: "v0.1.0", KernelPath: "/k", RootFSPath: "/r", FirecrackerPath: "/f",
@@ -31,12 +31,12 @@ func TestServiceRun(t *testing.T) {
 				Version: "v0.1.0", KernelPath: "/k", RootFSPath: "/r", FirecrackerPath: "/f",
 			},
 		},
-		"skipped pull": {
+		"Skipped pull should return skipped result.": {
 			req:        imagepull.Request{Version: "v0.1.0"},
 			mockResult: &image.PullResult{Version: "v0.1.0", Skipped: true},
 			expResult:  &image.PullResult{Version: "v0.1.0", Skipped: true},
 		},
-		"pull with force": {
+		"Pull with force should pass force option.": {
 			req: imagepull.Request{Version: "v0.1.0", Force: true},
 			mockResult: &image.PullResult{
 				Version: "v0.1.0", KernelPath: "/k", RootFSPath: "/r", FirecrackerPath: "/f",
@@ -45,7 +45,7 @@ func TestServiceRun(t *testing.T) {
 				Version: "v0.1.0", KernelPath: "/k", RootFSPath: "/r", FirecrackerPath: "/f",
 			},
 		},
-		"error from manager": {
+		"Error from puller should propagate.": {
 			req:     imagepull.Request{Version: "v0.1.0"},
 			mockErr: fmt.Errorf("download error"),
 			expErr:  true,
@@ -54,10 +54,10 @@ func TestServiceRun(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			mgr := imagemock.NewMockImageManager(t)
-			mgr.On("Pull", mock.Anything, tc.req.Version, mock.Anything).Return(tc.mockResult, tc.mockErr)
+			puller := imagemock.NewMockImagePuller(t)
+			puller.On("Pull", mock.Anything, tc.req.Version, mock.Anything).Return(tc.mockResult, tc.mockErr)
 
-			svc, err := imagepull.NewService(imagepull.ServiceConfig{Manager: mgr})
+			svc, err := imagepull.NewService(imagepull.ServiceConfig{Puller: puller})
 			require.NoError(t, err)
 
 			got, err := svc.Run(context.Background(), tc.req)

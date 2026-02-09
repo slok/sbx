@@ -238,7 +238,7 @@ func TestSDKSnapshotLifecycle(t *testing.T) {
 	t.Cleanup(func() {
 		cleanCtx, cleanCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cleanCancel()
-		_, _ = client.RemoveSnapshot(cleanCtx, snapName)
+		_ = client.RemoveImage(cleanCtx, snapName)
 	})
 
 	// Create source sandbox, start, write marker, stop.
@@ -267,38 +267,34 @@ func TestSDKSnapshotLifecycle(t *testing.T) {
 	_, err = client.StopSandbox(ctx, srcName)
 	require.NoError(t, err)
 
-	// Create snapshot.
-	snap, err := client.CreateSnapshot(ctx, srcName, &sdklib.CreateSnapshotOpts{
-		SnapshotName: snapName,
+	// Create snapshot image.
+	imgName, err := client.CreateImageFromSandbox(ctx, srcName, &sdklib.CreateImageFromSandboxOpts{
+		ImageName: snapName,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, snapName, snap.Name)
-	assert.NotEmpty(t, snap.ID)
-	assert.NotEmpty(t, snap.Path)
+	assert.Equal(t, snapName, imgName)
 
-	// List snapshots.
-	snaps, err := client.ListSnapshots(ctx)
+	// List images should include the snapshot.
+	images, err := client.ListImages(ctx)
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(snaps), 1)
 
 	found := false
-	for _, s := range snaps {
-		if s.Name == snapName {
+	for _, img := range images {
+		if img.Version == snapName {
 			found = true
+			assert.True(t, img.Installed)
+			assert.Equal(t, sdklib.ImageSourceSnapshot, img.Source)
 			break
 		}
 	}
-	assert.True(t, found, "snapshot %q should be in the list", snapName)
+	assert.True(t, found, "snapshot image %q should be in the list", snapName)
 
-	// Create new sandbox from snapshot.
+	// Create new sandbox from snapshot image.
 	_, err = client.CreateSandbox(ctx, sdklib.CreateSandboxOpts{
-		Name:   dstName,
-		Engine: sdklib.EngineFirecracker,
-		Firecracker: &sdklib.FirecrackerConfig{
-			KernelImage: config.KernelPath(),
-		},
-		Resources:    sdklib.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 2},
-		FromSnapshot: snapName,
+		Name:      dstName,
+		Engine:    sdklib.EngineFirecracker,
+		FromImage: snapName,
+		Resources: sdklib.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 2},
 	})
 	require.NoError(t, err)
 
@@ -314,16 +310,15 @@ func TestSDKSnapshotLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "snapshot-marker", strings.TrimSpace(stdout.String()))
 
-	// Remove snapshot.
-	removed, err := client.RemoveSnapshot(ctx, snapName)
+	// Remove snapshot image.
+	err = client.RemoveImage(ctx, snapName)
 	require.NoError(t, err)
-	assert.Equal(t, snap.ID, removed.ID)
 
-	// List should show one less (or empty).
-	snaps, err = client.ListSnapshots(ctx)
+	// List images should not include the snapshot anymore.
+	images, err = client.ListImages(ctx)
 	require.NoError(t, err)
-	for _, s := range snaps {
-		assert.NotEqual(t, snapName, s.Name, "removed snapshot should not appear in list")
+	for _, img := range images {
+		assert.NotEqual(t, snapName, img.Version, "removed snapshot should not appear in list")
 	}
 }
 

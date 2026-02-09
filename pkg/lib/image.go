@@ -8,21 +8,26 @@ import (
 	"github.com/slok/sbx/internal/app/imagelist"
 	"github.com/slok/sbx/internal/app/imagepull"
 	"github.com/slok/sbx/internal/app/imagerm"
-	"github.com/slok/sbx/internal/image"
 )
 
-// ListImages returns available image releases from the registry.
+// ListImages returns available image releases from the registry and local images.
 //
 // Each release indicates whether it is installed locally. Use [Client.PullImage]
 // to download a release.
 func (c *Client) ListImages(ctx context.Context) ([]ImageRelease, error) {
-	mgr, err := c.newImageManager()
+	mgr, err := c.newLocalImageManager()
 	if err != nil {
 		return nil, fmt.Errorf("could not create image manager: %w", err)
 	}
 
+	puller, err := c.newImagePuller()
+	if err != nil {
+		return nil, fmt.Errorf("could not create image puller: %w", err)
+	}
+
 	svc, err := imagelist.NewService(imagelist.ServiceConfig{
 		Manager: mgr,
+		Puller:  puller,
 		Logger:  c.logger,
 	})
 	if err != nil {
@@ -44,14 +49,14 @@ func (c *Client) ListImages(ctx context.Context) ([]ImageRelease, error) {
 //
 // The returned [PullResult] contains local paths to the downloaded artifacts.
 func (c *Client) PullImage(ctx context.Context, version string, opts *PullImageOpts) (*PullResult, error) {
-	mgr, err := c.newImageManager()
+	puller, err := c.newImagePuller()
 	if err != nil {
-		return nil, fmt.Errorf("could not create image manager: %w", err)
+		return nil, fmt.Errorf("could not create image puller: %w", err)
 	}
 
 	svc, err := imagepull.NewService(imagepull.ServiceConfig{
-		Manager: mgr,
-		Logger:  c.logger,
+		Puller: puller,
+		Logger: c.logger,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("could not create service: %w", err)
@@ -79,12 +84,12 @@ func (c *Client) PullImage(ctx context.Context, version string, opts *PullImageO
 	}, nil
 }
 
-// RemoveImage deletes a locally installed image release.
+// RemoveImage deletes a locally installed image (release or snapshot).
 //
 // This removes all downloaded artifacts (kernel, rootfs, firecracker binary)
 // for the given version.
 func (c *Client) RemoveImage(ctx context.Context, version string) error {
-	mgr, err := c.newImageManager()
+	mgr, err := c.newLocalImageManager()
 	if err != nil {
 		return fmt.Errorf("could not create image manager: %w", err)
 	}
@@ -104,12 +109,12 @@ func (c *Client) RemoveImage(ctx context.Context, version string) error {
 	return nil
 }
 
-// InspectImage returns the manifest for a locally installed image release.
+// InspectImage returns the manifest for a locally installed image.
 //
 // The manifest contains artifact metadata, Firecracker version info, and
 // build details for all supported architectures.
 func (c *Client) InspectImage(ctx context.Context, version string) (*ImageManifest, error) {
-	mgr, err := c.newImageManager()
+	mgr, err := c.newLocalImageManager()
 	if err != nil {
 		return nil, fmt.Errorf("could not create image manager: %w", err)
 	}
@@ -127,14 +132,12 @@ func (c *Client) InspectImage(ctx context.Context, version string) (*ImageManife
 		return nil, mapError(err)
 	}
 
-	return fromInternalImageManifest(result), nil
-}
+	// Replace artifact file names with full local paths.
+	for arch, artifacts := range result.Artifacts {
+		artifacts.Kernel.File = mgr.KernelPath(version)
+		artifacts.Rootfs.File = mgr.RootFSPath(version)
+		result.Artifacts[arch] = artifacts
+	}
 
-// newImageManager creates the image manager for image operations.
-func (c *Client) newImageManager() (image.ImageManager, error) {
-	return image.NewGitHubImageManager(image.GitHubImageManagerConfig{
-		Repo:      c.imageRepo,
-		ImagesDir: c.imagesDir,
-		Logger:    c.logger,
-	})
+	return fromInternalImageManifest(result), nil
 }
