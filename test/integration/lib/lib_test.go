@@ -132,6 +132,99 @@ func TestSDKExec(t *testing.T) {
 	// Exec in non-existent sandbox.
 	_, err = client.Exec(ctx, "does-not-exist", []string{"echo"}, nil)
 	assert.True(t, errors.Is(err, sdklib.ErrNotFound))
+
+	// Exec with file upload to workdir.
+	t.Run("exec with file upload to workdir", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		srcFile := filepath.Join(tmpDir, "sdk-upload.txt")
+		require.NoError(t, os.WriteFile(srcFile, []byte("sdk-upload-content"), 0644))
+
+		var out bytes.Buffer
+		result, err = client.Exec(ctx, name, []string{"cat", "sdk-upload.txt"}, &sdklib.ExecOpts{
+			Stdout:     &out,
+			WorkingDir: "/tmp",
+			Files:      []string{srcFile},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 0, result.ExitCode)
+		assert.Contains(t, out.String(), "sdk-upload-content")
+	})
+
+	// Exec with multiple file uploads.
+	t.Run("exec with multiple file uploads", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		file1 := filepath.Join(tmpDir, "sdk-a.txt")
+		file2 := filepath.Join(tmpDir, "sdk-b.txt")
+		require.NoError(t, os.WriteFile(file1, []byte("a-data"), 0644))
+		require.NoError(t, os.WriteFile(file2, []byte("b-data"), 0644))
+
+		var out bytes.Buffer
+		result, err = client.Exec(ctx, name, []string{"sh", "-c", "cat sdk-a.txt && cat sdk-b.txt"}, &sdklib.ExecOpts{
+			Stdout:     &out,
+			WorkingDir: "/tmp",
+			Files:      []string{file1, file2},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 0, result.ExitCode)
+		assert.Contains(t, out.String(), "a-data")
+		assert.Contains(t, out.String(), "b-data")
+	})
+
+	// Exec with file upload to root (no workdir).
+	t.Run("exec with file upload to root", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		srcFile := filepath.Join(tmpDir, "sdk-root.txt")
+		require.NoError(t, os.WriteFile(srcFile, []byte("root-data"), 0644))
+
+		var out bytes.Buffer
+		result, err = client.Exec(ctx, name, []string{"cat", "/sdk-root.txt"}, &sdklib.ExecOpts{
+			Stdout: &out,
+			Files:  []string{srcFile},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 0, result.ExitCode)
+		assert.Contains(t, out.String(), "root-data")
+	})
+
+	// Exec with file upload to non-existent dir (should create it).
+	t.Run("exec with file upload creates missing workdir", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		srcFile := filepath.Join(tmpDir, "sdk-newdir.txt")
+		require.NoError(t, os.WriteFile(srcFile, []byte("newdir-data"), 0644))
+
+		var out bytes.Buffer
+		result, err = client.Exec(ctx, name, []string{"cat", "sdk-newdir.txt"}, &sdklib.ExecOpts{
+			Stdout:     &out,
+			WorkingDir: "/opt/sdk-test/nested",
+			Files:      []string{srcFile},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 0, result.ExitCode)
+		assert.Contains(t, out.String(), "newdir-data")
+	})
+
+	// Exec with file upload overwrites existing file.
+	t.Run("exec with file upload overwrites existing file", func(t *testing.T) {
+		// Write old content.
+		_, err = client.Exec(ctx, name, []string{"sh", "-c", "echo old-sdk-content > /tmp/sdk-overwrite.txt"}, nil)
+		require.NoError(t, err)
+
+		// Upload new content with same name.
+		tmpDir := t.TempDir()
+		srcFile := filepath.Join(tmpDir, "sdk-overwrite.txt")
+		require.NoError(t, os.WriteFile(srcFile, []byte("new-sdk-content"), 0644))
+
+		var out bytes.Buffer
+		result, err = client.Exec(ctx, name, []string{"cat", "sdk-overwrite.txt"}, &sdklib.ExecOpts{
+			Stdout:     &out,
+			WorkingDir: "/tmp",
+			Files:      []string{srcFile},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 0, result.ExitCode)
+		assert.Contains(t, out.String(), "new-sdk-content")
+		assert.NotContains(t, out.String(), "old-sdk-content")
+	})
 }
 
 func TestSDKCopy(t *testing.T) {

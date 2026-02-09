@@ -202,6 +202,93 @@ func TestExec(t *testing.T) {
 		stdout, stderr, err := intsbx.RunExec(ctx, config, dbPath, name, []string{"false"})
 		assert.Error(t, err, "exec false should fail: stdout=%s stderr=%s", stdout, stderr)
 	})
+
+	// Test: exec with -f file upload (single file to workdir).
+	t.Run("exec with file upload to workdir", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		srcFile := filepath.Join(tmpDir, "upload-test.txt")
+		require.NoError(t, os.WriteFile(srcFile, []byte("file-upload-content"), 0644))
+
+		args := fmt.Sprintf("exec %s -f %s -w /tmp -- cat upload-test.txt", name, srcFile)
+		stdout, stderr, err := intsbx.RunSBXCmd(ctx, config, dbPath, args)
+		require.NoError(t, err, "exec with -f failed: stderr=%s", stderr)
+		assert.Contains(t, string(stdout), "file-upload-content")
+	})
+
+	// Test: exec with -f file upload (no workdir, uploads to /).
+	t.Run("exec with file upload to root", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		srcFile := filepath.Join(tmpDir, "root-upload.txt")
+		require.NoError(t, os.WriteFile(srcFile, []byte("root-content"), 0644))
+
+		args := fmt.Sprintf("exec %s -f %s -- cat /root-upload.txt", name, srcFile)
+		stdout, stderr, err := intsbx.RunSBXCmd(ctx, config, dbPath, args)
+		require.NoError(t, err, "exec with -f (no workdir) failed: stderr=%s", stderr)
+		assert.Contains(t, string(stdout), "root-content")
+	})
+
+	// Test: exec with multiple -f file uploads.
+	t.Run("exec with multiple file uploads", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		file1 := filepath.Join(tmpDir, "multi-a.txt")
+		file2 := filepath.Join(tmpDir, "multi-b.txt")
+		// Create a script that cats both files (avoids shell quoting issues in test runner).
+		scriptFile := filepath.Join(tmpDir, "catboth.sh")
+		require.NoError(t, os.WriteFile(file1, []byte("content-a"), 0644))
+		require.NoError(t, os.WriteFile(file2, []byte("content-b"), 0644))
+		require.NoError(t, os.WriteFile(scriptFile, []byte("#!/bin/sh\ncat multi-a.txt\ncat multi-b.txt"), 0755))
+
+		args := fmt.Sprintf("exec %s -f %s -f %s -f %s -w /tmp -- sh catboth.sh", name, file1, file2, scriptFile)
+		stdout, stderr, err := intsbx.RunSBXCmd(ctx, config, dbPath, args)
+		require.NoError(t, err, "exec with multiple -f failed: stderr=%s", stderr)
+		output := string(stdout)
+		assert.Contains(t, output, "content-a")
+		assert.Contains(t, output, "content-b")
+	})
+
+	// Test: exec with -f combined with -w and -e.
+	t.Run("exec with file upload combined with env and workdir", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		scriptFile := filepath.Join(tmpDir, "combo.sh")
+		require.NoError(t, os.WriteFile(scriptFile, []byte("#!/bin/sh\necho \"$COMBO_VAR from $(pwd)\""), 0755))
+
+		args := fmt.Sprintf("exec %s -f %s -w /tmp -e COMBO_VAR=hello -- sh combo.sh", name, scriptFile)
+		stdout, stderr, err := intsbx.RunSBXCmd(ctx, config, dbPath, args)
+		require.NoError(t, err, "exec with -f -w -e combo failed: stderr=%s", stderr)
+		output := string(stdout)
+		assert.Contains(t, output, "hello")
+		assert.Contains(t, output, "/tmp")
+	})
+
+	// Test: exec with -f to non-existent workdir (should create it).
+	t.Run("exec with file upload creates missing workdir", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		srcFile := filepath.Join(tmpDir, "newdir-test.txt")
+		require.NoError(t, os.WriteFile(srcFile, []byte("created-dir-content"), 0644))
+
+		args := fmt.Sprintf("exec %s -f %s -w /opt/myapp/data -- cat newdir-test.txt", name, srcFile)
+		stdout, stderr, err := intsbx.RunSBXCmd(ctx, config, dbPath, args)
+		require.NoError(t, err, "exec with -f to new dir failed: stderr=%s", stderr)
+		assert.Contains(t, string(stdout), "created-dir-content")
+	})
+
+	// Test: exec with -f overwrites existing file.
+	t.Run("exec with file upload overwrites existing file", func(t *testing.T) {
+		// First, create a file in the sandbox.
+		_, stderr, err := intsbx.RunExec(ctx, config, dbPath, name, []string{"sh", "-c", "echo old-content > /tmp/overwrite-test.txt"})
+		require.NoError(t, err, "exec write old content failed: stderr=%s", stderr)
+
+		// Upload a new file with the same name.
+		tmpDir := t.TempDir()
+		srcFile := filepath.Join(tmpDir, "overwrite-test.txt")
+		require.NoError(t, os.WriteFile(srcFile, []byte("new-content"), 0644))
+
+		args := fmt.Sprintf("exec %s -f %s -w /tmp -- cat overwrite-test.txt", name, srcFile)
+		stdout, stderr, err := intsbx.RunSBXCmd(ctx, config, dbPath, args)
+		require.NoError(t, err, "exec with -f overwrite failed: stderr=%s", stderr)
+		assert.Contains(t, string(stdout), "new-content")
+		assert.NotContains(t, string(stdout), "old-content")
+	})
 }
 
 func TestCopy(t *testing.T) {

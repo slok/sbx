@@ -144,6 +144,9 @@ type ExecOpts struct {
 	Stderr io.Writer
 	// Tty allocates a pseudo-TTY for the command (useful for interactive shells).
 	Tty bool
+	// Files are local file paths to upload into the sandbox before executing.
+	// Files are uploaded to the working directory (WorkingDir) or "/" if unset.
+	Files []string
 }
 
 // ExecResult contains the result of a command execution.
