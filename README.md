@@ -246,7 +246,7 @@ sbx create --name restored --engine firecracker --from-image my-snapshot
 
 Important snapshot behavior:
 
-- Source sandbox must be in `created` or `stopped` status
+- Source sandbox must be in `stopped` status
 - Snapshot names must be unique across all images and use `[a-zA-Z0-9._-]`
 - Snapshots are stored under `~/.sbx/images/` alongside release images
 - Snapshots capture rootfs + kernel (no memory/device state)
@@ -284,13 +284,17 @@ sbx image rm v0.1.0
 Here's a complete workflow showing sandbox lifecycle:
 
 ```bash
-# Create a new sandbox
+# Create a new sandbox (starts in "stopped" state)
 sbx create -f sandbox.yaml
 # Output: Created sandbox: example-sandbox (01JQYXZ2ABCDEFGH1234567890)
 
 # List all sandboxes
 sbx list
-# Shows: example-sandbox with status "running"
+# Shows: example-sandbox with status "stopped"
+
+# Start the sandbox (boots VM, applies session config)
+sbx start example-sandbox
+# Output: Started sandbox: example-sandbox
 
 # Check detailed status
 sbx status example-sandbox
@@ -299,8 +303,8 @@ sbx status example-sandbox
 sbx stop example-sandbox
 # Output: Stopped sandbox: example-sandbox
 
-# Start it again
-sbx start example-sandbox
+# Start it again with different session config
+sbx start example-sandbox -f session.yaml
 # Output: Started sandbox: example-sandbox
 
 # Remove the sandbox (must stop first or use --force)

@@ -93,8 +93,8 @@ func (s *Service) Run(ctx context.Context, req Request) (string, error) {
 		return "", fmt.Errorf("could not get sandbox: %w", err)
 	}
 
-	if sb.Status != model.SandboxStatusCreated && sb.Status != model.SandboxStatusStopped {
-		return "", fmt.Errorf("cannot snapshot sandbox in status %q (must be created or stopped): %w", sb.Status, model.ErrNotValid)
+	if sb.Status != model.SandboxStatusStopped {
+		return "", fmt.Errorf("cannot snapshot sandbox in status %q (must be stopped): %w", sb.Status, model.ErrNotValid)
 	}
 
 	// Resolve image name.

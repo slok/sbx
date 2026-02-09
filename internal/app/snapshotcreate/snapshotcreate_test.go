@@ -222,11 +222,9 @@ func TestServiceRun(t *testing.T) {
 			expErr:     true,
 		},
 
-		"Created sandbox should succeed.": {
+		"Stopped sandbox (freshly created) should succeed.": {
 			mockRepo: func(m *storagemock.MockRepository) {
-				createdSandbox := *stoppedSandbox
-				createdSandbox.Status = model.SandboxStatusCreated
-				m.On("GetSandboxByName", mock.Anything, sbxName).Once().Return(&createdSandbox, nil)
+				m.On("GetSandboxByName", mock.Anything, sbxName).Once().Return(stoppedSandbox, nil)
 			},
 			mockImgMgr: func(m *imagemock.MockImageManager) {
 				m.On("Exists", mock.Anything, "my-snap").Once().Return(false, nil)
