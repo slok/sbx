@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/slok/sbx/internal/conventions"
 	"github.com/slok/sbx/internal/model"
 )
 
@@ -87,7 +88,7 @@ func (e *Engine) spawnFirecracker(vmDir, socketPath string) (int, error) {
 	_ = os.Remove(socketPath)
 
 	// Create log file
-	logPath := filepath.Join(vmDir, "firecracker.log")
+	logPath := filepath.Join(vmDir, conventions.LogFile)
 	logFile, err := os.Create(logPath)
 	if err != nil {
 		return 0, fmt.Errorf("could not create log file: %w", err)
@@ -107,7 +108,7 @@ func (e *Engine) spawnFirecracker(vmDir, socketPath string) (int, error) {
 	pid := cmd.Process.Pid
 
 	// Write PID file
-	pidPath := filepath.Join(vmDir, "firecracker.pid")
+	pidPath := filepath.Join(vmDir, conventions.PIDFile)
 	if err := os.WriteFile(pidPath, []byte(fmt.Sprintf("%d", pid)), 0644); err != nil {
 		e.logger.Warningf("Could not write PID file: %v", err)
 	}

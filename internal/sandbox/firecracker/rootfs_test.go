@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/slok/sbx/internal/conventions"
 	"github.com/slok/sbx/internal/log"
 	fileutil "github.com/slok/sbx/internal/utils/file"
 )
@@ -34,7 +35,7 @@ func TestEngine_copyRootFSPreservesSparseAllocation(t *testing.T) {
 	e := &Engine{logger: log.Noop}
 	require.NoError(e.copyRootFS(context.Background(), srcPath, vmDir))
 
-	dstPath := filepath.Join(vmDir, RootFSFile)
+	dstPath := filepath.Join(vmDir, conventions.RootFSFile)
 	virtualSize, allocatedSize, err := fileutil.SizeStats(dstPath)
 	require.NoError(err)
 
@@ -86,7 +87,7 @@ func TestEngine_resizeRootFS(t *testing.T) {
 			require.NoError(err)
 
 			// Copy the "base image" to VM directory (simulating copyRootFS)
-			rootfsPath := filepath.Join(vmDir, RootFSFile)
+			rootfsPath := filepath.Join(vmDir, conventions.RootFSFile)
 			err = copyFile(baseImagePath, rootfsPath)
 			require.NoError(err)
 
@@ -135,7 +136,7 @@ func TestEngine_resizeRootFS_sameSize(t *testing.T) {
 	err = os.MkdirAll(vmDir, 0755)
 	require.NoError(err)
 
-	rootfsPath := filepath.Join(vmDir, RootFSFile)
+	rootfsPath := filepath.Join(vmDir, conventions.RootFSFile)
 	err = copyFile(baseImagePath, rootfsPath)
 	require.NoError(err)
 
@@ -198,7 +199,7 @@ func TestEngine_resizeRootFS_missingBaseImage(t *testing.T) {
 	err = os.MkdirAll(vmDir, 0755)
 	require.NoError(err)
 
-	rootfsPath := filepath.Join(vmDir, RootFSFile)
+	rootfsPath := filepath.Join(vmDir, conventions.RootFSFile)
 	err = createSparseFile(rootfsPath, 300*1024*1024)
 	require.NoError(err)
 

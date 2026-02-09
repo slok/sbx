@@ -13,19 +13,11 @@ import (
 
 	"github.com/oklog/ulid/v2"
 
+	"github.com/slok/sbx/internal/conventions"
 	"github.com/slok/sbx/internal/log"
 	"github.com/slok/sbx/internal/model"
 	"github.com/slok/sbx/internal/ssh"
 	"github.com/slok/sbx/internal/storage"
-)
-
-const (
-	// DefaultDataDir is the default directory for sbx data.
-	DefaultDataDir = ".sbx"
-	// VMsDir is the subdirectory for VM data.
-	VMsDir = "vms"
-	// ImagesDir is the subdirectory for kernel and rootfs images.
-	ImagesDir = "images"
 )
 
 // EngineConfig is the configuration for the Firecracker engine.
@@ -47,7 +39,7 @@ func (c *EngineConfig) defaults() error {
 		if err != nil {
 			return fmt.Errorf("could not get user home dir: %w", err)
 		}
-		c.DataDir = filepath.Join(home, DefaultDataDir)
+		c.DataDir = filepath.Join(home, conventions.DefaultDataDir)
 	}
 	if c.Logger == nil {
 		c.Logger = log.Noop
@@ -71,32 +63,23 @@ func NewEngine(cfg EngineConfig) (*Engine, error) {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
-	// Create SSH key manager
-	sshKeyDir := filepath.Join(cfg.DataDir, "ssh")
-	sshKeyManager := ssh.NewKeyManager(sshKeyDir)
-
 	return &Engine{
 		dataDir:           cfg.DataDir,
 		firecrackerBinary: cfg.FirecrackerBinary,
 		repo:              cfg.Repository,
-		sshKeyManager:     sshKeyManager,
+		sshKeyManager:     ssh.NewKeyManager(cfg.DataDir),
 		logger:            cfg.Logger,
 	}, nil
 }
 
 // VMDir returns the directory for a specific VM.
 func (e *Engine) VMDir(sandboxID string) string {
-	return filepath.Join(e.dataDir, VMsDir, sandboxID)
+	return conventions.VMDir(e.dataDir, sandboxID)
 }
 
 // ImagesPath returns the path to the images directory.
 func (e *Engine) ImagesPath() string {
-	return filepath.Join(e.dataDir, ImagesDir)
-}
-
-// SSHKeyManager returns the SSH key manager.
-func (e *Engine) SSHKeyManager() *ssh.KeyManager {
-	return e.sshKeyManager
+	return filepath.Join(e.dataDir, conventions.ImagesDir)
 }
 
 // Check performs preflight checks for the Firecracker engine.
@@ -344,7 +327,7 @@ func (e *Engine) Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sa
 	rootfsPath := e.expandPath(cfg.FirecrackerEngine.RootFS)
 
 	// Socket path
-	socketPath := filepath.Join(vmDir, "firecracker.sock")
+	socketPath := filepath.Join(vmDir, conventions.SocketFile)
 
 	e.logger.Infof("Creating Firecracker sandbox: %s", id)
 	e.logger.Debugf("Network: MAC=%s, Gateway=%s, VM IP=%s, TAP=%s", mac, gateway, vmIP, tapDevice)
@@ -352,9 +335,9 @@ func (e *Engine) Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sa
 
 	var createErr error
 
-	// Task 1: Ensure SSH keys exist
-	e.logger.Debugf("[1/4] Ensuring SSH keys exist")
-	if _, err := e.sshKeyManager.EnsureKeys(); err != nil {
+	// Task 1: Generate per-sandbox SSH keys
+	e.logger.Debugf("[1/4] Generating SSH keys for sandbox %s", id)
+	if _, err := e.sshKeyManager.GenerateKeys(id); err != nil {
 		createErr = err
 		goto cleanup
 	}
@@ -375,7 +358,7 @@ func (e *Engine) Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sa
 
 	// Task 4: Patch rootfs with SSH key
 	e.logger.Debugf("[4/4] Patching rootfs with SSH public key")
-	if err := e.patchRootFSSSH(vmDir); err != nil {
+	if err := e.patchRootFSSSH(id, vmDir); err != nil {
 		createErr = err
 		goto cleanup
 	}
