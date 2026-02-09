@@ -11,11 +11,9 @@ type SandboxStatus string
 const (
 	// SandboxStatusPending indicates the sandbox is being created.
 	SandboxStatusPending SandboxStatus = "pending"
-	// SandboxStatusCreated indicates the sandbox infrastructure is provisioned but not started.
-	SandboxStatusCreated SandboxStatus = "created"
 	// SandboxStatusRunning indicates the sandbox is running.
 	SandboxStatusRunning SandboxStatus = "running"
-	// SandboxStatusStopped indicates the sandbox is stopped.
+	// SandboxStatusStopped indicates the sandbox is stopped (including freshly created).
 	SandboxStatusStopped SandboxStatus = "stopped"
 	// SandboxStatusFailed indicates the sandbox failed.
 	SandboxStatusFailed SandboxStatus = "failed"

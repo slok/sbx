@@ -26,7 +26,7 @@ func NewListCommand(rootCmd *RootCommand, app *kingpin.Application) *ListCommand
 	c := &ListCommand{rootCmd: rootCmd}
 
 	c.Cmd = app.Command("list", "List all sandboxes.")
-	c.Cmd.Flag("status", "Filter by status (running, stopped, pending, failed).").StringVar(&c.statusFilter)
+	c.Cmd.Flag("status", "Filter by status (running, stopped, failed).").StringVar(&c.statusFilter)
 	c.Cmd.Flag("format", "Output format (table, json).").Default("table").EnumVar(&c.format, "table", "json")
 
 	return c
@@ -43,10 +43,10 @@ func (c ListCommand) Run(ctx context.Context) error {
 		status := model.SandboxStatus(strings.ToLower(c.statusFilter))
 		// Validate status value.
 		switch status {
-		case model.SandboxStatusPending, model.SandboxStatusCreated, model.SandboxStatusRunning, model.SandboxStatusStopped, model.SandboxStatusFailed:
+		case model.SandboxStatusPending, model.SandboxStatusRunning, model.SandboxStatusStopped, model.SandboxStatusFailed:
 			statusFilter = &status
 		default:
-			return fmt.Errorf("invalid status filter: %s (must be: running, stopped, created, pending, failed)", c.statusFilter)
+			return fmt.Errorf("invalid status filter: %s (must be: running, stopped, pending, failed)", c.statusFilter)
 		}
 	}
 

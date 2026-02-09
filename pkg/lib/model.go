@@ -24,7 +24,7 @@ const (
 //
 // The typical lifecycle is:
 //
-//	pending -> created -> running -> stopped -> (removed)
+//	pending -> stopped -> running -> stopped -> (removed)
 //
 // A sandbox can also transition to failed at any point if an error occurs.
 type SandboxStatus string
@@ -32,11 +32,9 @@ type SandboxStatus string
 const (
 	// SandboxStatusPending indicates the sandbox is being provisioned.
 	SandboxStatusPending SandboxStatus = "pending"
-	// SandboxStatusCreated indicates the sandbox is provisioned but not started.
-	SandboxStatusCreated SandboxStatus = "created"
 	// SandboxStatusRunning indicates the sandbox is running and accepting commands.
 	SandboxStatusRunning SandboxStatus = "running"
-	// SandboxStatusStopped indicates the sandbox is stopped. It can be started again.
+	// SandboxStatusStopped indicates the sandbox is stopped (including freshly created). It can be started again.
 	SandboxStatusStopped SandboxStatus = "stopped"
 	// SandboxStatusFailed indicates the sandbox encountered an unrecoverable error.
 	SandboxStatusFailed SandboxStatus = "failed"

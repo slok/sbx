@@ -154,7 +154,7 @@ func TestCreateSandbox(t *testing.T) {
 			assert.NoError(err)
 			assert.NotEmpty(sb.ID)
 			assert.Equal(test.opts.Name, sb.Name)
-			assert.Equal(lib.SandboxStatusCreated, sb.Status)
+			assert.Equal(lib.SandboxStatusStopped, sb.Status)
 			assert.False(sb.CreatedAt.IsZero())
 		})
 	}
@@ -281,7 +281,7 @@ func TestListSandboxes(t *testing.T) {
 			setup: func(t *testing.T, c *lib.Client) {
 				t.Helper()
 				ctx := context.Background()
-				// Create two sandboxes (both in "created" status).
+				// Create two sandboxes (both in "stopped" status).
 				for _, name := range []string{"f1", "f2"} {
 					_, err := c.CreateSandbox(ctx, lib.CreateSandboxOpts{
 						Name:      name,
@@ -751,7 +751,7 @@ func TestFullLifecycle(t *testing.T) {
 	})
 	require.NoError(err)
 	assert.Equal("lifecycle", sb.Name)
-	assert.Equal(lib.SandboxStatusCreated, sb.Status)
+	assert.Equal(lib.SandboxStatusStopped, sb.Status)
 
 	// List should have 1.
 	sandboxes, err := client.ListSandboxes(ctx, nil)

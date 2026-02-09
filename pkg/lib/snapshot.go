@@ -20,7 +20,7 @@ type CreateImageFromSandboxOpts struct {
 
 // CreateImageFromSandbox creates a local snapshot image from a sandbox.
 //
-// The sandbox must be in [SandboxStatusCreated] or [SandboxStatusStopped] state.
+// The sandbox must be in [SandboxStatusStopped] state.
 // The resulting image can be used with [CreateSandboxOpts].FromImage to create
 // new sandboxes.
 //

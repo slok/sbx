@@ -83,8 +83,8 @@ func (s *Service) Run(ctx context.Context, req Request) (*model.Sandbox, error) 
 		return nil, fmt.Errorf("could not get sandbox: %w", err)
 	}
 
-	// Validate sandbox is in a startable state (created or stopped).
-	if sandbox.Status != model.SandboxStatusCreated && sandbox.Status != model.SandboxStatusStopped {
+	// Validate sandbox is in a startable state (stopped).
+	if sandbox.Status != model.SandboxStatusStopped {
 		return nil, fmt.Errorf("cannot start sandbox: not in startable state (current status: %s): %w", sandbox.Status, model.ErrNotValid)
 	}
 

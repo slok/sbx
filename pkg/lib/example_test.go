@@ -48,7 +48,7 @@ func Example_testing() {
 	fmt.Printf("Created: %s (status: %s)\n", sb.Name, sb.Status)
 
 	// Output:
-	// Created: test-sandbox (status: created)
+	// Created: test-sandbox (status: stopped)
 }
 
 // This example shows the full sandbox lifecycle: create, start, exec, stop, remove.
