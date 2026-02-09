@@ -70,7 +70,7 @@ func (e *Engine) Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sa
 	sandbox := &model.Sandbox{
 		ID:        id,
 		Name:      cfg.Name,
-		Status:    model.SandboxStatusCreated, // Created but not started
+		Status:    model.SandboxStatusStopped, // Provisioned but not started
 		Config:    cfg,
 		CreatedAt: now,
 	}
@@ -100,7 +100,7 @@ func (e *Engine) Start(ctx context.Context, id string) error {
 		return nil // Idempotent
 	}
 
-	if sandbox.Status != model.SandboxStatusCreated && sandbox.Status != model.SandboxStatusStopped {
+	if sandbox.Status != model.SandboxStatusStopped {
 		return fmt.Errorf("sandbox %s cannot be started (status: %s): %w", id, sandbox.Status, model.ErrNotValid)
 	}
 

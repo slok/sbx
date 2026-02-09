@@ -29,7 +29,7 @@ func TestLifecycle(t *testing.T) {
 
 	sb, err := eng.Create(context.Background(), testConfig("test"))
 	require.NoError(t, err)
-	require.Equal(t, model.SandboxStatusCreated, sb.Status)
+	require.Equal(t, model.SandboxStatusStopped, sb.Status)
 
 	err = eng.Start(context.Background(), sb.ID)
 	require.NoError(t, err)

@@ -388,13 +388,13 @@ cleanup:
 		return nil, createErr
 	}
 
-	// Create sandbox model in "created" status (not running yet).
+	// Create sandbox model in "stopped" status (not running yet).
 	// Start will handle TAP, iptables, spawning, and booting the VM.
 	now := time.Now().UTC()
 	sandbox := &model.Sandbox{
 		ID:         id,
 		Name:       cfg.Name,
-		Status:     model.SandboxStatusCreated,
+		Status:     model.SandboxStatusStopped,
 		Config:     cfg,
 		CreatedAt:  now,
 		SocketPath: socketPath,

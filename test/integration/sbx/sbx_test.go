@@ -110,13 +110,13 @@ func TestSandboxLifecycle(t *testing.T) {
 	require.NoError(t, err, "create failed: stdout=%s stderr=%s", stdout, stderr)
 	assert.Contains(t, string(stdout), "Sandbox created successfully")
 
-	// 2. List should show the sandbox as "created".
+	// 2. List should show the sandbox as "stopped" (freshly created).
 	stdout, stderr, err = intsbx.RunList(ctx, config, dbPath)
 	require.NoError(t, err, "list failed: stdout=%s stderr=%s", stdout, stderr)
 	items := parseSandboxList(t, stdout)
 	found := findSandboxInList(items, name)
 	require.NotNil(t, found, "sandbox %s not found in list", name)
-	assert.Equal(t, "created", found.Status)
+	assert.Equal(t, "stopped", found.Status)
 
 	// 3. Start the sandbox.
 	stdout, stderr, err = intsbx.RunStart(ctx, config, dbPath, name)
@@ -615,7 +615,7 @@ func TestStatusJSON(t *testing.T) {
 	var s statusOutput
 	require.NoError(t, json.Unmarshal(stdout, &s))
 	assert.Equal(t, name, s.Name)
-	assert.Equal(t, "created", s.Status)
+	assert.Equal(t, "stopped", s.Status)
 	assert.Equal(t, float64(1), s.VCPUs)
 	assert.Equal(t, 512, s.MemoryMB)
 	assert.Equal(t, 2, s.DiskGB)

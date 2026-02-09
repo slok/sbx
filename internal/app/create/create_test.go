@@ -33,7 +33,7 @@ func TestCreateService(t *testing.T) {
 		repo := storagemock.NewMockRepository(t)
 
 		repo.On("GetSandboxByName", mock.Anything, "test-sandbox").Return((*model.Sandbox)(nil), model.ErrNotFound)
-		eng.On("Create", mock.Anything, mock.Anything).Return(&model.Sandbox{ID: "01", Name: "test-sandbox", Status: model.SandboxStatusCreated, Config: validConfig()}, nil)
+		eng.On("Create", mock.Anything, mock.Anything).Return(&model.Sandbox{ID: "01", Name: "test-sandbox", Status: model.SandboxStatusStopped, Config: validConfig()}, nil)
 		repo.On("CreateSandbox", mock.Anything, mock.Anything).Return(nil)
 
 		svc, err := create.NewService(create.ServiceConfig{Engine: eng, Repository: repo, Logger: log.Noop})

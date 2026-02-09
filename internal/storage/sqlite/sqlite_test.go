@@ -20,7 +20,7 @@ func sandboxFixture(id, name string) model.Sandbox {
 	return model.Sandbox{
 		ID:        id,
 		Name:      name,
-		Status:    model.SandboxStatusCreated,
+		Status:    model.SandboxStatusStopped,
 		CreatedAt: now,
 		Config: model.SandboxConfig{
 			Name: name,

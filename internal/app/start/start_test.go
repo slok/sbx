@@ -109,12 +109,12 @@ func TestService_Run(t *testing.T) {
 			req:        start.Request{NameOrID: "my-sandbox"},
 			expErr:     true,
 		},
-		"start created sandbox": {
+		"start stopped sandbox (freshly created)": {
 			mockRepo: func(m *storagemock.MockRepository) {
 				m.On("GetSandboxByName", mock.Anything, "my-sandbox").Once().Return(&model.Sandbox{
 					ID:        "01H2QWERTYASDFGZXCVBNMLKJH",
 					Name:      "my-sandbox",
-					Status:    model.SandboxStatusCreated,
+					Status:    model.SandboxStatusStopped,
 					CreatedAt: createdAt,
 				}, nil)
 				m.On("UpdateSandbox", mock.Anything, mock.MatchedBy(func(s model.Sandbox) bool {

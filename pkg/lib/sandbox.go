@@ -15,7 +15,7 @@ import (
 
 // CreateSandbox creates a new sandbox with the given configuration.
 //
-// The sandbox is created in [SandboxStatusCreated] state. Call [Client.StartSandbox]
+// The sandbox is created in [SandboxStatusStopped] state. Call [Client.StartSandbox]
 // to start it. The sandbox name must be unique.
 //
 // For Firecracker sandboxes, provide kernel and rootfs paths via
