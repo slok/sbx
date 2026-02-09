@@ -8,13 +8,11 @@ import (
 	"github.com/slok/sbx/internal/model"
 )
 
-// ImageManager manages image releases (listing, pulling, removing, inspecting).
+// ImageManager manages remote image releases (listing, pulling, removing, inspecting).
 type ImageManager interface {
-	// ListReleases returns available releases, marking installed ones.
-	// This includes both remote releases and local snapshot images.
+	// ListReleases returns available remote releases, marking installed ones.
 	ListReleases(ctx context.Context) ([]model.ImageRelease, error)
-	// GetManifest fetches the full manifest for a specific version.
-	// Works for both remote releases and local snapshot images.
+	// GetManifest fetches the manifest for a remote release version.
 	GetManifest(ctx context.Context, version string) (*model.ImageManifest, error)
 	// Pull downloads all artifacts for a version to local storage.
 	Pull(ctx context.Context, version string, opts PullOptions) (*PullResult, error)
@@ -28,9 +26,26 @@ type ImageManager interface {
 	RootFSPath(version string) string
 	// FirecrackerPath returns the local firecracker binary path for an installed version.
 	FirecrackerPath(version string) string
-	// CreateSnapshot creates a local snapshot image from a sandbox's rootfs and kernel.
-	// The name must be unique (no collision with existing images).
-	CreateSnapshot(ctx context.Context, opts CreateSnapshotOptions) error
+}
+
+// SnapshotManager manages local snapshot images (CRUD operations on the filesystem).
+type SnapshotManager interface {
+	// Create creates a local snapshot image from a sandbox's rootfs and kernel.
+	Create(ctx context.Context, opts CreateSnapshotOptions) error
+	// List returns all local snapshot images.
+	List(ctx context.Context) ([]model.ImageRelease, error)
+	// GetManifest reads the manifest for a local snapshot image.
+	GetManifest(ctx context.Context, name string) (*model.ImageManifest, error)
+	// Remove deletes a local snapshot image.
+	Remove(ctx context.Context, name string) error
+	// Exists checks if a snapshot image exists locally.
+	Exists(ctx context.Context, name string) (bool, error)
+	// KernelPath returns the local kernel path for a snapshot image.
+	KernelPath(name string) string
+	// RootFSPath returns the local rootfs path for a snapshot image.
+	RootFSPath(name string) string
+	// FirecrackerPath returns the local firecracker binary path for a snapshot image.
+	FirecrackerPath(name string) string
 }
 
 // PullOptions configures the pull operation.

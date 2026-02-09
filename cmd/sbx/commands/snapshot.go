@@ -3,7 +3,6 @@ package commands
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"path/filepath"
 
 	"github.com/alecthomas/kingpin/v2"
@@ -20,7 +19,6 @@ type SnapshotCommand struct {
 
 	sandboxNameOrID string
 	imageName       string
-	imageRepo       string
 	imagesDir       string
 }
 
@@ -30,7 +28,6 @@ func NewSnapshotCommand(rootCmd *RootCommand, app *kingpin.Application) *Snapsho
 	c.Cmd = app.Command("snapshot", "Create a snapshot image from a sandbox.")
 	c.Cmd.Arg("sandbox", "Name or ID of the sandbox to snapshot.").Required().StringVar(&c.sandboxNameOrID)
 	c.Cmd.Flag("name", "Name for the snapshot image. Auto-generated if not provided.").StringVar(&c.imageName)
-	c.Cmd.Flag("image-repo", "GitHub repository for images.").Default(image.DefaultRepo).StringVar(&c.imageRepo)
 
 	defaultImagesDir := filepath.Join(homedir.HomeDir(), image.DefaultImagesDir)
 	c.Cmd.Flag("images-dir", "Local directory for images.").Default(defaultImagesDir).StringVar(&c.imagesDir)
@@ -52,25 +49,23 @@ func (c SnapshotCommand) Run(ctx context.Context) error {
 		return fmt.Errorf("could not create repository: %w", err)
 	}
 
-	// Initialize image manager.
-	mgr, err := image.NewGitHubImageManager(image.GitHubImageManagerConfig{
-		Repo:       c.imageRepo,
-		ImagesDir:  c.imagesDir,
-		HTTPClient: http.DefaultClient,
-		Logger:     logger,
+	// Initialize snapshot manager.
+	snapMgr, err := image.NewLocalSnapshotManager(image.LocalSnapshotManagerConfig{
+		ImagesDir: c.imagesDir,
+		Logger:    logger,
 	})
 	if err != nil {
-		return fmt.Errorf("could not create image manager: %w", err)
+		return fmt.Errorf("could not create snapshot manager: %w", err)
 	}
 
 	// Determine data dir from images dir (go up one level: ~/.sbx/images -> ~/.sbx).
 	dataDir := filepath.Dir(c.imagesDir)
 
 	svc, err := imagecreate.NewService(imagecreate.ServiceConfig{
-		Manager:    mgr,
-		Repository: repo,
-		Logger:     logger,
-		DataDir:    dataDir,
+		SnapshotManager: snapMgr,
+		Repository:      repo,
+		Logger:          logger,
+		DataDir:         dataDir,
 	})
 	if err != nil {
 		return fmt.Errorf("could not create service: %w", err)

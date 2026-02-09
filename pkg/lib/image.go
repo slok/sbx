@@ -11,7 +11,7 @@ import (
 	"github.com/slok/sbx/internal/image"
 )
 
-// ListImages returns available image releases from the registry.
+// ListImages returns available image releases from the registry and local snapshots.
 //
 // Each release indicates whether it is installed locally. Use [Client.PullImage]
 // to download a release.
@@ -21,9 +21,15 @@ func (c *Client) ListImages(ctx context.Context) ([]ImageRelease, error) {
 		return nil, fmt.Errorf("could not create image manager: %w", err)
 	}
 
+	snapMgr, err := c.newSnapshotManager()
+	if err != nil {
+		return nil, fmt.Errorf("could not create snapshot manager: %w", err)
+	}
+
 	svc, err := imagelist.NewService(imagelist.ServiceConfig{
-		Manager: mgr,
-		Logger:  c.logger,
+		Manager:         mgr,
+		SnapshotManager: snapMgr,
+		Logger:          c.logger,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("could not create service: %w", err)
@@ -79,7 +85,7 @@ func (c *Client) PullImage(ctx context.Context, version string, opts *PullImageO
 	}, nil
 }
 
-// RemoveImage deletes a locally installed image release.
+// RemoveImage deletes a locally installed image (release or snapshot).
 //
 // This removes all downloaded artifacts (kernel, rootfs, firecracker binary)
 // for the given version.
@@ -89,9 +95,15 @@ func (c *Client) RemoveImage(ctx context.Context, version string) error {
 		return fmt.Errorf("could not create image manager: %w", err)
 	}
 
+	snapMgr, err := c.newSnapshotManager()
+	if err != nil {
+		return fmt.Errorf("could not create snapshot manager: %w", err)
+	}
+
 	svc, err := imagerm.NewService(imagerm.ServiceConfig{
-		Manager: mgr,
-		Logger:  c.logger,
+		Manager:         mgr,
+		SnapshotManager: snapMgr,
+		Logger:          c.logger,
 	})
 	if err != nil {
 		return fmt.Errorf("could not create service: %w", err)
@@ -104,7 +116,7 @@ func (c *Client) RemoveImage(ctx context.Context, version string) error {
 	return nil
 }
 
-// InspectImage returns the manifest for a locally installed image release.
+// InspectImage returns the manifest for an image (snapshot or release).
 //
 // The manifest contains artifact metadata, Firecracker version info, and
 // build details for all supported architectures.
@@ -114,9 +126,15 @@ func (c *Client) InspectImage(ctx context.Context, version string) (*ImageManife
 		return nil, fmt.Errorf("could not create image manager: %w", err)
 	}
 
+	snapMgr, err := c.newSnapshotManager()
+	if err != nil {
+		return nil, fmt.Errorf("could not create snapshot manager: %w", err)
+	}
+
 	svc, err := imageinspect.NewService(imageinspect.ServiceConfig{
-		Manager: mgr,
-		Logger:  c.logger,
+		Manager:         mgr,
+		SnapshotManager: snapMgr,
+		Logger:          c.logger,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("could not create service: %w", err)
@@ -131,7 +149,7 @@ func (c *Client) InspectImage(ctx context.Context, version string) (*ImageManife
 }
 
 // newImageManager creates the image manager for image operations.
-func (c *Client) newImageManager() (image.ImageManager, error) {
+func (c *Client) newImageManager() (*image.GitHubImageManager, error) {
 	return image.NewGitHubImageManager(image.GitHubImageManagerConfig{
 		Repo:      c.imageRepo,
 		ImagesDir: c.imagesDir,

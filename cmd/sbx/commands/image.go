@@ -46,3 +46,15 @@ func newImageManager(imgCmd *ImageCommand, logger log.Logger) (image.ImageManage
 	}
 	return mgr, nil
 }
+
+// newSnapshotManager creates a LocalSnapshotManager from the image command config.
+func newSnapshotManager(imgCmd *ImageCommand, logger log.Logger) (image.SnapshotManager, error) {
+	mgr, err := image.NewLocalSnapshotManager(image.LocalSnapshotManagerConfig{
+		ImagesDir: imgCmd.imagesDir,
+		Logger:    logger,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("could not create snapshot manager: %w", err)
+	}
+	return mgr, nil
+}

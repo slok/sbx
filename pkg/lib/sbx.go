@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/slok/sbx/internal/image"
 	"github.com/slok/sbx/internal/log"
 	"github.com/slok/sbx/internal/model"
 	"github.com/slok/sbx/internal/sandbox"
@@ -206,6 +207,14 @@ func (c *Client) Doctor(ctx context.Context) ([]CheckResult, error) {
 
 	results := eng.Check(ctx)
 	return fromInternalCheckResults(results), nil
+}
+
+// newSnapshotManager creates a local snapshot manager for snapshot operations.
+func (c *Client) newSnapshotManager() (image.SnapshotManager, error) {
+	return image.NewLocalSnapshotManager(image.LocalSnapshotManagerConfig{
+		ImagesDir: c.imagesDir,
+		Logger:    c.logger,
+	})
 }
 
 // resolveEngineType determines which engine to use for a sandbox.

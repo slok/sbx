@@ -16,16 +16,16 @@ import (
 
 // ServiceConfig is the configuration for the image create service.
 type ServiceConfig struct {
-	Manager    image.ImageManager
-	Repository storage.Repository
-	Logger     log.Logger
+	SnapshotManager image.SnapshotManager
+	Repository      storage.Repository
+	Logger          log.Logger
 	// DataDir is the base sbx data directory (default: ~/.sbx).
 	DataDir string
 }
 
 func (c *ServiceConfig) defaults() error {
-	if c.Manager == nil {
-		return fmt.Errorf("image manager is required")
+	if c.SnapshotManager == nil {
+		return fmt.Errorf("snapshot manager is required")
 	}
 	if c.Repository == nil {
 		return fmt.Errorf("repository is required")
@@ -42,7 +42,7 @@ func (c *ServiceConfig) defaults() error {
 
 // Service creates local images from sandboxes.
 type Service struct {
-	mgr     image.ImageManager
+	snapMgr image.SnapshotManager
 	repo    storage.Repository
 	logger  log.Logger
 	dataDir string
@@ -54,7 +54,7 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 	return &Service{
-		mgr:     cfg.Manager,
+		snapMgr: cfg.SnapshotManager,
 		repo:    cfg.Repository,
 		logger:  cfg.Logger,
 		dataDir: cfg.DataDir,
@@ -115,7 +115,7 @@ func (s *Service) Run(ctx context.Context, req Request) (string, error) {
 	// Try to detect parent snapshot (if sandbox was created from a snapshot image).
 	parentSnapshot := detectParentSnapshot(sb)
 
-	if err := s.mgr.CreateSnapshot(ctx, image.CreateSnapshotOptions{
+	if err := s.snapMgr.Create(ctx, image.CreateSnapshotOptions{
 		Name:              imgName,
 		KernelSrc:         kernelPath,
 		RootFSSrc:         rootfsPath,
@@ -143,7 +143,7 @@ func (s *Service) resolveImageName(ctx context.Context, sandboxName, requestedNa
 	}
 
 	// Check if name already exists.
-	exists, err := s.mgr.Exists(ctx, name)
+	exists, err := s.snapMgr.Exists(ctx, name)
 	if err != nil {
 		return "", fmt.Errorf("could not check image name uniqueness: %w", err)
 	}
@@ -157,7 +157,7 @@ func (s *Service) resolveImageName(ctx context.Context, sandboxName, requestedNa
 		if err := model.ValidateImageName(name); err != nil {
 			return "", fmt.Errorf("invalid auto-generated image name: %w", err)
 		}
-		exists, err = s.mgr.Exists(ctx, name)
+		exists, err = s.snapMgr.Exists(ctx, name)
 		if err != nil {
 			return "", fmt.Errorf("could not check image name uniqueness: %w", err)
 		}

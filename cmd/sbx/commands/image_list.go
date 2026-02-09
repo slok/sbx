@@ -39,9 +39,15 @@ func (c ImageListCommand) Run(ctx context.Context) error {
 		return err
 	}
 
+	snapMgr, err := newSnapshotManager(c.imgCmd, logger)
+	if err != nil {
+		return err
+	}
+
 	svc, err := imagelist.NewService(imagelist.ServiceConfig{
-		Manager: mgr,
-		Logger:  logger,
+		Manager:         mgr,
+		SnapshotManager: snapMgr,
+		Logger:          logger,
 	})
 	if err != nil {
 		return fmt.Errorf("could not create service: %w", err)

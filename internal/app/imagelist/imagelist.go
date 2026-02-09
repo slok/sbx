@@ -11,8 +11,9 @@ import (
 
 // ServiceConfig is the configuration for the image list service.
 type ServiceConfig struct {
-	Manager image.ImageManager
-	Logger  log.Logger
+	Manager         image.ImageManager
+	SnapshotManager image.SnapshotManager
+	Logger          log.Logger
 }
 
 func (c *ServiceConfig) defaults() error {
@@ -27,8 +28,9 @@ func (c *ServiceConfig) defaults() error {
 
 // Service handles listing image releases.
 type Service struct {
-	manager image.ImageManager
-	logger  log.Logger
+	manager     image.ImageManager
+	snapshotMgr image.SnapshotManager
+	logger      log.Logger
 }
 
 // NewService creates a new image list service.
@@ -36,14 +38,28 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 	if err := cfg.defaults(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
-	return &Service{manager: cfg.Manager, logger: cfg.Logger}, nil
+	return &Service{
+		manager:     cfg.Manager,
+		snapshotMgr: cfg.SnapshotManager,
+		logger:      cfg.Logger,
+	}, nil
 }
 
-// Run lists available image releases.
+// Run lists available image releases and local snapshots.
 func (s *Service) Run(ctx context.Context) ([]model.ImageRelease, error) {
 	releases, err := s.manager.ListReleases(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("listing releases: %w", err)
 	}
+
+	// Merge snapshot images if snapshot manager is available.
+	if s.snapshotMgr != nil {
+		snapshots, err := s.snapshotMgr.List(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("listing snapshots: %w", err)
+		}
+		releases = append(releases, snapshots...)
+	}
+
 	return releases, nil
 }

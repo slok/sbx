@@ -31,9 +31,9 @@ type CreateImageFromSandboxOpts struct {
 // [ErrNotValid] if the sandbox is running, or [ErrAlreadyExists] if the
 // image name is taken.
 func (c *Client) CreateImageFromSandbox(ctx context.Context, nameOrID string, opts *CreateImageFromSandboxOpts) (string, error) {
-	mgr, err := c.newImageManager()
+	snapMgr, err := c.newSnapshotManager()
 	if err != nil {
-		return "", fmt.Errorf("could not create image manager: %w", err)
+		return "", fmt.Errorf("could not create snapshot manager: %w", err)
 	}
 
 	// Determine data dir.
@@ -47,10 +47,10 @@ func (c *Client) CreateImageFromSandbox(ctx context.Context, nameOrID string, op
 	}
 
 	svc, err := imagecreate.NewService(imagecreate.ServiceConfig{
-		Manager:    mgr,
-		Repository: c.repo,
-		Logger:     c.logger,
-		DataDir:    dataDir,
+		SnapshotManager: snapMgr,
+		Repository:      c.repo,
+		Logger:          c.logger,
+		DataDir:         dataDir,
 	})
 	if err != nil {
 		return "", fmt.Errorf("could not create service: %w", err)

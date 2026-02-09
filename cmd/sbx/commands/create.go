@@ -94,27 +94,44 @@ func (c CreateCommand) Run(ctx context.Context) error {
 	// Resolve image paths if --from-image is set.
 	var firecrackerBinaryPath string
 	if c.fromImage != "" {
-		mgr, err := image.NewGitHubImageManager(image.GitHubImageManagerConfig{
-			Repo:       c.imageRepo,
-			ImagesDir:  c.imagesDir,
-			HTTPClient: http.DefaultClient,
-			Logger:     logger,
+		// Try snapshot manager first, then image manager.
+		snapMgr, err := image.NewLocalSnapshotManager(image.LocalSnapshotManagerConfig{
+			ImagesDir: c.imagesDir,
+			Logger:    logger,
 		})
 		if err != nil {
-			return fmt.Errorf("could not create image manager: %w", err)
+			return fmt.Errorf("could not create snapshot manager: %w", err)
 		}
 
-		exists, err := mgr.Exists(ctx, c.fromImage)
-		if err != nil {
-			return fmt.Errorf("could not check image: %w", err)
-		}
-		if !exists {
-			return fmt.Errorf("image %s is not installed, run 'sbx image pull %s' first", c.fromImage, c.fromImage)
-		}
+		exists, err := snapMgr.Exists(ctx, c.fromImage)
+		if err == nil && exists {
+			c.firecrackerKernel = snapMgr.KernelPath(c.fromImage)
+			c.firecrackerRootFS = snapMgr.RootFSPath(c.fromImage)
+			firecrackerBinaryPath = snapMgr.FirecrackerPath(c.fromImage)
+		} else {
+			// Fall back to image manager (GitHub releases).
+			mgr, err := image.NewGitHubImageManager(image.GitHubImageManagerConfig{
+				Repo:       c.imageRepo,
+				ImagesDir:  c.imagesDir,
+				HTTPClient: http.DefaultClient,
+				Logger:     logger,
+			})
+			if err != nil {
+				return fmt.Errorf("could not create image manager: %w", err)
+			}
 
-		c.firecrackerKernel = mgr.KernelPath(c.fromImage)
-		c.firecrackerRootFS = mgr.RootFSPath(c.fromImage)
-		firecrackerBinaryPath = mgr.FirecrackerPath(c.fromImage)
+			exists, err := mgr.Exists(ctx, c.fromImage)
+			if err != nil {
+				return fmt.Errorf("could not check image: %w", err)
+			}
+			if !exists {
+				return fmt.Errorf("image %s is not installed, run 'sbx image pull %s' first", c.fromImage, c.fromImage)
+			}
+
+			c.firecrackerKernel = mgr.KernelPath(c.fromImage)
+			c.firecrackerRootFS = mgr.RootFSPath(c.fromImage)
+			firecrackerBinaryPath = mgr.FirecrackerPath(c.fromImage)
+		}
 	}
 
 	// Build SandboxConfig from CLI flags.
