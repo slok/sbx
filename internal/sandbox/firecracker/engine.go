@@ -82,6 +82,52 @@ func (e *Engine) ImagesPath() string {
 	return filepath.Join(e.dataDir, conventions.ImagesDir)
 }
 
+// newSSHClient creates a connected SSH client for the given sandbox.
+// The caller is responsible for closing the client.
+func (e *Engine) newSSHClient(ctx context.Context, sandboxID string) (*ssh.Client, error) {
+	_, _, vmIP, _ := e.allocateNetwork(sandboxID)
+
+	privKey, err := e.sshKeyManager.LoadPrivateKey(sandboxID)
+	if err != nil {
+		return nil, fmt.Errorf("could not load private key for sandbox %s: %w", sandboxID, err)
+	}
+
+	client, err := ssh.NewClient(ctx, ssh.ClientConfig{
+		Host:       vmIP,
+		User:       "root",
+		PrivateKey: privKey,
+		Logger:     e.logger,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("could not connect to sandbox %s: %w", sandboxID, err)
+	}
+
+	return client, nil
+}
+
+// newSSHClientWithTimeout creates a connected SSH client with a custom timeout.
+func (e *Engine) newSSHClientWithTimeout(ctx context.Context, sandboxID string, timeout time.Duration) (*ssh.Client, error) {
+	_, _, vmIP, _ := e.allocateNetwork(sandboxID)
+
+	privKey, err := e.sshKeyManager.LoadPrivateKey(sandboxID)
+	if err != nil {
+		return nil, fmt.Errorf("could not load private key for sandbox %s: %w", sandboxID, err)
+	}
+
+	client, err := ssh.NewClient(ctx, ssh.ClientConfig{
+		Host:           vmIP,
+		User:           "root",
+		PrivateKey:     privKey,
+		ConnectTimeout: timeout,
+		Logger:         e.logger,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("could not connect to sandbox %s: %w", sandboxID, err)
+	}
+
+	return client, nil
+}
+
 // Check performs preflight checks for the Firecracker engine.
 func (e *Engine) Check(ctx context.Context) []model.CheckResult {
 	var results []model.CheckResult

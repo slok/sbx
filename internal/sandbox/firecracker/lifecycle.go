@@ -15,6 +15,7 @@ import (
 
 	"github.com/slok/sbx/internal/conventions"
 	"github.com/slok/sbx/internal/model"
+	"github.com/slok/sbx/internal/ssh"
 )
 
 // Start starts a stopped Firecracker sandbox.
@@ -264,36 +265,92 @@ func (e *Engine) Status(ctx context.Context, id string) (*model.Sandbox, error) 
 }
 
 // Exec executes a command inside a running Firecracker VM via SSH.
+// For TTY mode (interactive shells), it shells out to the ssh binary.
+// For non-TTY mode, it uses the pure Go SSH client.
 func (e *Engine) Exec(ctx context.Context, id string, command []string, opts model.ExecOpts) (*model.ExecResult, error) {
 	if len(command) == 0 {
 		return nil, fmt.Errorf("command cannot be empty: %w", model.ErrNotValid)
 	}
 
-	// Get VM IP from deterministic allocation
+	// Build the remote command string (shared by both TTY and non-TTY paths).
+	cmdStr := buildRemoteCommand(command, opts)
+
+	// TTY mode uses the ssh binary for proper terminal handling.
+	if opts.Tty {
+		return e.execWithTTY(ctx, id, cmdStr, opts)
+	}
+
+	// Non-TTY mode uses the pure Go SSH client.
+	client, err := e.newSSHClient(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to sandbox: %w", err)
+	}
+	defer client.Close()
+
+	e.logger.Debugf("Executing SSH command (Go client): %s", cmdStr)
+
+	exitCode, err := client.Exec(ctx, cmdStr, ssh.ExecOpts{
+		Stdin:  opts.Stdin,
+		Stdout: opts.Stdout,
+		Stderr: opts.Stderr,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute command: %w", err)
+	}
+
+	return &model.ExecResult{ExitCode: exitCode}, nil
+}
+
+// execWithTTY executes a command with TTY allocation using the ssh binary.
+// This is needed for interactive shells where Go's SSH library would require
+// manual terminal handling (raw mode, SIGWINCH, etc.).
+func (e *Engine) execWithTTY(ctx context.Context, id, cmdStr string, opts model.ExecOpts) (*model.ExecResult, error) {
 	_, _, vmIP, _ := e.allocateNetwork(id)
 	sshKeyPath := e.sshKeyManager.PrivateKeyPath(id)
 
-	// Build SSH command
 	args := []string{
 		"-i", sshKeyPath,
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-o", "ConnectTimeout=10",
+		"-t", "-t", // Force TTY allocation.
+		fmt.Sprintf("root@%s", vmIP),
+		cmdStr,
 	}
 
-	// Add TTY if requested
-	if opts.Tty {
-		args = append(args, "-t", "-t") // Force TTY allocation
+	e.logger.Debugf("Executing SSH command (TTY): ssh %v", args)
+
+	cmd := exec.CommandContext(ctx, "ssh", args...)
+	if opts.Stdin != nil {
+		cmd.Stdin = opts.Stdin
+	}
+	if opts.Stdout != nil {
+		cmd.Stdout = opts.Stdout
+	}
+	if opts.Stderr != nil {
+		cmd.Stderr = opts.Stderr
 	}
 
-	// Add target
-	args = append(args, fmt.Sprintf("root@%s", vmIP))
+	err := cmd.Run()
+	exitCode := 0
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		} else {
+			return nil, fmt.Errorf("failed to execute command: %w", err)
+		}
+	}
 
+	return &model.ExecResult{ExitCode: exitCode}, nil
+}
+
+// buildRemoteCommand builds the full remote command string from command parts and options.
+// Handles: shell quoting, working directory, session env sourcing, environment variables.
+func buildRemoteCommand(command []string, opts model.ExecOpts) string {
 	quotedCommand := make([]string, 0, len(command))
 	for _, part := range command {
 		quotedCommand = append(quotedCommand, shellSingleQuote(part))
 	}
-
 	cmdStr := strings.Join(quotedCommand, " ")
 
 	if opts.WorkingDir != "" {
@@ -313,115 +370,52 @@ func (e *Engine) Exec(ctx context.Context, id string, command []string, opts mod
 		for _, k := range keys {
 			envParts = append(envParts, fmt.Sprintf("export %s=%s", k, shellSingleQuote(opts.Env[k])))
 		}
-
 		cmdStr = fmt.Sprintf("%s; %s", strings.Join(envParts, "; "), cmdStr)
 	}
-	args = append(args, cmdStr)
 
-	e.logger.Debugf("Executing SSH command: ssh %v", args)
-
-	// Execute SSH
-	cmd := exec.CommandContext(ctx, "ssh", args...)
-
-	// Wire up streams
-	if opts.Stdin != nil {
-		cmd.Stdin = opts.Stdin
-	}
-	if opts.Stdout != nil {
-		cmd.Stdout = opts.Stdout
-	}
-	if opts.Stderr != nil {
-		cmd.Stderr = opts.Stderr
-	}
-
-	// Run the command
-	err := cmd.Run()
-
-	// Get exit code
-	exitCode := 0
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			exitCode = exitErr.ExitCode()
-		} else {
-			return nil, fmt.Errorf("failed to execute command: %w", err)
-		}
-	}
-
-	return &model.ExecResult{
-		ExitCode: exitCode,
-	}, nil
+	return cmdStr
 }
 
 func shellSingleQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "'"
 }
 
-// CopyTo copies a file or directory from the local host to the Firecracker VM via SCP.
+// CopyTo copies a file or directory from the local host to the Firecracker VM via SFTP.
 func (e *Engine) CopyTo(ctx context.Context, id string, srcLocal string, dstRemote string) error {
-	// Get VM IP from deterministic allocation
-	_, _, vmIP, _ := e.allocateNetwork(id)
-	sshKeyPath := e.sshKeyManager.PrivateKeyPath(id)
-
-	// Build SCP command with -r for recursive copy
-	args := []string{
-		"-r",
-		"-i", sshKeyPath,
-		"-o", "StrictHostKeyChecking=no",
-		"-o", "UserKnownHostsFile=/dev/null",
-		"-o", "ConnectTimeout=10",
-		srcLocal,
-		fmt.Sprintf("root@%s:%s", vmIP, dstRemote),
-	}
-
-	e.logger.Debugf("Copying to VM %s: scp %v", id, args)
-
-	cmd := exec.CommandContext(ctx, "scp", args...)
-	output, err := cmd.CombinedOutput()
+	client, err := e.newSSHClient(ctx, id)
 	if err != nil {
-		errStr := string(output)
-		if strings.Contains(errStr, "No such file or directory") {
+		return fmt.Errorf("sandbox %s is not running or not reachable: %w: %w", id, err, model.ErrNotValid)
+	}
+	defer client.Close()
+
+	e.logger.Debugf("Copying to VM %s: %s -> %s", id, srcLocal, dstRemote)
+
+	if err := client.CopyTo(ctx, srcLocal, dstRemote); err != nil {
+		if os.IsNotExist(err) {
 			return fmt.Errorf("source path '%s' does not exist: %w", srcLocal, model.ErrNotFound)
 		}
-		if strings.Contains(errStr, "Connection refused") || strings.Contains(errStr, "Connection timed out") {
-			return fmt.Errorf("sandbox %s is not running or not reachable: %w", id, model.ErrNotValid)
-		}
-		return fmt.Errorf("failed to copy to VM: %s: %w", errStr, err)
+		return fmt.Errorf("failed to copy to VM: %w", err)
 	}
 
 	e.logger.Debugf("Copied %s to %s:%s", srcLocal, id, dstRemote)
 	return nil
 }
 
-// CopyFrom copies a file or directory from the Firecracker VM to the local host via SCP.
+// CopyFrom copies a file or directory from the Firecracker VM to the local host via SFTP.
 func (e *Engine) CopyFrom(ctx context.Context, id string, srcRemote string, dstLocal string) error {
-	// Get VM IP from deterministic allocation
-	_, _, vmIP, _ := e.allocateNetwork(id)
-	sshKeyPath := e.sshKeyManager.PrivateKeyPath(id)
-
-	// Build SCP command with -r for recursive copy
-	args := []string{
-		"-r",
-		"-i", sshKeyPath,
-		"-o", "StrictHostKeyChecking=no",
-		"-o", "UserKnownHostsFile=/dev/null",
-		"-o", "ConnectTimeout=10",
-		fmt.Sprintf("root@%s:%s", vmIP, srcRemote),
-		dstLocal,
-	}
-
-	e.logger.Debugf("Copying from VM %s: scp %v", id, args)
-
-	cmd := exec.CommandContext(ctx, "scp", args...)
-	output, err := cmd.CombinedOutput()
+	client, err := e.newSSHClient(ctx, id)
 	if err != nil {
-		errStr := string(output)
-		if strings.Contains(errStr, "No such file or directory") {
+		return fmt.Errorf("sandbox %s is not running or not reachable: %w: %w", id, err, model.ErrNotValid)
+	}
+	defer client.Close()
+
+	e.logger.Debugf("Copying from VM %s: %s -> %s", id, srcRemote, dstLocal)
+
+	if err := client.CopyFrom(ctx, srcRemote, dstLocal); err != nil {
+		if os.IsNotExist(err) {
 			return fmt.Errorf("source path '%s' does not exist in sandbox: %w", srcRemote, model.ErrNotFound)
 		}
-		if strings.Contains(errStr, "Connection refused") || strings.Contains(errStr, "Connection timed out") {
-			return fmt.Errorf("sandbox %s is not running or not reachable: %w", id, model.ErrNotValid)
-		}
-		return fmt.Errorf("failed to copy from VM: %s: %w", errStr, err)
+		return fmt.Errorf("failed to copy from VM: %w", err)
 	}
 
 	e.logger.Debugf("Copied %s:%s to %s", id, srcRemote, dstLocal)
@@ -435,54 +429,29 @@ func (e *Engine) Forward(ctx context.Context, id string, ports []model.PortMappi
 		return fmt.Errorf("at least one port mapping is required: %w", model.ErrNotValid)
 	}
 
-	// Get VM IP from deterministic allocation
-	_, _, vmIP, _ := e.allocateNetwork(id)
-	sshKeyPath := e.sshKeyManager.PrivateKeyPath(id)
-
-	// Build SSH command with -N (no command) and -L flags for port forwarding
-	args := []string{
-		"-N", // No remote command, just forward ports
-		"-i", sshKeyPath,
-		"-o", "StrictHostKeyChecking=no",
-		"-o", "UserKnownHostsFile=/dev/null",
-		"-o", "ConnectTimeout=10",
-		"-o", "ServerAliveInterval=30",
-		"-o", "ServerAliveCountMax=3",
-	}
-
-	// Add -L flag for each port mapping
-	for _, pm := range ports {
-		args = append(args, "-L", fmt.Sprintf("%d:localhost:%d", pm.LocalPort, pm.RemotePort))
-	}
-
-	// Add target
-	args = append(args, fmt.Sprintf("root@%s", vmIP))
-
-	e.logger.Debugf("Starting SSH tunnel: ssh %v", args)
-
-	// Execute SSH tunnel
-	cmd := exec.CommandContext(ctx, "ssh", args...)
-
-	// Run the command (blocks until context cancelled or SSH disconnects)
-	err := cmd.Run()
+	client, err := e.newSSHClient(ctx, id)
 	if err != nil {
-		// Context cancellation is expected (user pressed Ctrl+C)
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
 		return fmt.Errorf("SSH tunnel failed: %w", err)
 	}
+	defer client.Close()
 
-	return nil
+	// Convert model.PortMapping to ssh.PortForward.
+	portForwards := make([]ssh.PortForward, 0, len(ports))
+	for _, pm := range ports {
+		portForwards = append(portForwards, ssh.PortForward{
+			LocalPort:  pm.LocalPort,
+			RemotePort: pm.RemotePort,
+		})
+	}
+
+	e.logger.Debugf("Starting SSH tunnel for %d ports", len(ports))
+
+	return client.Forward(ctx, portForwards)
 }
 
 // gracefulShutdown attempts to gracefully shutdown the VM via SSH.
 func (e *Engine) gracefulShutdown(ctx context.Context, id string) error {
-	_, _, vmIP, _ := e.allocateNetwork(id)
-	sshKeyPath := e.sshKeyManager.PrivateKeyPath(id)
-
-	// Try to run shutdown command
-	return e.sshExec(ctx, vmIP, sshKeyPath, []string{"poweroff"})
+	return e.sshExec(ctx, id, "poweroff")
 }
 
 // killFirecracker kills the firecracker process.

@@ -5,13 +5,15 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/google/nftables"
 	"github.com/google/nftables/expr"
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
+
+	"github.com/slok/sbx/internal/ssh"
 )
 
 const (
@@ -421,22 +423,20 @@ func (e *Engine) cleanupIPTables(tapDevice, gateway, vmIP string) error {
 	return e.cleanupNftables(tapDevice, gateway, vmIP)
 }
 
-// sshExec executes a command on the VM via SSH.
-func (e *Engine) sshExec(ctx context.Context, vmIP, sshKeyPath string, command []string) error {
-	args := []string{
-		"-i", sshKeyPath,
-		"-o", "StrictHostKeyChecking=no",
-		"-o", "UserKnownHostsFile=/dev/null",
-		"-o", "ConnectTimeout=5",
-		"-o", "BatchMode=yes",
-		fmt.Sprintf("root@%s", vmIP),
-	}
-	args = append(args, command...)
-
-	cmd := exec.CommandContext(ctx, "ssh", args...)
-	output, err := cmd.CombinedOutput()
+// sshExec executes a command on the VM via the Go SSH client.
+func (e *Engine) sshExec(ctx context.Context, sandboxID string, command string) error {
+	client, err := e.newSSHClientWithTimeout(ctx, sandboxID, 5*time.Second)
 	if err != nil {
-		return fmt.Errorf("ssh exec failed: %w, output: %s", err, string(output))
+		return fmt.Errorf("ssh exec failed: %w", err)
+	}
+	defer client.Close()
+
+	exitCode, err := client.Exec(ctx, command, ssh.ExecOpts{})
+	if err != nil {
+		return fmt.Errorf("ssh exec failed: %w", err)
+	}
+	if exitCode != 0 {
+		return fmt.Errorf("ssh exec failed: command exited with code %d", exitCode)
 	}
 	return nil
 }
