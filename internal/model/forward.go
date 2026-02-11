@@ -9,9 +9,12 @@ import (
 // PortMapping represents a port forwarding configuration.
 // LocalPort is the port on the host machine.
 // RemotePort is the port inside the sandbox.
+// BindAddress is the local address to listen on (e.g., "localhost", "0.0.0.0").
+// Defaults to "localhost" if empty.
 type PortMapping struct {
-	LocalPort  int
-	RemotePort int
+	BindAddress string
+	LocalPort   int
+	RemotePort  int
 }
 
 // ParsePortMapping parses a port mapping string.
@@ -70,4 +73,12 @@ func (p PortMapping) String() string {
 		return strconv.Itoa(p.LocalPort)
 	}
 	return fmt.Sprintf("%d:%d", p.LocalPort, p.RemotePort)
+}
+
+// ListenAddress returns the bind address for display, defaulting to "localhost".
+func (p PortMapping) ListenAddress() string {
+	if p.BindAddress == "" {
+		return "localhost"
+	}
+	return p.BindAddress
 }

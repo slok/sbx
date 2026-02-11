@@ -439,8 +439,9 @@ func (e *Engine) Forward(ctx context.Context, id string, ports []model.PortMappi
 	portForwards := make([]ssh.PortForward, 0, len(ports))
 	for _, pm := range ports {
 		portForwards = append(portForwards, ssh.PortForward{
-			LocalPort:  pm.LocalPort,
-			RemotePort: pm.RemotePort,
+			BindAddress: pm.BindAddress,
+			LocalPort:   pm.LocalPort,
+			RemotePort:  pm.RemotePort,
 		})
 	}
 
