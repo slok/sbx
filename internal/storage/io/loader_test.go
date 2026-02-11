@@ -79,6 +79,66 @@ env:
 			expErr: true,
 			errMsg: "parsing YAML",
 		},
+		"Valid session config with egress policy should load successfully": {
+			fs: fstest.MapFS{
+				"session.yaml": &fstest.MapFile{
+					Data: []byte(`name: dev-session
+egress:
+  default: deny
+  rules:
+    - domain: "github.com"
+      action: allow
+    - domain: "*.npmjs.org"
+      action: allow
+    - cidr: "10.0.0.0/8"
+      action: allow
+`),
+				},
+			},
+			path: "session.yaml",
+			expCfg: model.SessionConfig{
+				Name: "dev-session",
+				Egress: &model.EgressPolicy{
+					Default: model.EgressActionDeny,
+					Rules: []model.EgressRule{
+						{Domain: "github.com", Action: model.EgressActionAllow},
+						{Domain: "*.npmjs.org", Action: model.EgressActionAllow},
+						{CIDR: "10.0.0.0/8", Action: model.EgressActionAllow},
+					},
+				},
+			},
+		},
+		"Session config without egress should have nil egress": {
+			fs: fstest.MapFS{
+				"session.yaml": &fstest.MapFile{
+					Data: []byte(`name: open-session
+env:
+  KEY: value
+`),
+				},
+			},
+			path: "session.yaml",
+			expCfg: model.SessionConfig{
+				Name: "open-session",
+				Env:  map[string]string{"KEY": "value"},
+			},
+		},
+		"Invalid egress policy should return error": {
+			fs: fstest.MapFS{
+				"session.yaml": &fstest.MapFile{
+					Data: []byte(`name: bad-egress
+egress:
+  default: invalid
+  rules:
+    - domain: "github.com"
+      action: allow
+`),
+				},
+			},
+			path:   "session.yaml",
+			expErr: true,
+			errMsg: "invalid egress policy",
+		},
 	}
 
 	for name, tc := range tests {

@@ -29,6 +29,19 @@ const (
 	SSHPublicKeyFile = "id_ed25519.pub"
 	// AuthorizedKeysPath is the path inside the rootfs for SSH authorized keys.
 	AuthorizedKeysPath = "/root/.ssh/authorized_keys"
+
+	// Egress proxy files.
+
+	// EgressProxyPIDFile is the PID filename for the egress proxy process.
+	EgressProxyPIDFile = "egress-proxy.pid"
+	// EgressProxyLogFile is the log filename for the egress proxy.
+	EgressProxyLogFile = "egress-proxy.log"
+	// EgressProxyPort is the default port the egress TCP proxy listens on.
+	EgressProxyPort = 8443
+	// EgressDNSPort is the port the egress DNS forwarder listens on.
+	// Uses a non-privileged port (>1024) so the process doesn't need
+	// CAP_NET_BIND_SERVICE. Nftables DNAT redirects UDP 53 to this port.
+	EgressDNSPort = 5353
 )
 
 // VMDir returns the directory for a specific sandbox VM.

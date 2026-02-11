@@ -109,6 +109,32 @@ type CreateSandboxOpts struct {
 	FromImage string
 }
 
+// EgressAction represents an allow or deny action for egress rules.
+type EgressAction string
+
+const (
+	// EgressActionAllow allows matching traffic.
+	EgressActionAllow EgressAction = "allow"
+	// EgressActionDeny denies matching traffic.
+	EgressActionDeny EgressAction = "deny"
+)
+
+// EgressRule is a single egress policy rule.
+// Exactly one of Domain or CIDR must be set.
+type EgressRule struct {
+	Domain string       // e.g., "github.com" or "*.npmjs.org"
+	CIDR   string       // e.g., "10.0.0.0/8"
+	Action EgressAction // "allow" or "deny"
+}
+
+// EgressPolicy defines egress control rules for a sandbox.
+// When set, a transparent proxy intercepts all outbound traffic
+// and enforces domain/CIDR-based allow/deny rules.
+type EgressPolicy struct {
+	Default EgressAction // default action when no rule matches
+	Rules   []EgressRule
+}
+
 // StartSandboxOpts configures sandbox start behavior.
 //
 // Pass nil to [Client.StartSandbox] to use defaults (no session env).
@@ -117,6 +143,11 @@ type StartSandboxOpts struct {
 	// start time. These are written to /etc/sbx/session-env.sh and sourced
 	// by login shells.
 	Env map[string]string
+
+	// Egress configures egress control for the sandbox. When set, outbound
+	// traffic is intercepted by a transparent proxy and filtered according
+	// to the policy rules. When nil, egress is unrestricted.
+	Egress *EgressPolicy
 }
 
 // ListSandboxesOpts configures sandbox listing.
@@ -328,9 +359,25 @@ func toInternalSessionConfig(opts *StartSandboxOpts) model.SessionConfig {
 		return model.SessionConfig{}
 	}
 
-	return model.SessionConfig{
+	cfg := model.SessionConfig{
 		Env: opts.Env,
 	}
+
+	if opts.Egress != nil {
+		ep := &model.EgressPolicy{
+			Default: model.EgressAction(opts.Egress.Default),
+		}
+		for _, r := range opts.Egress.Rules {
+			ep.Rules = append(ep.Rules, model.EgressRule{
+				Domain: r.Domain,
+				CIDR:   r.CIDR,
+				Action: model.EgressAction(r.Action),
+			})
+		}
+		cfg.Egress = ep
+	}
+
+	return cfg
 }
 
 func toInternalExecOpts(opts *ExecOpts) model.ExecOpts {

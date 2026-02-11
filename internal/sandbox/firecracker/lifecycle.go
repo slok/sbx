@@ -2,6 +2,7 @@ package firecracker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,11 +11,13 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/vishvananda/netlink"
 
 	"github.com/slok/sbx/internal/conventions"
 	"github.com/slok/sbx/internal/model"
+	"github.com/slok/sbx/internal/sandbox"
 	"github.com/slok/sbx/internal/ssh"
 )
 
@@ -22,7 +25,7 @@ import (
 // Note: Firecracker doesn't support pause/resume. To "start" a stopped VM,
 // we respawn the process transparently while preserving disk state.
 // The user sees the same sandbox with all their disk changes intact.
-func (e *Engine) Start(ctx context.Context, id string) error {
+func (e *Engine) Start(ctx context.Context, id string, opts sandbox.StartOpts) error {
 	vmDir := e.VMDir(id)
 
 	// Validate VM directory exists
@@ -40,11 +43,11 @@ func (e *Engine) Start(ctx context.Context, id string) error {
 	if e.repo == nil {
 		return fmt.Errorf("cannot start firecracker sandbox: repository not configured")
 	}
-	sandbox, err := e.repo.GetSandbox(ctx, id)
+	sb, err := e.repo.GetSandbox(ctx, id)
 	if err != nil {
 		return fmt.Errorf("could not get sandbox config: %w", err)
 	}
-	if sandbox.Config.FirecrackerEngine == nil {
+	if sb.Config.FirecrackerEngine == nil {
 		return fmt.Errorf("sandbox %s is not a firecracker sandbox", id)
 	}
 
@@ -52,7 +55,7 @@ func (e *Engine) Start(ctx context.Context, id string) error {
 	mac, gateway, vmIP, tapDevice := e.allocateNetwork(id)
 
 	// Expand kernel path
-	kernelPath := e.expandPath(sandbox.Config.FirecrackerEngine.KernelImage)
+	kernelPath := e.expandPath(sb.Config.FirecrackerEngine.KernelImage)
 	if _, err := os.Stat(kernelPath); os.IsNotExist(err) {
 		return fmt.Errorf("kernel image not found at %s", kernelPath)
 	}
@@ -62,44 +65,81 @@ func (e *Engine) Start(ctx context.Context, id string) error {
 	e.logger.Infof("Starting Firecracker sandbox: %s", id)
 	e.logger.Debugf("Network: MAC=%s, Gateway=%s, VM IP=%s, TAP=%s", mac, gateway, vmIP, tapDevice)
 
+	hasEgress := opts.EgressPolicy != nil
+	totalSteps := 5
+	if hasEgress {
+		totalSteps = 6 // extra: egress setup (DNS patch + proxy + nftables)
+	}
+	step := 0
+	nextStep := func() int { step++; return step }
+
 	var startErr error
 	var pid int
 
 	// Task 1: Ensure networking resources exist (TAP + iptables)
 	// If TAP is missing (e.g., after system reboot), recreate it
-	e.logger.Debugf("[1/5] Ensuring network resources exist")
+	e.logger.Debugf("[%d/%d] Ensuring network resources exist", nextStep(), totalSteps)
 	if err := e.ensureNetworking(tapDevice, gateway, vmIP); err != nil {
 		startErr = err
 		goto cleanup
 	}
 
-	// Task 2: Spawn Firecracker process
-	e.logger.Debugf("[2/5] Spawning Firecracker process")
+	// Task: Spawn Firecracker process
+	e.logger.Debugf("[%d/%d] Spawning Firecracker process", nextStep(), totalSteps)
 	pid, err = e.spawnFirecracker(vmDir, socketPath)
 	if err != nil {
 		startErr = err
 		goto cleanup
 	}
 
-	// Task 3: Configure VM via API (includes network config via kernel ip= parameter)
-	e.logger.Debugf("[3/5] Configuring VM via Firecracker API")
-	if err := e.configureVM(ctx, socketPath, kernelPath, vmDir, mac, tapDevice, vmIP, gateway, sandbox.Config.Resources); err != nil {
+	// Task: Configure VM via API (includes network config via kernel ip= parameter)
+	e.logger.Debugf("[%d/%d] Configuring VM via Firecracker API", nextStep(), totalSteps)
+	if err := e.configureVM(ctx, socketPath, kernelPath, vmDir, mac, tapDevice, vmIP, gateway, sb.Config.Resources); err != nil {
 		startErr = err
 		goto cleanup
 	}
 
-	// Task 4: Boot VM
-	e.logger.Debugf("[4/5] Booting VM")
+	// Task: Boot VM
+	e.logger.Debugf("[%d/%d] Booting VM", nextStep(), totalSteps)
 	if err := e.bootVM(ctx, socketPath); err != nil {
 		startErr = err
 		goto cleanup
 	}
 
-	// Task 5: Expand filesystem inside VM to fill resized disk
-	e.logger.Debugf("[5/5] Expanding filesystem inside VM")
+	// Task: Expand filesystem inside VM to fill resized disk
+	e.logger.Debugf("[%d/%d] Expanding filesystem inside VM", nextStep(), totalSteps)
 	if err := e.expandFilesystem(ctx, id, vmIP); err != nil {
 		startErr = err
 		goto cleanup
+	}
+
+	// Task (egress): Setup egress control after VM is running.
+	// We patch DNS via SSH (post-boot) because the init system may overwrite
+	// resolv.conf during boot. Then we set up nftables DNAT and spawn the proxy.
+	if hasEgress {
+		e.logger.Debugf("[%d/%d] Setting up egress control (DNS, nftables, proxy)", nextStep(), totalSteps)
+
+		// Patch resolv.conf via SSH to point at gateway DNS forwarder.
+		if err := e.patchDNSViaSSH(ctx, id, gateway); err != nil {
+			startErr = fmt.Errorf("failed to patch DNS inside VM: %w", err)
+			goto cleanup
+		}
+
+		// Spawn the egress proxy BEFORE setting up nftables DNAT, so the proxy
+		// is ready to accept connections when traffic gets redirected.
+		if err := e.spawnEgressProxy(vmDir, gateway, *opts.EgressPolicy); err != nil {
+			startErr = fmt.Errorf("failed to spawn egress proxy: %w", err)
+			goto cleanup
+		}
+
+		// Small delay to let the proxy bind its listen address.
+		time.Sleep(500 * time.Millisecond)
+
+		// Setup nftables DNAT rules to redirect traffic to the proxy.
+		if err := e.setupEgressNftables(tapDevice, gateway, vmIP, conventions.EgressProxyPort, conventions.EgressDNSPort); err != nil {
+			startErr = fmt.Errorf("failed to setup egress nftables: %w", err)
+			goto cleanup
+		}
 	}
 
 cleanup:
@@ -111,13 +151,19 @@ cleanup:
 				_ = proc.Kill()
 			}
 		}
+		// Kill egress proxy if it was spawned.
+		_ = e.killEgressProxy(vmDir)
+		// Cleanup egress nftables if they were set up.
+		if hasEgress {
+			_ = e.cleanupEgressNftables(tapDevice)
+		}
 		return startErr
 	}
 
 	// Update sandbox with new PID and socket path
-	sandbox.PID = pid
-	sandbox.SocketPath = socketPath
-	if err := e.repo.UpdateSandbox(ctx, *sandbox); err != nil {
+	sb.PID = pid
+	sb.SocketPath = socketPath
+	if err := e.repo.UpdateSandbox(ctx, *sb); err != nil {
 		e.logger.Warningf("Failed to update sandbox PID in repository: %v", err)
 		// Don't fail the start - VM is running, just log the warning
 	}
@@ -156,14 +202,20 @@ func (e *Engine) Stop(ctx context.Context, id string) error {
 	vmDir := e.VMDir(id)
 
 	// Task 1: Try graceful shutdown via SSH
-	e.logger.Debugf("[1/2] Attempting graceful shutdown")
+	e.logger.Debugf("[1/3] Attempting graceful shutdown")
 	if err := e.gracefulShutdown(ctx, id); err != nil {
 		// Continue to kill process even if graceful shutdown fails
 		e.logger.Warningf("Graceful shutdown failed: %v", err)
 	}
 
-	// Task 2: Kill the firecracker process
-	e.logger.Debugf("[2/2] Killing Firecracker process")
+	// Task 2: Kill the egress proxy if running
+	e.logger.Debugf("[2/3] Killing egress proxy (if running)")
+	if err := e.killEgressProxy(vmDir); err != nil {
+		e.logger.Warningf("Failed to kill egress proxy: %v", err)
+	}
+
+	// Task 3: Kill the firecracker process
+	e.logger.Debugf("[3/3] Killing Firecracker process")
 	if err := e.killFirecracker(vmDir); err != nil {
 		return err
 	}
@@ -180,26 +232,38 @@ func (e *Engine) Remove(ctx context.Context, id string) error {
 	// For now, we'll use the hash-based allocation which is deterministic
 	_, gateway, vmIP, tapDevice := e.allocateNetwork(id)
 
-	// Task 1: Kill firecracker process if running
-	e.logger.Debugf("[1/4] Killing Firecracker process")
+	// Task 1: Kill egress proxy if running
+	e.logger.Debugf("[1/6] Killing egress proxy (if running)")
+	if err := e.killEgressProxy(vmDir); err != nil {
+		e.logger.Warningf("Could not kill egress proxy: %v", err)
+	}
+
+	// Task 2: Kill firecracker process if running
+	e.logger.Debugf("[2/6] Killing Firecracker process")
 	if err := e.killFirecracker(vmDir); err != nil {
 		e.logger.Warningf("Could not kill process (may already be stopped): %v", err)
 	}
 
-	// Task 2: Cleanup iptables rules
-	e.logger.Debugf("[2/4] Cleaning up iptables rules")
+	// Task 3: Cleanup egress nftables rules
+	e.logger.Debugf("[3/6] Cleaning up egress nftables rules")
+	if err := e.cleanupEgressNftables(tapDevice); err != nil {
+		e.logger.Warningf("Could not cleanup egress nftables: %v", err)
+	}
+
+	// Task 4: Cleanup iptables rules
+	e.logger.Debugf("[4/6] Cleaning up iptables rules")
 	if err := e.cleanupIPTables(tapDevice, gateway, vmIP); err != nil {
 		e.logger.Warningf("Could not cleanup iptables: %v", err)
 	}
 
-	// Task 3: Delete TAP device
-	e.logger.Debugf("[3/4] Deleting TAP device: %s", tapDevice)
+	// Task 5: Delete TAP device
+	e.logger.Debugf("[5/6] Deleting TAP device: %s", tapDevice)
 	if err := e.deleteTAP(tapDevice); err != nil {
 		e.logger.Warningf("Could not delete TAP device: %v", err)
 	}
 
-	// Task 4: Delete VM files
-	e.logger.Debugf("[4/4] Deleting VM files")
+	// Task 6: Delete VM files
+	e.logger.Debugf("[6/6] Deleting VM files")
 	if err := os.RemoveAll(vmDir); err != nil {
 		return fmt.Errorf("failed to delete VM files: %w", err)
 	}
@@ -452,6 +516,123 @@ func (e *Engine) Forward(ctx context.Context, id string, ports []model.PortMappi
 // gracefulShutdown attempts to gracefully shutdown the VM via SSH.
 func (e *Engine) gracefulShutdown(ctx context.Context, id string) error {
 	return e.sshExec(ctx, id, "poweroff")
+}
+
+// patchDNSViaSSH overwrites /etc/resolv.conf inside the running VM via SSH.
+// This is done post-boot because the init system may overwrite the file during boot.
+// Handles symlinks by removing the symlink first, then writing a regular file.
+func (e *Engine) patchDNSViaSSH(ctx context.Context, sandboxID, gatewayIP string) error {
+	// Remove any symlink (e.g., /etc/resolv.conf -> /run/systemd/resolve/resolv.conf),
+	// then write the resolv.conf as a regular file.
+	cmd := fmt.Sprintf("rm -f /etc/resolv.conf && printf 'nameserver %s\\n' > /etc/resolv.conf", gatewayIP)
+	return e.sshExec(ctx, sandboxID, cmd)
+}
+
+// spawnEgressProxy forks a `sbx egress-proxy` process and writes its PID file.
+// The proxy is spawned after the VM boots so traffic can be redirected immediately.
+func (e *Engine) spawnEgressProxy(vmDir, gateway string, policy model.EgressPolicy) error {
+	// Use the configured sbx binary, falling back to os.Executable().
+	// The explicit path is needed when the engine runs inside a test binary
+	// or other non-sbx process that doesn't have the egress-proxy subcommand.
+	selfBin := e.sbxBinary
+	if selfBin == "" {
+		var err error
+		selfBin, err = os.Executable()
+		if err != nil {
+			return fmt.Errorf("could not find own binary: %w", err)
+		}
+	}
+
+	// Marshal policy to JSON.
+	policyJSON, err := json.Marshal(policy)
+	if err != nil {
+		return fmt.Errorf("could not marshal egress policy: %w", err)
+	}
+
+	listenAddr := fmt.Sprintf("%s:%d", gateway, conventions.EgressProxyPort)
+	dnsAddr := fmt.Sprintf("%s:%d", gateway, conventions.EgressDNSPort)
+
+	args := []string{
+		"egress-proxy",
+		"--listen", listenAddr,
+		"--dns", dnsAddr,
+		"--policy", string(policyJSON),
+	}
+
+	cmd := exec.Command(selfBin, args...)
+
+	// Redirect stderr to log file.
+	logPath := filepath.Join(vmDir, conventions.EgressProxyLogFile)
+	logFile, err := os.Create(logPath)
+	if err != nil {
+		return fmt.Errorf("could not create egress proxy log: %w", err)
+	}
+	cmd.Stderr = logFile
+	cmd.Stdout = logFile
+
+	// Detach from parent process group so the proxy survives CLI exit.
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true,
+	}
+
+	if err := cmd.Start(); err != nil {
+		logFile.Close()
+		return fmt.Errorf("could not start egress proxy: %w", err)
+	}
+	logFile.Close()
+
+	// Write PID file.
+	pidPath := filepath.Join(vmDir, conventions.EgressProxyPIDFile)
+	pidContent := fmt.Sprintf("%d", cmd.Process.Pid)
+	if err := os.WriteFile(pidPath, []byte(pidContent), 0644); err != nil {
+		// Kill the process we just started since we can't track it.
+		_ = cmd.Process.Kill()
+		return fmt.Errorf("could not write egress proxy PID file: %w", err)
+	}
+
+	// Release the process so it doesn't become a zombie.
+	_ = cmd.Process.Release()
+
+	e.logger.Debugf("Spawned egress proxy (PID %d) at %s", cmd.Process.Pid, listenAddr)
+	return nil
+}
+
+// killEgressProxy kills the egress proxy process if its PID file exists.
+func (e *Engine) killEgressProxy(vmDir string) error {
+	pidPath := filepath.Join(vmDir, conventions.EgressProxyPIDFile)
+	pidData, err := os.ReadFile(pidPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // No PID file, no proxy to kill.
+		}
+		return fmt.Errorf("could not read egress proxy PID file: %w", err)
+	}
+
+	pid, err := strconv.Atoi(strings.TrimSpace(string(pidData)))
+	if err != nil {
+		return fmt.Errorf("invalid egress proxy PID: %w", err)
+	}
+
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return nil
+	}
+
+	if err := proc.Signal(syscall.SIGTERM); err != nil {
+		if err == os.ErrProcessDone {
+			return nil
+		}
+		// Process might not exist anymore.
+		return nil
+	}
+
+	_ = proc.Signal(syscall.SIGKILL)
+
+	// Clean up PID file.
+	_ = os.Remove(pidPath)
+
+	e.logger.Debugf("Killed egress proxy (PID %d)", pid)
+	return nil
 }
 
 // killFirecracker kills the firecracker process.

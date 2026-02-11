@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	osexec "os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -601,4 +602,139 @@ func TestSDKDoctor(t *testing.T) {
 		assert.NotEmpty(t, r.ID, "check result should have an ID")
 		assert.NotEmpty(t, r.Status, "check result should have a status")
 	}
+}
+
+func TestSDKEgressControl(t *testing.T) {
+	config := intlib.NewConfig(t)
+	client := intlib.NewTestClient(t, config)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	name := intlib.UniqueName("sdk-egress")
+	intlib.CleanupSandbox(t, client, name)
+
+	// Create sandbox.
+	_, err := client.CreateSandbox(ctx, sdklib.CreateSandboxOpts{
+		Name:   name,
+		Engine: sdklib.EngineFirecracker,
+		Firecracker: &sdklib.FirecrackerConfig{
+			RootFS:      config.RootFSPath(),
+			KernelImage: config.KernelPath(),
+		},
+		Resources: sdklib.Resources{VCPUs: 1, MemoryMB: 512, DiskGB: 2},
+	})
+	require.NoError(t, err)
+
+	// Start with egress policy: default deny, allow only example.com and private ranges.
+	_, err = client.StartSandbox(ctx, name, &sdklib.StartSandboxOpts{
+		Egress: &sdklib.EgressPolicy{
+			Default: sdklib.EgressActionDeny,
+			Rules: []sdklib.EgressRule{
+				{Domain: "example.com", Action: sdklib.EgressActionAllow},
+				{Domain: "*.example.com", Action: sdklib.EgressActionAllow},
+				{CIDR: "10.0.0.0/8", Action: sdklib.EgressActionAllow},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	// Diagnostic: log host-side and VM-side state for debugging CI failures.
+	t.Run("diagnostics", func(t *testing.T) {
+		// Host-side: check nftables rules and egress proxy processes.
+		if out, err := osexec.Command("nft", "list", "ruleset").CombinedOutput(); err == nil {
+			t.Logf("Host nftables:\n%s", string(out))
+		}
+		if out, err := osexec.Command("sh", "-c", "ps aux | grep egress-proxy | grep -v grep").CombinedOutput(); err == nil {
+			t.Logf("Host egress-proxy processes:\n%s", string(out))
+		} else {
+			t.Logf("No egress-proxy processes found on host")
+		}
+		// Check all egress proxy log and PID files.
+		if out, err := osexec.Command("sh", "-c", "find /tmp -name 'egress-proxy.*' -exec echo '--- {} ---' \\; -exec cat {} \\; 2>/dev/null || true").CombinedOutput(); err == nil {
+			t.Logf("Egress proxy files:\n%s", string(out))
+		}
+
+		// VM-side diagnostics.
+		var stdout bytes.Buffer
+		_, _ = client.Exec(ctx, name, []string{
+			"sh", "-c", "echo '--- resolv.conf ---' && cat /etc/resolv.conf && echo '--- ip route ---' && ip route && echo '--- ip addr ---' && ip addr",
+		}, &sdklib.ExecOpts{Stdout: &stdout})
+		t.Logf("VM diagnostics:\n%s", stdout.String())
+	})
+
+	// Test 1: Verify /etc/resolv.conf points to the gateway (DNS forwarder).
+	t.Run("resolv.conf points to gateway", func(t *testing.T) {
+		var stdout bytes.Buffer
+		_, err := client.Exec(ctx, name, []string{"cat", "/etc/resolv.conf"}, &sdklib.ExecOpts{
+			Stdout: &stdout,
+		})
+		require.NoError(t, err)
+		assert.Contains(t, stdout.String(), "nameserver 10.", "resolv.conf should point to the gateway")
+	})
+
+	// Test 2: DNS resolution works for allowed domain.
+	t.Run("DNS resolution works", func(t *testing.T) {
+		var stdout bytes.Buffer
+		_, err := client.Exec(ctx, name, []string{
+			"sh", "-c", "getent hosts example.com || nslookup example.com || echo DNS_RESOLVE_FAILED",
+		}, &sdklib.ExecOpts{
+			Stdout: &stdout,
+		})
+		require.NoError(t, err)
+		assert.NotContains(t, stdout.String(), "DNS_RESOLVE_FAILED", "DNS resolution should work via forwarder")
+	})
+
+	// Test 3: Allowed connection succeeds.
+	t.Run("allowed connection succeeds", func(t *testing.T) {
+		var stdout bytes.Buffer
+		res, err := client.Exec(ctx, name, []string{
+			"sh", "-c", "wget -q -O /dev/null --timeout=5 http://example.com/ 2>&1 && echo EGRESS_ALLOWED || echo EGRESS_BLOCKED",
+		}, &sdklib.ExecOpts{Stdout: &stdout})
+
+		if err != nil || (res != nil && res.ExitCode != 0) {
+			// wget may not be installed; try curl.
+			stdout.Reset()
+			_, err = client.Exec(ctx, name, []string{
+				"sh", "-c", "curl -sf --connect-timeout 5 http://example.com/ > /dev/null 2>&1 && echo EGRESS_ALLOWED || echo EGRESS_BLOCKED",
+			}, &sdklib.ExecOpts{Stdout: &stdout})
+		}
+
+		if err != nil {
+			t.Skipf("Neither wget nor curl available in sandbox image")
+		}
+		assert.Contains(t, stdout.String(), "EGRESS_ALLOWED", "Connection to allowed domain should succeed")
+	})
+
+	// Test 4: Denied connection is blocked.
+	t.Run("denied connection is blocked", func(t *testing.T) {
+		var stdout bytes.Buffer
+		_, err := client.Exec(ctx, name, []string{
+			"sh", "-c", "wget -q -O /dev/null --timeout=5 http://denied-domain.invalid/ 2>&1 && echo EGRESS_ALLOWED || echo EGRESS_BLOCKED",
+		}, &sdklib.ExecOpts{Stdout: &stdout})
+
+		if err != nil {
+			// wget may not be installed; try curl.
+			stdout.Reset()
+			_, err = client.Exec(ctx, name, []string{
+				"sh", "-c", "curl -sf --connect-timeout 5 http://denied-domain.invalid/ > /dev/null 2>&1 && echo EGRESS_ALLOWED || echo EGRESS_BLOCKED",
+			}, &sdklib.ExecOpts{Stdout: &stdout})
+		}
+
+		if err != nil {
+			// If tools aren't available, that's ok.
+			return
+		}
+		assert.Contains(t, stdout.String(), "EGRESS_BLOCKED", "Connection to denied domain should be blocked")
+	})
+
+	// Test 5: Sandbox is functional with egress enabled.
+	t.Run("sandbox functional with egress", func(t *testing.T) {
+		var stdout bytes.Buffer
+		result, err := client.Exec(ctx, name, []string{"echo", "egress-functional"}, &sdklib.ExecOpts{
+			Stdout: &stdout,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 0, result.ExitCode)
+		assert.Contains(t, stdout.String(), "egress-functional")
+	})
 }

@@ -36,18 +36,57 @@ func (r *SessionYAMLRepository) GetSessionConfig(ctx context.Context, path strin
 		return model.SessionConfig{}, fmt.Errorf("parsing YAML: %w", err)
 	}
 
-	return cfg.toModel(), nil
+	m := cfg.toModel()
+
+	// Validate egress policy if present.
+	if m.Egress != nil {
+		if err := m.Egress.Validate(); err != nil {
+			return model.SessionConfig{}, fmt.Errorf("invalid egress policy: %w", err)
+		}
+	}
+
+	return m, nil
 }
 
 // SessionConfig represents the YAML structure for session configuration.
 type SessionConfig struct {
-	Name string            `yaml:"name"`
-	Env  map[string]string `yaml:"env"`
+	Name   string            `yaml:"name"`
+	Env    map[string]string `yaml:"env"`
+	Egress *EgressConfig     `yaml:"egress,omitempty"`
+}
+
+// EgressConfig represents the YAML structure for egress policy.
+type EgressConfig struct {
+	Default string       `yaml:"default"`
+	Rules   []EgressRule `yaml:"rules"`
+}
+
+// EgressRule represents a single egress rule in YAML.
+type EgressRule struct {
+	Domain string `yaml:"domain,omitempty"`
+	CIDR   string `yaml:"cidr,omitempty"`
+	Action string `yaml:"action"`
 }
 
 func (c SessionConfig) toModel() model.SessionConfig {
-	return model.SessionConfig{
+	m := model.SessionConfig{
 		Name: c.Name,
 		Env:  c.Env,
 	}
+
+	if c.Egress != nil {
+		policy := &model.EgressPolicy{
+			Default: model.EgressAction(c.Egress.Default),
+		}
+		for _, r := range c.Egress.Rules {
+			policy.Rules = append(policy.Rules, model.EgressRule{
+				Domain: r.Domain,
+				CIDR:   r.CIDR,
+				Action: model.EgressAction(r.Action),
+			})
+		}
+		m.Egress = policy
+	}
+
+	return m
 }

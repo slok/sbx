@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"net"
 	"time"
 )
 
@@ -48,8 +49,67 @@ type SandboxConfig struct {
 // These settings can change between starts and will be extended with
 // env vars, file copies, etc. in the future.
 type SessionConfig struct {
-	Name string
-	Env  map[string]string
+	Name   string
+	Env    map[string]string
+	Egress *EgressPolicy
+}
+
+// EgressAction represents an allow or deny action.
+type EgressAction string
+
+const (
+	EgressActionAllow EgressAction = "allow"
+	EgressActionDeny  EgressAction = "deny"
+)
+
+// EgressRule is a single egress policy rule.
+// Either Domain or CIDR must be set, but not both.
+type EgressRule struct {
+	Domain string       // e.g. "github.com", "*.npmjs.org"
+	CIDR   string       // e.g. "10.0.0.0/8"
+	Action EgressAction // "allow" or "deny"
+}
+
+// EgressPolicy defines egress control rules for a sandbox session.
+// When nil/absent, the sandbox has unrestricted egress (current default behavior).
+type EgressPolicy struct {
+	Default EgressAction // default action when no rule matches
+	Rules   []EgressRule
+}
+
+// Validate validates the egress policy configuration.
+func (p *EgressPolicy) Validate() error {
+	if p == nil {
+		return nil
+	}
+
+	if p.Default != EgressActionAllow && p.Default != EgressActionDeny {
+		return fmt.Errorf("egress default must be 'allow' or 'deny': %w", ErrNotValid)
+	}
+
+	for i, r := range p.Rules {
+		if r.Action != EgressActionAllow && r.Action != EgressActionDeny {
+			return fmt.Errorf("egress rule %d: action must be 'allow' or 'deny': %w", i, ErrNotValid)
+		}
+
+		hasDomain := r.Domain != ""
+		hasCIDR := r.CIDR != ""
+
+		if !hasDomain && !hasCIDR {
+			return fmt.Errorf("egress rule %d: domain or cidr is required: %w", i, ErrNotValid)
+		}
+		if hasDomain && hasCIDR {
+			return fmt.Errorf("egress rule %d: domain and cidr are mutually exclusive: %w", i, ErrNotValid)
+		}
+
+		if hasCIDR {
+			if _, _, err := net.ParseCIDR(r.CIDR); err != nil {
+				return fmt.Errorf("egress rule %d: invalid cidr %q: %w: %w", i, r.CIDR, err, ErrNotValid)
+			}
+		}
+	}
+
+	return nil
 }
 
 // FirecrackerEngineConfig contains Firecracker-specific engine configuration.

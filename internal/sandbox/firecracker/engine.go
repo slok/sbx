@@ -27,6 +27,11 @@ type EngineConfig struct {
 	// FirecrackerBinary is the path to the firecracker binary.
 	// If empty, it will be looked up in PATH and ./bin.
 	FirecrackerBinary string
+	// SBXBinary is the path to the sbx binary used for forking sub-processes
+	// (e.g., egress proxy). If empty, os.Executable() is used.
+	// This is needed when the engine runs inside a test binary or other
+	// non-sbx process.
+	SBXBinary string
 	// Repository is the sandbox storage repository (required for Start to read sandbox config).
 	Repository storage.Repository
 	// Logger for logging.
@@ -52,6 +57,7 @@ func (c *EngineConfig) defaults() error {
 type Engine struct {
 	dataDir           string
 	firecrackerBinary string
+	sbxBinary         string
 	repo              storage.Repository
 	sshKeyManager     *ssh.KeyManager
 	logger            log.Logger
@@ -66,6 +72,7 @@ func NewEngine(cfg EngineConfig) (*Engine, error) {
 	return &Engine{
 		dataDir:           cfg.DataDir,
 		firecrackerBinary: cfg.FirecrackerBinary,
+		sbxBinary:         cfg.SBXBinary,
 		repo:              cfg.Repository,
 		sshKeyManager:     ssh.NewKeyManager(cfg.DataDir),
 		logger:            cfg.Logger,

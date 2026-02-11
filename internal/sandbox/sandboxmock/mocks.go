@@ -8,6 +8,7 @@ import (
 	"context"
 
 	"github.com/slok/sbx/internal/model"
+	"github.com/slok/sbx/internal/sandbox"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -498,16 +499,16 @@ func (_c *MockEngine_Remove_Call) RunAndReturn(run func(ctx context.Context, id 
 }
 
 // Start provides a mock function for the type MockEngine
-func (_mock *MockEngine) Start(ctx context.Context, id string) error {
-	ret := _mock.Called(ctx, id)
+func (_mock *MockEngine) Start(ctx context.Context, id string, opts sandbox.StartOpts) error {
+	ret := _mock.Called(ctx, id, opts)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Start")
 	}
 
 	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string) error); ok {
-		r0 = returnFunc(ctx, id)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, sandbox.StartOpts) error); ok {
+		r0 = returnFunc(ctx, id, opts)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -522,11 +523,12 @@ type MockEngine_Start_Call struct {
 // Start is a helper method to define mock.On call
 //   - ctx context.Context
 //   - id string
-func (_e *MockEngine_Expecter) Start(ctx interface{}, id interface{}) *MockEngine_Start_Call {
-	return &MockEngine_Start_Call{Call: _e.mock.On("Start", ctx, id)}
+//   - opts sandbox.StartOpts
+func (_e *MockEngine_Expecter) Start(ctx interface{}, id interface{}, opts interface{}) *MockEngine_Start_Call {
+	return &MockEngine_Start_Call{Call: _e.mock.On("Start", ctx, id, opts)}
 }
 
-func (_c *MockEngine_Start_Call) Run(run func(ctx context.Context, id string)) *MockEngine_Start_Call {
+func (_c *MockEngine_Start_Call) Run(run func(ctx context.Context, id string, opts sandbox.StartOpts)) *MockEngine_Start_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -536,9 +538,14 @@ func (_c *MockEngine_Start_Call) Run(run func(ctx context.Context, id string)) *
 		if args[1] != nil {
 			arg1 = args[1].(string)
 		}
+		var arg2 sandbox.StartOpts
+		if args[2] != nil {
+			arg2 = args[2].(sandbox.StartOpts)
+		}
 		run(
 			arg0,
 			arg1,
+			arg2,
 		)
 	})
 	return _c
@@ -549,7 +556,7 @@ func (_c *MockEngine_Start_Call) Return(err error) *MockEngine_Start_Call {
 	return _c
 }
 
-func (_c *MockEngine_Start_Call) RunAndReturn(run func(ctx context.Context, id string) error) *MockEngine_Start_Call {
+func (_c *MockEngine_Start_Call) RunAndReturn(run func(ctx context.Context, id string, opts sandbox.StartOpts) error) *MockEngine_Start_Call {
 	_c.Call.Return(run)
 	return _c
 }

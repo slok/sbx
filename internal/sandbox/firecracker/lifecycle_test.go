@@ -13,6 +13,7 @@ import (
 	"github.com/slok/sbx/internal/conventions"
 	"github.com/slok/sbx/internal/log"
 	"github.com/slok/sbx/internal/model"
+	"github.com/slok/sbx/internal/sandbox"
 	"github.com/slok/sbx/internal/storage/storagemock"
 )
 
@@ -295,7 +296,7 @@ func TestEngine_Start(t *testing.T) {
 
 			sandboxID := test.setup(t, e)
 
-			err = e.Start(context.Background(), sandboxID)
+			err = e.Start(context.Background(), sandboxID, sandbox.StartOpts{})
 
 			if test.expErr {
 				if err == nil {

@@ -42,6 +42,7 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	forwardCmd := commands.NewForwardCommand(rootCmd, app)
 
 	snapshotCmd := commands.NewSnapshotCommand(rootCmd, app)
+	egressProxyCmd := commands.NewEgressProxyCommand(rootCmd, app)
 
 	// Image subcommands share a parent command.
 	imgCmd := commands.NewImageCommand(app)
@@ -67,6 +68,7 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		imagePullCmd.Name():    imagePullCmd,
 		imageRmCmd.Name():      imageRmCmd,
 		imageInspectCmd.Name(): imageInspectCmd,
+		egressProxyCmd.Name():  egressProxyCmd,
 	}
 
 	// Parse command.

@@ -226,7 +226,7 @@ When stopping, provide:
   - Integration tests: 4 new Firecracker tests (snapshot lifecycle with create-from-snapshot, image lifecycle, port forward with netcat, doctor checks)
   - Updated `doc.go` with all features documented
 
-- **Task 0013**: Merge Snapshots into Images - Pending PR on 2026-02-09
+- **Task 0013**: Merge Snapshots into Images (PR #34) - Merged on 2026-02-09
   - Merged the "snapshot" concept into the "image" system for unified UX
   - `sbx snapshot` is now a top-level verb that creates a local image (kernel + rootfs + manifest.json)
   - Removed `sbx snapshot list`, `sbx snapshot rm`, `--from-snapshot` — `sbx image list/rm` and `--from-image` handle both
@@ -236,3 +236,10 @@ When stopping, provide:
   - Removed `CreateSnapshot` from Engine interface, moved sparse copy to `firecracker/sparse.go`
   - SDK: replaced `CreateSnapshot/ListSnapshots/RemoveSnapshot` with `CreateImageFromSandbox`
   - All unit and integration tests rewritten for new API, build and tests pass
+
+- **Task 0014**: Remove Created Status (PR #36) - Merged on 2026-02-09
+  - Removed `SandboxStatusCreated` — sandboxes start as `stopped` after create
+  - New lifecycle: `create → stopped → start → running → stop → stopped → rm`
+  - SQLite migration 000005: updates existing `created` rows and recreates table with updated CHECK constraint
+  - Simplified state checks in Start and SnapshotCreate services
+  - 20 files changed, all unit tests updated

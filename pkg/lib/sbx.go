@@ -50,6 +50,12 @@ type Config struct {
 	// Only used when Engine is [EngineFirecracker].
 	FirecrackerBinary string
 
+	// SBXBinary is the path to the sbx binary. This is used for forking
+	// sub-processes (e.g., egress proxy). If empty, os.Executable() is used,
+	// which works when the SDK is called from the sbx CLI itself.
+	// Set this when using the SDK from a non-sbx process (e.g., tests).
+	SBXBinary string
+
 	// ImagesDir is the directory for downloaded images (kernel, rootfs, firecracker).
 	// Default: ~/.sbx/images.
 	ImagesDir string
@@ -93,6 +99,7 @@ type Client struct {
 	dataDir           string
 	engineType        EngineType
 	firecrackerBinary string
+	sbxBinary         string
 	imagesDir         string
 	imageRepo         string
 	closeFn           func() error
@@ -127,6 +134,7 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 		dataDir:           cfg.DataDir,
 		engineType:        cfg.Engine,
 		firecrackerBinary: cfg.FirecrackerBinary,
+		sbxBinary:         cfg.SBXBinary,
 		imagesDir:         cfg.ImagesDir,
 		imageRepo:         cfg.ImageRepo,
 		closeFn:           repo.Close,
@@ -155,6 +163,7 @@ func (c *Client) newEngine(cfg model.SandboxConfig) (sandbox.Engine, error) {
 		return firecracker.NewEngine(firecracker.EngineConfig{
 			DataDir:           c.dataDir,
 			FirecrackerBinary: c.firecrackerBinary,
+			SBXBinary:         c.sbxBinary,
 			Repository:        c.repo,
 			Logger:            c.logger,
 		})
@@ -174,6 +183,7 @@ func (c *Client) newEngineForCreateWithBinary(engineType EngineType, firecracker
 		return firecracker.NewEngine(firecracker.EngineConfig{
 			DataDir:           c.dataDir,
 			FirecrackerBinary: firecrackerBinary,
+			SBXBinary:         c.sbxBinary,
 			Repository:        c.repo,
 			Logger:            c.logger,
 		})

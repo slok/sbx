@@ -31,6 +31,7 @@ func hostArch() string {
 type Config struct {
 	ImageVersion string
 	ImagesDir    string
+	SBXBinary    string
 }
 
 func (c *Config) defaults() error {
@@ -60,6 +61,7 @@ func NewConfig(t *testing.T) Config {
 		envActivation   = "SBX_INTEGRATION"
 		envImageVersion = "SBX_INTEGRATION_IMAGE_VERSION"
 		envImagesDir    = "SBX_INTEGRATION_IMAGES_DIR"
+		envSBXBinary    = "SBX_INTEGRATION_BINARY"
 	)
 
 	if os.Getenv(envActivation) != "true" {
@@ -69,6 +71,7 @@ func NewConfig(t *testing.T) Config {
 	c := Config{
 		ImageVersion: os.Getenv(envImageVersion),
 		ImagesDir:    os.Getenv(envImagesDir),
+		SBXBinary:    os.Getenv(envSBXBinary),
 	}
 
 	if err := c.defaults(); err != nil {
@@ -111,6 +114,7 @@ func NewTestClient(t *testing.T, config Config) *sdklib.Client {
 		DataDir:           t.TempDir(),
 		Engine:            sdklib.EngineFirecracker,
 		FirecrackerBinary: config.FirecrackerBinaryPath(),
+		SBXBinary:         config.SBXBinary,
 	})
 	require.NoError(t, err)
 

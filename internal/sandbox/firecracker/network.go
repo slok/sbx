@@ -2,6 +2,7 @@ package firecracker
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"net"
 	"os"
@@ -448,6 +449,206 @@ func (e *Engine) subnetFromGateway(gateway string) string {
 		return fmt.Sprintf("%s.%s.%s.0/24", parts[0], parts[1], parts[2])
 	}
 	return gateway + "/24"
+}
+
+// setupEgressNftables sets up nftables rules to redirect all VM traffic through the egress proxy.
+// This creates DNAT rules in the PREROUTING chain to redirect:
+//   - All TCP from the VM → proxy's TCP listen address
+//   - All UDP port 53 from the VM → proxy's DNS forwarder address
+//
+// It also creates a FORWARD filter that only allows traffic to the gateway IP
+// (where the proxy listens), dropping everything else.
+func (e *Engine) setupEgressNftables(tapDevice, gateway, vmIP string, proxyPort, dnsPort int) error {
+	conn, err := nftables.New()
+	if err != nil {
+		return fmt.Errorf("failed to connect to nftables: %w", err)
+	}
+
+	// Use the existing sbx table.
+	sbxTable := &nftables.Table{
+		Family: nftables.TableFamilyIPv4,
+		Name:   nftTableName,
+	}
+	conn.AddTable(sbxTable)
+
+	// Create a PREROUTING chain for DNAT (redirect VM traffic to proxy).
+	preroutingChain := &nftables.Chain{
+		Name:     "egress-prerouting",
+		Table:    sbxTable,
+		Type:     nftables.ChainTypeNAT,
+		Hooknum:  nftables.ChainHookPrerouting,
+		Priority: nftables.ChainPriorityNATDest,
+	}
+	conn.AddChain(preroutingChain)
+
+	gatewayIP := net.ParseIP(gateway).To4()
+	vmIPParsed := net.ParseIP(vmIP).To4()
+
+	// Encode proxy port and DNS port as big-endian uint16.
+	proxyPortBytes := make([]byte, 2)
+	binary.BigEndian.PutUint16(proxyPortBytes, uint16(proxyPort))
+	dnsPortBytes := make([]byte, 2)
+	binary.BigEndian.PutUint16(dnsPortBytes, uint16(dnsPort))
+
+	// Rule 1: DNAT all TCP from VM IP → gateway:proxyPort.
+	// Match: ip saddr == vmIP, ip protocol == tcp
+	// Action: dnat to gateway:proxyPort
+	conn.AddRule(&nftables.Rule{
+		Table: sbxTable,
+		Chain: preroutingChain,
+		Exprs: []expr.Any{
+			// Match input interface (traffic coming from the TAP device).
+			&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+			&expr.Cmp{
+				Op:       expr.CmpOpEq,
+				Register: 1,
+				Data:     ifname(tapDevice),
+			},
+			// Match source IP == vmIP.
+			&expr.Payload{
+				DestRegister: 1,
+				Base:         expr.PayloadBaseNetworkHeader,
+				Offset:       12, // Source IP offset in IPv4 header.
+				Len:          4,
+			},
+			&expr.Cmp{
+				Op:       expr.CmpOpEq,
+				Register: 1,
+				Data:     vmIPParsed,
+			},
+			// Match protocol == TCP (6).
+			&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
+			&expr.Cmp{
+				Op:       expr.CmpOpEq,
+				Register: 1,
+				Data:     []byte{unix.IPPROTO_TCP},
+			},
+			// DNAT to gateway:proxyPort.
+			&expr.Immediate{Register: 1, Data: gatewayIP},
+			&expr.Immediate{Register: 2, Data: proxyPortBytes},
+			&expr.NAT{
+				Type:        expr.NATTypeDestNAT,
+				Family:      unix.NFPROTO_IPV4,
+				RegAddrMin:  1,
+				RegProtoMin: 2,
+			},
+		},
+	})
+
+	// Rule 2: DNAT all UDP port 53 from VM IP → gateway:dnsPort.
+	port53Bytes := make([]byte, 2)
+	binary.BigEndian.PutUint16(port53Bytes, 53)
+
+	conn.AddRule(&nftables.Rule{
+		Table: sbxTable,
+		Chain: preroutingChain,
+		Exprs: []expr.Any{
+			// Match input interface.
+			&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+			&expr.Cmp{
+				Op:       expr.CmpOpEq,
+				Register: 1,
+				Data:     ifname(tapDevice),
+			},
+			// Match source IP == vmIP.
+			&expr.Payload{
+				DestRegister: 1,
+				Base:         expr.PayloadBaseNetworkHeader,
+				Offset:       12,
+				Len:          4,
+			},
+			&expr.Cmp{
+				Op:       expr.CmpOpEq,
+				Register: 1,
+				Data:     vmIPParsed,
+			},
+			// Match protocol == UDP (17).
+			&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
+			&expr.Cmp{
+				Op:       expr.CmpOpEq,
+				Register: 1,
+				Data:     []byte{unix.IPPROTO_UDP},
+			},
+			// Match destination port == 53.
+			&expr.Payload{
+				DestRegister: 1,
+				Base:         expr.PayloadBaseTransportHeader,
+				Offset:       2, // Destination port offset in UDP header.
+				Len:          2,
+			},
+			&expr.Cmp{
+				Op:       expr.CmpOpEq,
+				Register: 1,
+				Data:     port53Bytes,
+			},
+			// DNAT to gateway:dnsPort.
+			&expr.Immediate{Register: 1, Data: gatewayIP},
+			&expr.Immediate{Register: 2, Data: dnsPortBytes},
+			&expr.NAT{
+				Type:        expr.NATTypeDestNAT,
+				Family:      unix.NFPROTO_IPV4,
+				RegAddrMin:  1,
+				RegProtoMin: 2,
+			},
+		},
+	})
+
+	if err := conn.Flush(); err != nil {
+		return fmt.Errorf("failed to apply egress nftables rules: %w", err)
+	}
+
+	e.logger.Debugf("Set up egress nftables: TCP→%s:%d, DNS→%s:%d for %s", gateway, proxyPort, gateway, dnsPort, tapDevice)
+	return nil
+}
+
+// cleanupEgressNftables removes the egress-specific nftables chains and rules.
+func (e *Engine) cleanupEgressNftables(tapDevice string) error {
+	conn, err := nftables.New()
+	if err != nil {
+		e.logger.Warningf("Failed to connect to nftables for egress cleanup: %v", err)
+		return nil
+	}
+
+	// Find the sbx table.
+	tables, err := conn.ListTables()
+	if err != nil {
+		e.logger.Warningf("Failed to list nftables tables for egress cleanup: %v", err)
+		return nil
+	}
+
+	var sbxTable *nftables.Table
+	for _, t := range tables {
+		if t.Name == nftTableName && t.Family == nftables.TableFamilyIPv4 {
+			sbxTable = t
+			break
+		}
+	}
+	if sbxTable == nil {
+		return nil // No sbx table, nothing to clean up.
+	}
+
+	// Find and delete the egress-prerouting chain.
+	chains, err := conn.ListChains()
+	if err != nil {
+		e.logger.Warningf("Failed to list chains for egress cleanup: %v", err)
+		return nil
+	}
+
+	for _, chain := range chains {
+		if chain.Table != nil && chain.Table.Name == nftTableName && chain.Name == "egress-prerouting" {
+			conn.FlushChain(chain)
+			conn.DelChain(chain)
+			break
+		}
+	}
+
+	if err := conn.Flush(); err != nil {
+		e.logger.Warningf("Failed to flush egress nftables cleanup: %v", err)
+	} else {
+		e.logger.Debugf("Cleaned up egress nftables for %s", tapDevice)
+	}
+
+	return nil
 }
 
 // Helper functions for nftables

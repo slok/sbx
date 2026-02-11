@@ -6,6 +6,13 @@ import (
 	"github.com/slok/sbx/internal/model"
 )
 
+// StartOpts contains options for starting a sandbox.
+type StartOpts struct {
+	// EgressPolicy is the egress control policy to enforce.
+	// When nil, the sandbox has unrestricted egress (default behavior).
+	EgressPolicy *model.EgressPolicy
+}
+
 // Engine is the interface for sandbox lifecycle management.
 type Engine interface {
 	// Check performs preflight checks and returns the results.
@@ -13,7 +20,7 @@ type Engine interface {
 	Check(ctx context.Context) []model.CheckResult
 
 	Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sandbox, error)
-	Start(ctx context.Context, id string) error
+	Start(ctx context.Context, id string, opts StartOpts) error
 	Stop(ctx context.Context, id string) error
 	Remove(ctx context.Context, id string) error
 	Status(ctx context.Context, id string) (*model.Sandbox, error)
