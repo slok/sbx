@@ -4,12 +4,14 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
 	"time"
 
+	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -252,4 +254,144 @@ func newProxyClient(proxyAddr string) *http.Client {
 		},
 		Timeout: 5 * time.Second,
 	}
+}
+
+// startFakeDNSUpstream starts a local DNS server that answers A queries with 93.184.216.34.
+// Returns the address and a cleanup function.
+func startFakeDNSUpstream(t *testing.T) (addr string, cleanup func()) {
+	t.Helper()
+
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	require.NoError(t, err)
+	upstreamAddr := pc.LocalAddr().String()
+	pc.Close()
+
+	mux := dns.NewServeMux()
+	mux.HandleFunc(".", func(w dns.ResponseWriter, r *dns.Msg) {
+		resp := new(dns.Msg)
+		resp.SetReply(r)
+		if len(r.Question) > 0 && r.Question[0].Qtype == dns.TypeA {
+			resp.Answer = append(resp.Answer, &dns.A{
+				Hdr: dns.RR_Header{
+					Name:   r.Question[0].Name,
+					Rrtype: dns.TypeA,
+					Class:  dns.ClassINET,
+					Ttl:    60,
+				},
+				A: net.ParseIP("93.184.216.34"),
+			})
+		}
+		_ = w.WriteMsg(resp)
+	})
+
+	server := &dns.Server{
+		Addr:              upstreamAddr,
+		Net:               "udp",
+		Handler:           mux,
+		NotifyStartedFunc: func() {},
+	}
+
+	go func() { _ = server.ListenAndServe() }()
+
+	// Wait for upstream to be ready.
+	intproxy.WaitForDNSPort(t, upstreamAddr, 3*time.Second)
+
+	return upstreamAddr, func() { _ = server.Shutdown() }
+}
+
+func dnsQuery(t *testing.T, addr, domain string, qtype uint16) *dns.Msg {
+	t.Helper()
+
+	c := new(dns.Client)
+	c.Timeout = 2 * time.Second
+	m := new(dns.Msg)
+	m.SetQuestion(dns.Fqdn(domain), qtype)
+
+	resp, _, err := c.Exchange(m, addr)
+	require.NoError(t, err)
+	return resp
+}
+
+func TestDNSProxyDefaultAllow(t *testing.T) {
+	config := intproxy.NewConfig(t)
+
+	upstreamAddr, cleanupUpstream := startFakeDNSUpstream(t)
+	defer cleanupUpstream()
+
+	httpPort := intproxy.GetFreePort(t)
+	dnsPort := intproxy.GetFreeUDPPort(t)
+	_, dnsAddr, cancel := intproxy.StartProxyWithDNS(t, config, httpPort, dnsPort, upstreamAddr, "allow", nil)
+	defer cancel()
+
+	// DNS query should be forwarded (default allow).
+	resp := dnsQuery(t, dnsAddr, "example.com", dns.TypeA)
+	assert.Equal(t, dns.RcodeSuccess, resp.Rcode)
+	assert.NotEmpty(t, resp.Answer)
+}
+
+func TestDNSProxyDefaultDeny(t *testing.T) {
+	config := intproxy.NewConfig(t)
+
+	upstreamAddr, cleanupUpstream := startFakeDNSUpstream(t)
+	defer cleanupUpstream()
+
+	httpPort := intproxy.GetFreePort(t)
+	dnsPort := intproxy.GetFreeUDPPort(t)
+	_, dnsAddr, cancel := intproxy.StartProxyWithDNS(t, config, httpPort, dnsPort, upstreamAddr, "deny", nil)
+	defer cancel()
+
+	// DNS query should be refused (default deny).
+	resp := dnsQuery(t, dnsAddr, "example.com", dns.TypeA)
+	assert.Equal(t, dns.RcodeRefused, resp.Rcode)
+	assert.Empty(t, resp.Answer)
+}
+
+func TestDNSProxyAllowRule(t *testing.T) {
+	config := intproxy.NewConfig(t)
+
+	upstreamAddr, cleanupUpstream := startFakeDNSUpstream(t)
+	defer cleanupUpstream()
+
+	httpPort := intproxy.GetFreePort(t)
+	dnsPort := intproxy.GetFreeUDPPort(t)
+	rules := []string{
+		`{"action":"allow","domain":"allowed.example.com"}`,
+	}
+	_, dnsAddr, cancel := intproxy.StartProxyWithDNS(t, config, httpPort, dnsPort, upstreamAddr, "deny", rules)
+	defer cancel()
+
+	// Allowed domain should be forwarded.
+	resp := dnsQuery(t, dnsAddr, "allowed.example.com", dns.TypeA)
+	assert.Equal(t, dns.RcodeSuccess, resp.Rcode)
+	assert.NotEmpty(t, resp.Answer)
+
+	// Non-matching domain should be refused.
+	resp = dnsQuery(t, dnsAddr, "blocked.example.com", dns.TypeA)
+	assert.Equal(t, dns.RcodeRefused, resp.Rcode)
+	assert.Empty(t, resp.Answer)
+}
+
+func TestDNSProxyWildcardRule(t *testing.T) {
+	config := intproxy.NewConfig(t)
+
+	upstreamAddr, cleanupUpstream := startFakeDNSUpstream(t)
+	defer cleanupUpstream()
+
+	httpPort := intproxy.GetFreePort(t)
+	dnsPort := intproxy.GetFreeUDPPort(t)
+	rules := []string{
+		`{"action":"allow","domain":"*.example.com"}`,
+	}
+	_, dnsAddr, cancel := intproxy.StartProxyWithDNS(t, config, httpPort, dnsPort, upstreamAddr, "deny", rules)
+	defer cancel()
+
+	// Subdomain should match wildcard and be forwarded.
+	resp := dnsQuery(t, dnsAddr, "api.example.com", dns.TypeA)
+	assert.Equal(t, dns.RcodeSuccess, resp.Rcode)
+	assert.NotEmpty(t, resp.Answer)
+
+	// Bare domain should NOT match *.example.com and be refused.
+	resp = dnsQuery(t, dnsAddr, "example.com", dns.TypeA)
+	assert.Equal(t, dns.RcodeRefused, resp.Rcode)
+	assert.Empty(t, resp.Answer)
 }

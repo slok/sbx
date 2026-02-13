@@ -15,6 +15,8 @@ type ProxyCommand struct {
 	rootCmd *RootCommand
 
 	port          int
+	dnsPort       int
+	dnsUpstream   string
 	defaultPolicy string
 	rules         []string
 }
@@ -24,7 +26,9 @@ func NewProxyCommand(rootCmd *RootCommand, app *kingpin.Application) *ProxyComma
 	c := &ProxyCommand{rootCmd: rootCmd}
 
 	c.Cmd = app.Command("internal-vm-proxy", "Internal: run a network proxy with domain-based rules.").Hidden()
-	c.Cmd.Flag("port", "Port to listen on.").Default("9666").IntVar(&c.port)
+	c.Cmd.Flag("port", "Port to listen on for HTTP/HTTPS proxy.").Default("9666").IntVar(&c.port)
+	c.Cmd.Flag("dns-port", "Port to listen on for DNS proxy (0 to disable).").Default("0").IntVar(&c.dnsPort)
+	c.Cmd.Flag("dns-upstream", "Upstream DNS resolver address.").Default("8.8.8.8:53").StringVar(&c.dnsUpstream)
 	c.Cmd.Flag("default-policy", "Default policy when no rule matches.").Default("allow").EnumVar(&c.defaultPolicy, "allow", "deny")
 	c.Cmd.Flag("rule", `Rule in JSON format (repeatable). E.g.: {"action":"allow","domain":"*.github.com"}`).StringsVar(&c.rules)
 
@@ -58,15 +62,38 @@ func (c ProxyCommand) Run(ctx context.Context) error {
 		logger.Infof("  rule[%d]: %s %s", i, r.Action, r.Domain)
 	}
 
-	// Create and run proxy.
-	p, err := proxy.NewProxy(proxy.ProxyConfig{
+	// Create HTTP proxy.
+	httpProxy, err := proxy.NewProxy(proxy.ProxyConfig{
 		ListenAddr: fmt.Sprintf(":%d", c.port),
 		Matcher:    matcher,
 		Logger:     logger,
 	})
 	if err != nil {
-		return fmt.Errorf("could not create proxy: %w", err)
+		return fmt.Errorf("could not create HTTP proxy: %w", err)
 	}
 
-	return p.Run(ctx)
+	// If DNS port is disabled, just run the HTTP proxy.
+	if c.dnsPort == 0 {
+		return httpProxy.Run(ctx)
+	}
+
+	// Create DNS proxy.
+	logger.Infof("starting DNS proxy on :%d with upstream %s", c.dnsPort, c.dnsUpstream)
+	dnsProxy, err := proxy.NewDNSProxy(proxy.DNSProxyConfig{
+		ListenAddr: fmt.Sprintf(":%d", c.dnsPort),
+		Upstream:   c.dnsUpstream,
+		Matcher:    matcher,
+		Logger:     logger,
+	})
+	if err != nil {
+		return fmt.Errorf("could not create DNS proxy: %w", err)
+	}
+
+	// Run both proxies concurrently. First error stops both.
+	errCh := make(chan error, 2)
+	go func() { errCh <- httpProxy.Run(ctx) }()
+	go func() { errCh <- dnsProxy.Run(ctx) }()
+
+	// Wait for first completion (error or context cancel).
+	return <-errCh
 }
