@@ -45,11 +45,42 @@ type SandboxConfig struct {
 }
 
 // SessionConfig is the dynamic configuration applied when starting a sandbox.
-// These settings can change between starts and will be extended with
-// env vars, file copies, etc. in the future.
+// These settings can change between starts.
 type SessionConfig struct {
-	Name string
-	Env  map[string]string
+	Name   string
+	Env    map[string]string
+	Egress *EgressPolicy // nil = no egress filtering.
+}
+
+// EgressPolicy defines network egress filtering rules for a sandbox.
+// When set, a proxy process is launched alongside the VM to enforce these rules.
+type EgressPolicy struct {
+	Default string       // "allow" or "deny".
+	Rules   []EgressRule // Evaluated in order, first match wins.
+}
+
+// Validate validates the egress policy.
+func (p *EgressPolicy) Validate() error {
+	if p.Default != "allow" && p.Default != "deny" {
+		return fmt.Errorf("egress default must be \"allow\" or \"deny\", got %q: %w", p.Default, ErrNotValid)
+	}
+
+	for i, r := range p.Rules {
+		if r.Domain == "" {
+			return fmt.Errorf("egress rule[%d]: domain is required: %w", i, ErrNotValid)
+		}
+		if r.Action != "allow" && r.Action != "deny" {
+			return fmt.Errorf("egress rule[%d]: action must be \"allow\" or \"deny\", got %q: %w", i, r.Action, ErrNotValid)
+		}
+	}
+
+	return nil
+}
+
+// EgressRule defines a single domain-based egress rule.
+type EgressRule struct {
+	Domain string // Domain pattern: "github.com", "*.github.com", or "*".
+	Action string // "allow" or "deny".
 }
 
 // FirecrackerEngineConfig contains Firecracker-specific engine configuration.

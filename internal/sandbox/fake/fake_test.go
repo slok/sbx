@@ -9,6 +9,7 @@ import (
 
 	"github.com/slok/sbx/internal/log"
 	"github.com/slok/sbx/internal/model"
+	"github.com/slok/sbx/internal/sandbox"
 	"github.com/slok/sbx/internal/sandbox/fake"
 )
 
@@ -31,7 +32,7 @@ func TestLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, model.SandboxStatusStopped, sb.Status)
 
-	err = eng.Start(context.Background(), sb.ID)
+	err = eng.Start(context.Background(), sb.ID, sandbox.StartOpts{})
 	require.NoError(t, err)
 
 	status, err := eng.Status(context.Background(), sb.ID)

@@ -72,9 +72,9 @@ func (s *Service) Run(ctx context.Context, req Request) (*model.Sandbox, error) 
 	s.logger.Debugf("starting sandbox: %s", req.NameOrID)
 
 	// Lookup sandbox by name first, then by ID if it looks like a ULID.
-	sandbox, err := s.repo.GetSandboxByName(ctx, req.NameOrID)
+	sb, err := s.repo.GetSandboxByName(ctx, req.NameOrID)
 	if errors.Is(err, model.ErrNotFound) && looksLikeULID(req.NameOrID) {
-		sandbox, err = s.repo.GetSandbox(ctx, req.NameOrID)
+		sb, err = s.repo.GetSandbox(ctx, req.NameOrID)
 	}
 	if err != nil {
 		if errors.Is(err, model.ErrNotFound) {
@@ -84,19 +84,22 @@ func (s *Service) Run(ctx context.Context, req Request) (*model.Sandbox, error) 
 	}
 
 	// Validate sandbox is in a startable state (stopped).
-	if sandbox.Status != model.SandboxStatusStopped {
-		return nil, fmt.Errorf("cannot start sandbox: not in startable state (current status: %s): %w", sandbox.Status, model.ErrNotValid)
+	if sb.Status != model.SandboxStatusStopped {
+		return nil, fmt.Errorf("cannot start sandbox: not in startable state (current status: %s): %w", sb.Status, model.ErrNotValid)
 	}
 
 	sessionCfg := normalizeSessionConfig(req.SessionConfig)
 
 	// Start the sandbox via engine.
-	if err := s.engine.Start(ctx, sandbox.ID); err != nil {
+	startOpts := sandbox.StartOpts{
+		Egress: sessionCfg.Egress,
+	}
+	if err := s.engine.Start(ctx, sb.ID, startOpts); err != nil {
 		return nil, fmt.Errorf("could not start sandbox: %w", err)
 	}
 
-	if err := s.applySessionEnvToSandbox(ctx, sandbox.ID, sessionCfg.Env); err != nil {
-		if stopErr := s.engine.Stop(ctx, sandbox.ID); stopErr != nil {
+	if err := s.applySessionEnvToSandbox(ctx, sb.ID, sessionCfg.Env); err != nil {
+		if stopErr := s.engine.Stop(ctx, sb.ID); stopErr != nil {
 			s.logger.Warningf("could not stop sandbox after env setup failure: %v", stopErr)
 		}
 		return nil, fmt.Errorf("could not apply session environment: %w", err)
@@ -104,22 +107,23 @@ func (s *Service) Run(ctx context.Context, req Request) (*model.Sandbox, error) 
 
 	// Update sandbox state in repository.
 	now := time.Now().UTC()
-	sandbox.Status = model.SandboxStatusRunning
-	sandbox.StartedAt = &now
-	sandbox.StoppedAt = nil
+	sb.Status = model.SandboxStatusRunning
+	sb.StartedAt = &now
+	sb.StoppedAt = nil
 
-	if err := s.repo.UpdateSandbox(ctx, *sandbox); err != nil {
+	if err := s.repo.UpdateSandbox(ctx, *sb); err != nil {
 		return nil, fmt.Errorf("could not update sandbox: %w", err)
 	}
 
-	s.logger.Infof("started sandbox: %s (ID: %s)", sandbox.Name, sandbox.ID)
-	return sandbox, nil
+	s.logger.Infof("started sandbox: %s (ID: %s)", sb.Name, sb.ID)
+	return sb, nil
 }
 
 func normalizeSessionConfig(cfg model.SessionConfig) model.SessionConfig {
 	normalized := model.SessionConfig{
-		Name: cfg.Name,
-		Env:  map[string]string{},
+		Name:   cfg.Name,
+		Env:    map[string]string{},
+		Egress: cfg.Egress,
 	}
 
 	for k, v := range cfg.Env {

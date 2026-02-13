@@ -79,6 +79,94 @@ env:
 			expErr: true,
 			errMsg: "parsing YAML",
 		},
+		"Session config with egress policy should load successfully": {
+			fs: fstest.MapFS{
+				"session.yaml": &fstest.MapFile{
+					Data: []byte(`name: dev-session
+egress:
+  default: deny
+  rules:
+    - domain: "github.com"
+      action: allow
+    - domain: "*.npmjs.org"
+      action: allow
+`),
+				},
+			},
+			path: "session.yaml",
+			expCfg: model.SessionConfig{
+				Name: "dev-session",
+				Egress: &model.EgressPolicy{
+					Default: "deny",
+					Rules: []model.EgressRule{
+						{Domain: "github.com", Action: "allow"},
+						{Domain: "*.npmjs.org", Action: "allow"},
+					},
+				},
+			},
+		},
+		"Session config without egress should have nil egress": {
+			fs: fstest.MapFS{
+				"session.yaml": &fstest.MapFile{
+					Data: []byte(`name: dev-session
+env:
+  FOO: bar
+`),
+				},
+			},
+			path: "session.yaml",
+			expCfg: model.SessionConfig{
+				Name: "dev-session",
+				Env:  map[string]string{"FOO": "bar"},
+			},
+		},
+		"Invalid egress default should return error": {
+			fs: fstest.MapFS{
+				"session.yaml": &fstest.MapFile{
+					Data: []byte(`name: dev-session
+egress:
+  default: invalid
+  rules:
+    - domain: "github.com"
+      action: allow
+`),
+				},
+			},
+			path:   "session.yaml",
+			expErr: true,
+			errMsg: "egress default must be",
+		},
+		"Egress rule with missing domain should return error": {
+			fs: fstest.MapFS{
+				"session.yaml": &fstest.MapFile{
+					Data: []byte(`name: dev-session
+egress:
+  default: deny
+  rules:
+    - action: allow
+`),
+				},
+			},
+			path:   "session.yaml",
+			expErr: true,
+			errMsg: "domain is required",
+		},
+		"Egress rule with invalid action should return error": {
+			fs: fstest.MapFS{
+				"session.yaml": &fstest.MapFile{
+					Data: []byte(`name: dev-session
+egress:
+  default: deny
+  rules:
+    - domain: "github.com"
+      action: block
+`),
+				},
+			},
+			path:   "session.yaml",
+			expErr: true,
+			errMsg: "action must be",
+		},
 	}
 
 	for name, tc := range tests {

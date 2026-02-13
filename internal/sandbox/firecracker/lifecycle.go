@@ -15,6 +15,7 @@ import (
 
 	"github.com/slok/sbx/internal/conventions"
 	"github.com/slok/sbx/internal/model"
+	"github.com/slok/sbx/internal/sandbox"
 	"github.com/slok/sbx/internal/ssh"
 )
 
@@ -22,7 +23,7 @@ import (
 // Note: Firecracker doesn't support pause/resume. To "start" a stopped VM,
 // we respawn the process transparently while preserving disk state.
 // The user sees the same sandbox with all their disk changes intact.
-func (e *Engine) Start(ctx context.Context, id string) error {
+func (e *Engine) Start(ctx context.Context, id string, opts sandbox.StartOpts) error {
 	vmDir := e.VMDir(id)
 
 	// Validate VM directory exists
@@ -40,11 +41,11 @@ func (e *Engine) Start(ctx context.Context, id string) error {
 	if e.repo == nil {
 		return fmt.Errorf("cannot start firecracker sandbox: repository not configured")
 	}
-	sandbox, err := e.repo.GetSandbox(ctx, id)
+	sb, err := e.repo.GetSandbox(ctx, id)
 	if err != nil {
 		return fmt.Errorf("could not get sandbox config: %w", err)
 	}
-	if sandbox.Config.FirecrackerEngine == nil {
+	if sb.Config.FirecrackerEngine == nil {
 		return fmt.Errorf("sandbox %s is not a firecracker sandbox", id)
 	}
 
@@ -52,7 +53,7 @@ func (e *Engine) Start(ctx context.Context, id string) error {
 	mac, gateway, vmIP, tapDevice := e.allocateNetwork(id)
 
 	// Expand kernel path
-	kernelPath := e.expandPath(sandbox.Config.FirecrackerEngine.KernelImage)
+	kernelPath := e.expandPath(sb.Config.FirecrackerEngine.KernelImage)
 	if _, err := os.Stat(kernelPath); os.IsNotExist(err) {
 		return fmt.Errorf("kernel image not found at %s", kernelPath)
 	}
@@ -62,41 +63,65 @@ func (e *Engine) Start(ctx context.Context, id string) error {
 	e.logger.Infof("Starting Firecracker sandbox: %s", id)
 	e.logger.Debugf("Network: MAC=%s, Gateway=%s, VM IP=%s, TAP=%s", mac, gateway, vmIP, tapDevice)
 
+	totalSteps := 5
+	if opts.Egress != nil {
+		totalSteps = 6
+	}
+
 	var startErr error
 	var pid int
+	var proxyPID int
 
 	// Task 1: Ensure networking resources exist (TAP + iptables)
 	// If TAP is missing (e.g., after system reboot), recreate it
-	e.logger.Debugf("[1/5] Ensuring network resources exist")
+	step := 1
+	e.logger.Debugf("[%d/%d] Ensuring network resources exist", step, totalSteps)
 	if err := e.ensureNetworking(tapDevice, gateway, vmIP); err != nil {
 		startErr = err
 		goto cleanup
 	}
 
-	// Task 2: Spawn Firecracker process
-	e.logger.Debugf("[2/5] Spawning Firecracker process")
+	// Task 2 (optional): Spawn proxy process for egress filtering
+	if opts.Egress != nil {
+		step++
+		e.logger.Debugf("[%d/%d] Spawning egress proxy", step, totalSteps)
+		var proxyPorts ProxyPorts
+		proxyPID, proxyPorts, err = e.spawnProxy(vmDir, *opts.Egress)
+		if err != nil {
+			startErr = fmt.Errorf("could not spawn proxy: %w", err)
+			goto cleanup
+		}
+		e.logger.Infof("Proxy started (PID: %d, HTTP: %d, DNS: %d)", proxyPID, proxyPorts.HTTPPort, proxyPorts.DNSPort)
+	}
+
+	// Task N: Spawn Firecracker process
+	step++
+	e.logger.Debugf("[%d/%d] Spawning Firecracker process", step, totalSteps)
 	pid, err = e.spawnFirecracker(vmDir, socketPath)
 	if err != nil {
 		startErr = err
 		goto cleanup
 	}
 
-	// Task 3: Configure VM via API (includes network config via kernel ip= parameter)
-	e.logger.Debugf("[3/5] Configuring VM via Firecracker API")
-	if err := e.configureVM(ctx, socketPath, kernelPath, vmDir, mac, tapDevice, vmIP, gateway, sandbox.Config.Resources); err != nil {
+	// Task N+1: Configure VM via API (includes network config via kernel ip= parameter)
+	step++
+	e.logger.Debugf("[%d/%d] Configuring VM via Firecracker API", step, totalSteps)
+	if err := e.configureVM(ctx, socketPath, kernelPath, vmDir, mac, tapDevice, vmIP, gateway, sb.Config.Resources); err != nil {
 		startErr = err
 		goto cleanup
 	}
 
-	// Task 4: Boot VM
-	e.logger.Debugf("[4/5] Booting VM")
+	// Task N+2: Boot VM
+	step++
+	e.logger.Debugf("[%d/%d] Booting VM", step, totalSteps)
 	if err := e.bootVM(ctx, socketPath); err != nil {
 		startErr = err
 		goto cleanup
 	}
 
-	// Task 5: Expand filesystem inside VM to fill resized disk
-	e.logger.Debugf("[5/5] Expanding filesystem inside VM")
+	// Task N+3: Expand filesystem inside VM to fill resized disk
+	step++
+	e.logger.Debugf("[%d/%d] Expanding filesystem inside VM", step, totalSteps)
 	if err := e.expandFilesystem(ctx, id, vmIP); err != nil {
 		startErr = err
 		goto cleanup
@@ -105,6 +130,10 @@ func (e *Engine) Start(ctx context.Context, id string) error {
 cleanup:
 	if startErr != nil {
 		e.logger.Errorf("Start failed: %v", startErr)
+		// Kill proxy process if it was started
+		if proxyPID > 0 {
+			_ = e.killProxy(vmDir)
+		}
 		// Kill firecracker process if it was started
 		if pid > 0 {
 			if proc, err := os.FindProcess(pid); err == nil {
@@ -115,9 +144,9 @@ cleanup:
 	}
 
 	// Update sandbox with new PID and socket path
-	sandbox.PID = pid
-	sandbox.SocketPath = socketPath
-	if err := e.repo.UpdateSandbox(ctx, *sandbox); err != nil {
+	sb.PID = pid
+	sb.SocketPath = socketPath
+	if err := e.repo.UpdateSandbox(ctx, *sb); err != nil {
 		e.logger.Warningf("Failed to update sandbox PID in repository: %v", err)
 		// Don't fail the start - VM is running, just log the warning
 	}
@@ -156,16 +185,22 @@ func (e *Engine) Stop(ctx context.Context, id string) error {
 	vmDir := e.VMDir(id)
 
 	// Task 1: Try graceful shutdown via SSH
-	e.logger.Debugf("[1/2] Attempting graceful shutdown")
+	e.logger.Debugf("[1/3] Attempting graceful shutdown")
 	if err := e.gracefulShutdown(ctx, id); err != nil {
 		// Continue to kill process even if graceful shutdown fails
 		e.logger.Warningf("Graceful shutdown failed: %v", err)
 	}
 
 	// Task 2: Kill the firecracker process
-	e.logger.Debugf("[2/2] Killing Firecracker process")
+	e.logger.Debugf("[2/3] Killing Firecracker process")
 	if err := e.killFirecracker(vmDir); err != nil {
 		return err
+	}
+
+	// Task 3: Kill the proxy process (if running)
+	e.logger.Debugf("[3/3] Killing proxy process")
+	if err := e.killProxy(vmDir); err != nil {
+		e.logger.Warningf("Could not kill proxy process: %v", err)
 	}
 
 	e.logger.Infof("Stopped Firecracker sandbox: %s", id)
@@ -181,25 +216,31 @@ func (e *Engine) Remove(ctx context.Context, id string) error {
 	_, gateway, vmIP, tapDevice := e.allocateNetwork(id)
 
 	// Task 1: Kill firecracker process if running
-	e.logger.Debugf("[1/4] Killing Firecracker process")
+	e.logger.Debugf("[1/5] Killing Firecracker process")
 	if err := e.killFirecracker(vmDir); err != nil {
 		e.logger.Warningf("Could not kill process (may already be stopped): %v", err)
 	}
 
-	// Task 2: Cleanup iptables rules
-	e.logger.Debugf("[2/4] Cleaning up iptables rules")
+	// Task 2: Kill proxy process if running
+	e.logger.Debugf("[2/5] Killing proxy process")
+	if err := e.killProxy(vmDir); err != nil {
+		e.logger.Warningf("Could not kill proxy process: %v", err)
+	}
+
+	// Task 3: Cleanup iptables rules
+	e.logger.Debugf("[3/5] Cleaning up iptables rules")
 	if err := e.cleanupIPTables(tapDevice, gateway, vmIP); err != nil {
 		e.logger.Warningf("Could not cleanup iptables: %v", err)
 	}
 
-	// Task 3: Delete TAP device
-	e.logger.Debugf("[3/4] Deleting TAP device: %s", tapDevice)
+	// Task 4: Delete TAP device
+	e.logger.Debugf("[4/5] Deleting TAP device: %s", tapDevice)
 	if err := e.deleteTAP(tapDevice); err != nil {
 		e.logger.Warningf("Could not delete TAP device: %v", err)
 	}
 
-	// Task 4: Delete VM files
-	e.logger.Debugf("[4/4] Deleting VM files")
+	// Task 5: Delete VM files
+	e.logger.Debugf("[5/5] Deleting VM files")
 	if err := os.RemoveAll(vmDir); err != nil {
 		return fmt.Errorf("failed to delete VM files: %w", err)
 	}

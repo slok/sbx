@@ -111,12 +111,35 @@ type CreateSandboxOpts struct {
 
 // StartSandboxOpts configures sandbox start behavior.
 //
-// Pass nil to [Client.StartSandbox] to use defaults (no session env).
+// Pass nil to [Client.StartSandbox] to use defaults (no session env, no egress filtering).
 type StartSandboxOpts struct {
 	// Env contains session environment variables injected into the sandbox at
 	// start time. These are written to /etc/sbx/session-env.sh and sourced
 	// by login shells.
 	Env map[string]string
+	// Egress configures network egress filtering. When set, a proxy process
+	// is launched alongside the VM to enforce domain-based allow/deny rules.
+	// nil means no egress filtering (all traffic allowed).
+	Egress *EgressPolicy
+}
+
+// EgressPolicy defines network egress filtering rules for a sandbox.
+// When set, a proxy process is launched alongside the VM to enforce these rules.
+type EgressPolicy struct {
+	// Default is the default action when no rule matches: "allow" or "deny".
+	Default string
+	// Rules are evaluated in order, first match wins.
+	Rules []EgressRule
+}
+
+// EgressRule defines a single domain-based egress rule.
+type EgressRule struct {
+	// Domain is a domain pattern: "github.com", "*.github.com", or "*".
+	// Wildcard matching is strict subdomain only: "*.github.com" matches
+	// "api.github.com" but NOT "github.com".
+	Domain string
+	// Action is "allow" or "deny".
+	Action string
 }
 
 // ListSandboxesOpts configures sandbox listing.
@@ -331,9 +354,23 @@ func toInternalSessionConfig(opts *StartSandboxOpts) model.SessionConfig {
 		return model.SessionConfig{}
 	}
 
-	return model.SessionConfig{
+	cfg := model.SessionConfig{
 		Env: opts.Env,
 	}
+
+	if opts.Egress != nil {
+		cfg.Egress = &model.EgressPolicy{
+			Default: opts.Egress.Default,
+		}
+		for _, r := range opts.Egress.Rules {
+			cfg.Egress.Rules = append(cfg.Egress.Rules, model.EgressRule{
+				Domain: r.Domain,
+				Action: r.Action,
+			})
+		}
+	}
+
+	return cfg
 }
 
 func toInternalExecOpts(opts *ExecOpts) model.ExecOpts {
