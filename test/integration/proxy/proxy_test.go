@@ -22,7 +22,7 @@ func TestProxyDefaultAllow(t *testing.T) {
 	// Start a local HTTP server as the upstream target.
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("upstream-response"))
+		_, _ = w.Write([]byte("upstream-response"))
 	}))
 	defer upstream.Close()
 
@@ -47,7 +47,7 @@ func TestProxyDefaultDeny(t *testing.T) {
 
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("should-not-reach"))
+		_, _ = w.Write([]byte("should-not-reach"))
 	}))
 	defer upstream.Close()
 
@@ -69,7 +69,7 @@ func TestProxyAllowRuleWithDenyDefault(t *testing.T) {
 
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("allowed"))
+		_, _ = w.Write([]byte("allowed"))
 	}))
 	defer upstream.Close()
 
@@ -122,7 +122,7 @@ func TestProxyCONNECTAllow(t *testing.T) {
 
 	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("tls-response"))
+		_, _ = w.Write([]byte("tls-response"))
 	}))
 	defer upstream.Close()
 
@@ -187,7 +187,7 @@ func TestProxyMultipleRulesFirstMatchWins(t *testing.T) {
 
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("reached"))
+		_, _ = w.Write([]byte("reached"))
 	}))
 	defer upstream.Close()
 
@@ -221,7 +221,7 @@ func TestProxyWildcardRule(t *testing.T) {
 
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("wildcard-ok"))
+		_, _ = w.Write([]byte("wildcard-ok"))
 	}))
 	defer upstream.Close()
 

@@ -40,7 +40,7 @@ func startProxy(t *testing.T, matcher *proxy.RuleMatcher) (proxyURL string, canc
 	ctx, ctxCancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		p.Run(ctx)
+		_ = p.Run(ctx)
 		close(done)
 	}()
 
@@ -124,7 +124,7 @@ func TestProxyHTTP(t *testing.T) {
 			// Start a fake upstream.
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte("upstream-ok"))
+				_, _ = w.Write([]byte("upstream-ok"))
 			}))
 			defer upstream.Close()
 
@@ -202,7 +202,7 @@ func TestProxyHTTPDomainMatching(t *testing.T) {
 			// Start upstream.
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte("ok"))
+				_, _ = w.Write([]byte("ok"))
 			}))
 			defer upstream.Close()
 
@@ -214,31 +214,16 @@ func TestProxyHTTPDomainMatching(t *testing.T) {
 			matcher, err := proxy.NewRuleMatcher(test.defaultPolicy, test.rules)
 			require.NoError(err)
 
-			p, err := proxy.NewProxy(proxy.ProxyConfig{
-				ListenAddr: "127.0.0.1:0",
-				Matcher:    matcher,
-				Logger:     log.Noop,
-				DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-					// Route all proxy outbound connections to the upstream.
-					return (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, network, upstreamAddr)
-				},
-			})
-			require.NoError(err)
-
-			// Start proxy on a random port.
+			// Get a random free port.
 			listener, err := net.Listen("tcp", "127.0.0.1:0")
 			require.NoError(err)
 			proxyAddr := listener.Addr().String()
 			listener.Close()
 
-			// We need to set the addr before running.
-			// Instead, use startProxy helper approach with the custom proxy.
-			// Let's use a simpler approach: start the proxy with the given config.
 			ctx, ctxCancel := context.WithCancel(context.Background())
 			defer ctxCancel()
 
-			// Re-create with correct addr.
-			p, err = proxy.NewProxy(proxy.ProxyConfig{
+			p, err := proxy.NewProxy(proxy.ProxyConfig{
 				ListenAddr: proxyAddr,
 				Matcher:    matcher,
 				Logger:     log.Noop,
@@ -250,7 +235,7 @@ func TestProxyHTTPDomainMatching(t *testing.T) {
 
 			done := make(chan struct{})
 			go func() {
-				p.Run(ctx)
+				_ = p.Run(ctx)
 				close(done)
 			}()
 			waitForPort(t, proxyAddr)
@@ -300,7 +285,7 @@ func TestProxyConnect(t *testing.T) {
 			// Start a TLS upstream.
 			upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte("tls-ok"))
+				_, _ = w.Write([]byte("tls-ok"))
 			}))
 			defer upstream.Close()
 
@@ -368,7 +353,7 @@ func TestProxyIPAddressUnidentifiable(t *testing.T) {
 
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte("ok"))
+				_, _ = w.Write([]byte("ok"))
 			}))
 			defer upstream.Close()
 

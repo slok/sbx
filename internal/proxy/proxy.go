@@ -212,7 +212,7 @@ func (p *Proxy) forwardHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, resp.Body)
+	_, _ = io.Copy(w, resp.Body)
 }
 
 // tunnel performs bidirectional data copy between two connections.
@@ -222,10 +222,10 @@ func (p *Proxy) tunnel(client, target net.Conn) {
 
 	copyConn := func(dst, src net.Conn) {
 		defer wg.Done()
-		io.Copy(dst, src)
+		_, _ = io.Copy(dst, src)
 		// Signal the other side that we're done by closing write.
 		if tc, ok := dst.(*net.TCPConn); ok {
-			tc.CloseWrite()
+			_ = tc.CloseWrite()
 		}
 	}
 
