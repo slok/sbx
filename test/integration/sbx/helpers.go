@@ -112,6 +112,11 @@ func RunStart(ctx context.Context, config Config, dbPath, name string) (stdout, 
 	return RunSBXCmd(ctx, config, dbPath, fmt.Sprintf("start %s", name))
 }
 
+// RunStartWithFile starts a sandbox with a session config file (-f flag).
+func RunStartWithFile(ctx context.Context, config Config, dbPath, name, sessionFile string) (stdout, stderr []byte, err error) {
+	return RunSBXCmd(ctx, config, dbPath, fmt.Sprintf("start %s -f %s", name, sessionFile))
+}
+
 // RunStop stops a sandbox.
 func RunStop(ctx context.Context, config Config, dbPath, name string) (stdout, stderr []byte, err error) {
 	return RunSBXCmd(ctx, config, dbPath, fmt.Sprintf("stop %s", name))

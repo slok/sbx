@@ -11,7 +11,6 @@ import (
 
 	"github.com/miekg/dns"
 
-	"github.com/slok/sbx/internal/model"
 	"github.com/slok/sbx/test/integration/testutils"
 )
 
@@ -149,86 +148,6 @@ func WaitForDNSPort(t *testing.T, addr string, timeout time.Duration) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	t.Fatalf("timeout waiting for DNS server at %s to be ready", addr)
-}
-
-// StartProxyWithEgress starts the proxy using a model.EgressPolicy (same args as buildProxyArgs
-// in the firecracker engine). Returns the HTTP proxy address and a cancel function.
-// This simulates what lifecycle.go does when spawning the proxy alongside a VM.
-func StartProxyWithEgress(t *testing.T, config Config, egress model.EgressPolicy) (proxyAddr string, cancel func()) {
-	t.Helper()
-
-	httpPort := GetFreePort(t)
-	dnsPort := GetFreeUDPPort(t)
-
-	ctx, ctxCancel := context.WithCancel(context.Background())
-
-	args := []string{
-		"--no-log",
-		"internal-vm-proxy",
-		"--port", fmt.Sprintf("%d", httpPort),
-		"--dns-port", fmt.Sprintf("%d", dnsPort),
-		"--default-policy", string(egress.Default),
-	}
-	for _, r := range egress.Rules {
-		args = append(args, "--rule", fmt.Sprintf(`{"action":%q,"domain":%q}`, string(r.Action), r.Domain))
-	}
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		_, _, _ = testutils.RunSBXArgs(ctx, nil, config.Binary, args, true)
-	}()
-
-	proxyAddr = fmt.Sprintf("127.0.0.1:%d", httpPort)
-	WaitForPort(t, proxyAddr, 5*time.Second)
-
-	cancel = func() {
-		ctxCancel()
-		<-done
-	}
-
-	return proxyAddr, cancel
-}
-
-// StartProxyWithEgressDNS starts the proxy using a model.EgressPolicy with DNS enabled.
-// Returns the HTTP proxy address, DNS proxy address, and a cancel function.
-func StartProxyWithEgressDNS(t *testing.T, config Config, egress model.EgressPolicy, dnsUpstream string) (proxyAddr, dnsAddr string, cancel func()) {
-	t.Helper()
-
-	httpPort := GetFreePort(t)
-	dnsPort := GetFreeUDPPort(t)
-
-	ctx, ctxCancel := context.WithCancel(context.Background())
-
-	args := []string{
-		"--no-log",
-		"internal-vm-proxy",
-		"--port", fmt.Sprintf("%d", httpPort),
-		"--dns-port", fmt.Sprintf("%d", dnsPort),
-		"--dns-upstream", dnsUpstream,
-		"--default-policy", string(egress.Default),
-	}
-	for _, r := range egress.Rules {
-		args = append(args, "--rule", fmt.Sprintf(`{"action":%q,"domain":%q}`, string(r.Action), r.Domain))
-	}
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		_, _, _ = testutils.RunSBXArgs(ctx, nil, config.Binary, args, true)
-	}()
-
-	proxyAddr = fmt.Sprintf("127.0.0.1:%d", httpPort)
-	dnsAddr = fmt.Sprintf("127.0.0.1:%d", dnsPort)
-	WaitForPort(t, proxyAddr, 5*time.Second)
-	WaitForDNSPort(t, dnsAddr, 5*time.Second)
-
-	cancel = func() {
-		ctxCancel()
-		<-done
-	}
-
-	return proxyAddr, dnsAddr, cancel
 }
 
 // StartProxyWithDNS starts the sbx internal-vm-proxy command with DNS proxy enabled.
