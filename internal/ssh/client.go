@@ -215,8 +215,11 @@ func (c *Client) CopyFrom(ctx context.Context, srcRemote, dstLocal string) error
 
 // PortForward defines a local-to-remote port mapping.
 type PortForward struct {
-	LocalPort  int
-	RemotePort int
+	// BindAddress is the local address to listen on (e.g., "localhost", "0.0.0.0").
+	// Defaults to "localhost" if empty.
+	BindAddress string
+	LocalPort   int
+	RemotePort  int
 }
 
 // Forward sets up local port forwarding. Blocks until ctx is cancelled.
@@ -229,7 +232,11 @@ func (c *Client) Forward(ctx context.Context, ports []PortForward) error {
 	errCh := make(chan error, len(ports))
 
 	for _, pf := range ports {
-		localAddr := fmt.Sprintf("localhost:%d", pf.LocalPort)
+		bindAddr := pf.BindAddress
+		if bindAddr == "" {
+			bindAddr = "localhost"
+		}
+		localAddr := net.JoinHostPort(bindAddr, fmt.Sprintf("%d", pf.LocalPort))
 		remoteAddr := fmt.Sprintf("localhost:%d", pf.RemotePort)
 
 		listener, err := net.Listen("tcp", localAddr)
@@ -238,11 +245,11 @@ func (c *Client) Forward(ctx context.Context, ports []PortForward) error {
 		}
 
 		wg.Add(1)
-		go func(l net.Listener, remote string, localPort int) {
+		go func(l net.Listener, local, remote string) {
 			defer wg.Done()
 			defer l.Close()
 
-			c.logger.Debugf("Forwarding localhost:%d -> %s", localPort, remote)
+			c.logger.Debugf("Forwarding %s -> %s", local, remote)
 
 			for {
 				localConn, err := l.Accept()
@@ -252,7 +259,7 @@ func (c *Client) Forward(ctx context.Context, ports []PortForward) error {
 					case <-ctx.Done():
 						return
 					default:
-						errCh <- fmt.Errorf("accept failed on port %d: %w", localPort, err)
+						errCh <- fmt.Errorf("accept failed on %s: %w", local, err)
 						return
 					}
 				}
@@ -283,7 +290,7 @@ func (c *Client) Forward(ctx context.Context, ports []PortForward) error {
 					<-done
 				}()
 			}
-		}(listener, remoteAddr, pf.LocalPort)
+		}(listener, localAddr, remoteAddr)
 	}
 
 	// Wait for context cancellation.

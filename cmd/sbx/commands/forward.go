@@ -20,6 +20,7 @@ type ForwardCommand struct {
 
 	nameOrID string
 	ports    []string
+	host     string
 }
 
 // NewForwardCommand returns the forward command.
@@ -31,6 +32,7 @@ func NewForwardCommand(rootCmd *RootCommand, app *kingpin.Application) *ForwardC
 	c.Cmd = app.Command("forward", "Forward ports from localhost to a running sandbox.")
 	c.Cmd.Arg("name-or-id", "Sandbox name or ID.").Required().StringVar(&c.nameOrID)
 	c.Cmd.Arg("ports", "Port mappings (e.g., 8080 or 8080:8080).").Required().StringsVar(&c.ports)
+	c.Cmd.Flag("host", "Local address to bind on (e.g., localhost, 0.0.0.0).").Default("localhost").StringVar(&c.host)
 
 	return c
 }
@@ -47,6 +49,7 @@ func (c ForwardCommand) Run(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("invalid port mapping %q: %w", p, err)
 		}
+		pm.BindAddress = c.host
 		portMappings = append(portMappings, pm)
 	}
 
@@ -88,7 +91,7 @@ func (c ForwardCommand) Run(ctx context.Context) error {
 	// Print forwarding info
 	fmt.Fprintf(c.rootCmd.Stdout, "Forwarding ports for %s:\n", sandbox.Name)
 	for _, pm := range portMappings {
-		fmt.Fprintf(c.rootCmd.Stdout, "  localhost:%d -> sandbox:%d\n", pm.LocalPort, pm.RemotePort)
+		fmt.Fprintf(c.rootCmd.Stdout, "  %s:%d -> sandbox:%d\n", pm.ListenAddress(), pm.LocalPort, pm.RemotePort)
 	}
 	fmt.Fprintln(c.rootCmd.Stdout)
 	fmt.Fprintln(c.rootCmd.Stdout, "Press Ctrl+C to stop")

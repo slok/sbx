@@ -271,6 +271,9 @@ type BuildInfo struct {
 
 // PortMapping represents a port forwarding configuration.
 type PortMapping struct {
+	// BindAddress is the local address to listen on (e.g., "localhost", "0.0.0.0").
+	// Defaults to "localhost" if empty.
+	BindAddress string
 	// LocalPort is the port on the host machine.
 	LocalPort int
 	// RemotePort is the port inside the sandbox.
@@ -522,8 +525,9 @@ func toInternalPortMappings(ports []PortMapping) []model.PortMapping {
 	result := make([]model.PortMapping, len(ports))
 	for i, p := range ports {
 		result[i] = model.PortMapping{
-			LocalPort:  p.LocalPort,
-			RemotePort: p.RemotePort,
+			BindAddress: p.BindAddress,
+			LocalPort:   p.LocalPort,
+			RemotePort:  p.RemotePort,
 		}
 	}
 	return result

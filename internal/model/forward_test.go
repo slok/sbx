@@ -128,3 +128,34 @@ func TestPortMappingString(t *testing.T) {
 		})
 	}
 }
+
+func TestPortMappingListenAddress(t *testing.T) {
+	tests := map[string]struct {
+		pm       model.PortMapping
+		expected string
+	}{
+		"Empty bind address should default to localhost.": {
+			pm:       model.PortMapping{LocalPort: 8080, RemotePort: 8080},
+			expected: "localhost",
+		},
+		"Explicit localhost should return localhost.": {
+			pm:       model.PortMapping{BindAddress: "localhost", LocalPort: 8080, RemotePort: 8080},
+			expected: "localhost",
+		},
+		"0.0.0.0 should return 0.0.0.0.": {
+			pm:       model.PortMapping{BindAddress: "0.0.0.0", LocalPort: 8080, RemotePort: 8080},
+			expected: "0.0.0.0",
+		},
+		"Custom address should be returned as-is.": {
+			pm:       model.PortMapping{BindAddress: "192.168.1.100", LocalPort: 3000, RemotePort: 3000},
+			expected: "192.168.1.100",
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert := assert.New(t)
+			assert.Equal(test.expected, test.pm.ListenAddress())
+		})
+	}
+}
