@@ -22,7 +22,7 @@ func TestBuildProxyArgs(t *testing.T) {
 		expArgs  []string
 	}{
 		"Allow-default policy with no rules.": {
-			egress:   model.EgressPolicy{Default: "allow"},
+			egress:   model.EgressPolicy{Default: model.EgressActionAllow},
 			httpPort: 8080,
 			dnsPort:  5353,
 			expArgs: []string{
@@ -36,10 +36,10 @@ func TestBuildProxyArgs(t *testing.T) {
 
 		"Deny-default policy with rules.": {
 			egress: model.EgressPolicy{
-				Default: "deny",
+				Default: model.EgressActionDeny,
 				Rules: []model.EgressRule{
-					{Action: "allow", Domain: "github.com"},
-					{Action: "allow", Domain: "*.github.com"},
+					{Action: model.EgressActionAllow, Domain: "github.com"},
+					{Action: model.EgressActionAllow, Domain: "*.github.com"},
 				},
 			},
 			httpPort: 9090,
@@ -57,9 +57,9 @@ func TestBuildProxyArgs(t *testing.T) {
 
 		"Allow-default policy with deny rule.": {
 			egress: model.EgressPolicy{
-				Default: "allow",
+				Default: model.EgressActionAllow,
 				Rules: []model.EgressRule{
-					{Action: "deny", Domain: "evil.com"},
+					{Action: model.EgressActionDeny, Domain: "evil.com"},
 				},
 			},
 			httpPort: 3128,

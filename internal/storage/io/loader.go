@@ -71,12 +71,12 @@ func (c SessionConfig) toModel() (model.SessionConfig, error) {
 
 	if c.Egress != nil {
 		m.Egress = &model.EgressPolicy{
-			Default: c.Egress.Default,
+			Default: model.EgressAction(c.Egress.Default),
 		}
 		for _, r := range c.Egress.Rules {
 			m.Egress.Rules = append(m.Egress.Rules, model.EgressRule{
 				Domain: r.Domain,
-				Action: r.Action,
+				Action: model.EgressAction(r.Action),
 			})
 		}
 		if err := m.Egress.Validate(); err != nil {

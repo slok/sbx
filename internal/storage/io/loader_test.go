@@ -97,10 +97,10 @@ egress:
 			expCfg: model.SessionConfig{
 				Name: "dev-session",
 				Egress: &model.EgressPolicy{
-					Default: "deny",
+					Default: model.EgressActionDeny,
 					Rules: []model.EgressRule{
-						{Domain: "github.com", Action: "allow"},
-						{Domain: "*.npmjs.org", Action: "allow"},
+						{Domain: "github.com", Action: model.EgressActionAllow},
+						{Domain: "*.npmjs.org", Action: model.EgressActionAllow},
 					},
 				},
 			},

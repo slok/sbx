@@ -123,11 +123,21 @@ type StartSandboxOpts struct {
 	Egress *EgressPolicy
 }
 
+// EgressAction represents the action for an egress rule or default policy.
+type EgressAction string
+
+const (
+	// EgressActionAllow permits the traffic.
+	EgressActionAllow EgressAction = "allow"
+	// EgressActionDeny blocks the traffic.
+	EgressActionDeny EgressAction = "deny"
+)
+
 // EgressPolicy defines network egress filtering rules for a sandbox.
 // When set, a proxy process is launched alongside the VM to enforce these rules.
 type EgressPolicy struct {
-	// Default is the default action when no rule matches: "allow" or "deny".
-	Default string
+	// Default is the default action when no rule matches.
+	Default EgressAction
 	// Rules are evaluated in order, first match wins.
 	Rules []EgressRule
 }
@@ -138,8 +148,8 @@ type EgressRule struct {
 	// Wildcard matching is strict subdomain only: "*.github.com" matches
 	// "api.github.com" but NOT "github.com".
 	Domain string
-	// Action is "allow" or "deny".
-	Action string
+	// Action is the rule action (allow or deny).
+	Action EgressAction
 }
 
 // ListSandboxesOpts configures sandbox listing.
@@ -360,12 +370,12 @@ func toInternalSessionConfig(opts *StartSandboxOpts) model.SessionConfig {
 
 	if opts.Egress != nil {
 		cfg.Egress = &model.EgressPolicy{
-			Default: opts.Egress.Default,
+			Default: model.EgressAction(opts.Egress.Default),
 		}
 		for _, r := range opts.Egress.Rules {
 			cfg.Egress.Rules = append(cfg.Egress.Rules, model.EgressRule{
 				Domain: r.Domain,
-				Action: r.Action,
+				Action: model.EgressAction(r.Action),
 			})
 		}
 	}

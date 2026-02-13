@@ -88,11 +88,11 @@ func buildProxyArgs(egress model.EgressPolicy, httpPort, dnsPort int) []string {
 		"internal-vm-proxy",
 		"--port", strconv.Itoa(httpPort),
 		"--dns-port", strconv.Itoa(dnsPort),
-		"--default-policy", egress.Default,
+		"--default-policy", string(egress.Default),
 	}
 
 	for _, r := range egress.Rules {
-		ruleJSON := fmt.Sprintf(`{"action":%q,"domain":%q}`, r.Action, r.Domain)
+		ruleJSON := fmt.Sprintf(`{"action":%q,"domain":%q}`, string(r.Action), r.Domain)
 		args = append(args, "--rule", ruleJSON)
 	}
 
