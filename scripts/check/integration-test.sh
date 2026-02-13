@@ -21,6 +21,13 @@ if [ -d ./test/integration ]; then
         echo "Running CLI integration tests..."
         go test -v -count=1 -timeout 600s ./test/integration/sbx/...
     fi
+
+    # Proxy integration tests only need the sbx binary (no VM infrastructure).
+    # Gated by SBX_INTEGRATION_PROXY=true.
+    if [ -d ./test/integration/proxy ]; then
+        echo "Running proxy integration tests..."
+        go test -v -count=1 -timeout 60s ./test/integration/proxy/...
+    fi
 else
     echo "No integration tests directory found, skipping."
 fi
