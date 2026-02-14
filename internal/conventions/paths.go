@@ -21,6 +21,15 @@ const (
 	// LogFile is the Firecracker log filename.
 	LogFile = "firecracker.log"
 
+	// Proxy files.
+
+	// ProxyPIDFile is the proxy process PID filename.
+	ProxyPIDFile = "proxy.pid"
+	// ProxyLogFile is the proxy log filename.
+	ProxyLogFile = "proxy.log"
+	// ProxyPortFile is the JSON file storing allocated proxy ports.
+	ProxyPortFile = "proxy.json"
+
 	// SSH key files.
 
 	// SSHPrivateKeyFile is the filename for the per-sandbox SSH private key.

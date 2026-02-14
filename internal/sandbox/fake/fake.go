@@ -11,6 +11,7 @@ import (
 
 	"github.com/slok/sbx/internal/log"
 	"github.com/slok/sbx/internal/model"
+	"github.com/slok/sbx/internal/sandbox"
 )
 
 // EngineConfig is the configuration for the fake engine.
@@ -82,7 +83,7 @@ func (e *Engine) Create(ctx context.Context, cfg model.SandboxConfig) (*model.Sa
 }
 
 // Start starts a sandbox.
-func (e *Engine) Start(ctx context.Context, id string) error {
+func (e *Engine) Start(ctx context.Context, id string, _ sandbox.StartOpts) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
