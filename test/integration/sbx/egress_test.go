@@ -3,6 +3,7 @@ package sbx_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -363,6 +364,105 @@ egress:
 	require.NoError(t, err, "HTTPS via DNAT should still work with bind-address: stderr=%s", stderr)
 	httpCode = strings.TrimSpace(string(stdout))
 	assert.NotEqual(t, "000", httpCode, "HTTPS should not fail with proxy bound to gateway")
+}
+
+func TestEgressInputChainBlocksDirectProxyAccess(t *testing.T) {
+	// The input-egress nftables chain should block the VM from connecting directly
+	// to the proxy's actual listening ports on the gateway IP. Without this chain,
+	// an attacker inside the VM could port-scan the gateway, find the proxy ports,
+	// and use the HTTP proxy's CONNECT method to tunnel to any destination.
+	config := intsbx.NewConfig(t)
+	dbPath := newTestDB(t)
+	name := uniqueName("egrinp")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	sandboxID := startSandboxWithEgress(ctx, t, config, dbPath, name, `name: egress-input-test
+egress:
+  default: allow
+  rules:
+    - { action: deny, domain: "github.com" }
+    - { action: deny, domain: "*.github.com" }
+`)
+
+	ports := readProxyPorts(t, sandboxID)
+
+	// Normal egress should still work (DNAT'd traffic is accepted by input-egress).
+	stdout, stderr, err := intsbx.RunExec(ctx, config, dbPath, name, []string{
+		"curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "10", "http://example.com/",
+	})
+	require.NoError(t, err, "HTTP via DNAT should work: stderr=%s", stderr)
+	httpCode := strings.TrimSpace(string(stdout))
+	assert.NotEqual(t, "000", httpCode, "HTTP via DNAT should succeed")
+
+	// Direct connection to the proxy HTTP port on the gateway should be blocked.
+	// The VM tries to connect to gateway:proxy-http-port directly (not via DNAT).
+	// The input-egress chain should drop this traffic.
+	_, _, err = intsbx.RunExec(ctx, config, dbPath, name, []string{
+		"bash", "-c", fmt.Sprintf("echo test | nc -w 3 10.68.40.1 %d", ports.HTTPPort),
+	})
+	assert.Error(t, err, "direct connection to proxy HTTP port (%d) should be blocked by input-egress", ports.HTTPPort)
+
+	// Direct connection to the proxy TLS port should also be blocked.
+	_, _, err = intsbx.RunExec(ctx, config, dbPath, name, []string{
+		"bash", "-c", fmt.Sprintf("echo test | nc -w 3 10.68.40.1 %d", ports.TLSPort),
+	})
+	assert.Error(t, err, "direct connection to proxy TLS port (%d) should be blocked by input-egress", ports.TLSPort)
+
+	// Direct connection to the proxy DNS port should also be blocked.
+	_, _, err = intsbx.RunExec(ctx, config, dbPath, name, []string{
+		"bash", "-c", fmt.Sprintf("echo test | nc -w 3 10.68.40.1 %d", ports.DNSPort),
+	})
+	assert.Error(t, err, "direct connection to proxy DNS port (%d) should be blocked by input-egress", ports.DNSPort)
+
+	// Verify that the previous bypass (using proxy directly with -x flag) no longer works.
+	stdout, stderr, err = intsbx.RunExec(ctx, config, dbPath, name, []string{
+		"curl", "-x", fmt.Sprintf("http://10.68.40.1:%d", ports.HTTPPort),
+		"-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "5", "http://github.com/",
+	})
+	if err == nil {
+		// If curl managed to connect, verify it did NOT get a successful proxy response.
+		assert.Equal(t, "000", strings.TrimSpace(string(stdout)),
+			"direct proxy bypass should not succeed: stderr=%s", stderr)
+	}
+	// err != nil is the expected case: connection dropped by input-egress.
+}
+
+func TestEgressInputChainBlocksHostServices(t *testing.T) {
+	// The input-egress chain should prevent the VM from reaching arbitrary host
+	// services on the gateway IP. Without this, the VM could access host-local
+	// services like Ollama (11434), dev servers, databases, etc.
+	config := intsbx.NewConfig(t)
+	dbPath := newTestDB(t)
+	name := uniqueName("egrhost")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	_ = startSandboxWithEgress(ctx, t, config, dbPath, name, `name: egress-host-block-test
+egress:
+  default: allow
+`)
+
+	// Try to connect to common host service ports on the gateway.
+	// All should be blocked by the input-egress chain.
+	blockedPorts := []struct {
+		port int
+		name string
+	}{
+		{11434, "Ollama"},
+		{3000, "dev-server"},
+		{8080, "alt-HTTP"},
+		{22, "SSH"},
+	}
+
+	for _, bp := range blockedPorts {
+		_, _, err := intsbx.RunExec(ctx, config, dbPath, name, []string{
+			"bash", "-c", fmt.Sprintf("echo test | nc -w 3 10.68.40.1 %d", bp.port),
+		})
+		assert.Error(t, err, "connection to gateway port %d (%s) should be blocked by input-egress", bp.port, bp.name)
+	}
 }
 
 func TestEgressNoProxyWithoutEgressConfig(t *testing.T) {
