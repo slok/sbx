@@ -564,11 +564,115 @@ func (e *Engine) setupProxyRedirect(tapDevice, gateway, vmIP string, ports Proxy
 		},
 	})
 
+	// Block all INPUT traffic from the VM to the host, except DNAT'd proxy flows.
+	//
+	// Without this chain, the VM can reach any service on the host by sending packets
+	// to the gateway IP on arbitrary ports (e.g. Ollama on 11434, dev servers, etc.).
+	// It can also discover the proxy's actual listening ports via port scanning and
+	// connect directly, bypassing DNAT and using the HTTP proxy's CONNECT method to
+	// tunnel traffic to any destination.
+	//
+	// We use conntrack status to distinguish DNAT'd traffic (legitimate proxy flows)
+	// from direct connections. DNAT happens in PREROUTING before INPUT, so by the
+	// time a packet reaches INPUT, conntrack has already marked it with IPS_DST_NAT
+	// (ct status dnat). Direct connections from the VM to gateway:proxy-port do NOT
+	// have this bit set, so they are dropped.
+	//
+	// Rules (in order):
+	//   1. Accept established/related (return traffic for existing connections)
+	//   2. Accept ct status dnat (new DNAT'd connections from PREROUTING)
+	//   3. Drop everything else from TAP
+	//
+	// Priority -1 ensures this chain is evaluated before any default INPUT chains.
+	egressInputChain := &nftables.Chain{
+		Name:     "input-egress",
+		Table:    sbxTable,
+		Type:     nftables.ChainTypeFilter,
+		Hooknum:  nftables.ChainHookInput,
+		Priority: nftables.ChainPriorityRef(-1),
+	}
+	conn.AddChain(egressInputChain)
+
+	// Accept established/related connections from TAP (return traffic for DNAT'd flows).
+	conn.AddRule(&nftables.Rule{
+		Table: sbxTable,
+		Chain: egressInputChain,
+		Exprs: []expr.Any{
+			&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+			&expr.Cmp{
+				Op:       expr.CmpOpEq,
+				Register: 1,
+				Data:     ifname(tapDevice),
+			},
+			&expr.Ct{Register: 1, Key: expr.CtKeySTATE},
+			&expr.Bitwise{
+				SourceRegister: 1,
+				DestRegister:   1,
+				Len:            4,
+				Mask:           binaryutil.NativeEndian.PutUint32(expr.CtStateBitESTABLISHED | expr.CtStateBitRELATED),
+				Xor:            binaryutil.NativeEndian.PutUint32(0),
+			},
+			&expr.Cmp{
+				Op:       expr.CmpOpNeq,
+				Register: 1,
+				Data:     binaryutil.NativeEndian.PutUint32(0),
+			},
+			&expr.Verdict{Kind: expr.VerdictAccept},
+		},
+	})
+
+	// Accept DNAT'd connections from TAP (traffic that went through PREROUTING DNAT).
+	// IPS_DST_NAT = 0x20 in the kernel conntrack status field. This bit is set only
+	// when the packet's destination was rewritten by a DNAT rule. Direct connections
+	// to the proxy ports (without going through DNAT) will NOT have this bit set.
+	const ipsDstNAT = 0x20
+	conn.AddRule(&nftables.Rule{
+		Table: sbxTable,
+		Chain: egressInputChain,
+		Exprs: []expr.Any{
+			&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+			&expr.Cmp{
+				Op:       expr.CmpOpEq,
+				Register: 1,
+				Data:     ifname(tapDevice),
+			},
+			&expr.Ct{Register: 1, Key: expr.CtKeySTATUS},
+			&expr.Bitwise{
+				SourceRegister: 1,
+				DestRegister:   1,
+				Len:            4,
+				Mask:           binaryutil.NativeEndian.PutUint32(ipsDstNAT),
+				Xor:            binaryutil.NativeEndian.PutUint32(0),
+			},
+			&expr.Cmp{
+				Op:       expr.CmpOpNeq,
+				Register: 1,
+				Data:     binaryutil.NativeEndian.PutUint32(0),
+			},
+			&expr.Verdict{Kind: expr.VerdictAccept},
+		},
+	})
+
+	// Drop all other traffic from the VM to the host.
+	conn.AddRule(&nftables.Rule{
+		Table: sbxTable,
+		Chain: egressInputChain,
+		Exprs: []expr.Any{
+			&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+			&expr.Cmp{
+				Op:       expr.CmpOpEq,
+				Register: 1,
+				Data:     ifname(tapDevice),
+			},
+			&expr.Verdict{Kind: expr.VerdictDrop},
+		},
+	})
+
 	if err := conn.Flush(); err != nil {
 		return fmt.Errorf("failed to apply proxy redirect rules: %w", err)
 	}
 
-	e.logger.Debugf("Set up proxy DNAT redirect: %s TCP 80 -> %s:%d, TCP 443 -> %s:%d, UDP+TCP 53 -> %s:%d (forward-egress drop)",
+	e.logger.Debugf("Set up proxy DNAT redirect: %s TCP 80 -> %s:%d, TCP 443 -> %s:%d, UDP+TCP 53 -> %s:%d (forward-egress drop, input-egress drop)",
 		vmIP, gateway, ports.HTTPPort, gateway, ports.TLSPort, gateway, ports.DNSPort)
 	return nil
 }
@@ -600,8 +704,9 @@ func (e *Engine) cleanupProxyRedirect() error {
 			return nil
 		}
 
-		// Delete both prerouting (DNAT rules) and forward-egress (drop non-standard ports) chains.
-		chainsToDelete := []string{"prerouting", "forward-egress"}
+		// Delete prerouting (DNAT rules), forward-egress (drop non-standard ports),
+		// and input-egress (block VM→host traffic) chains.
+		chainsToDelete := []string{"prerouting", "forward-egress", "input-egress"}
 		for _, chain := range chains {
 			if chain.Table.Name != nftTableName {
 				continue
@@ -616,7 +721,7 @@ func (e *Engine) cleanupProxyRedirect() error {
 		if err := conn.Flush(); err != nil {
 			e.logger.Warningf("Failed to delete proxy chains: %v", err)
 		} else {
-			e.logger.Debugf("Cleaned up proxy redirect chains (prerouting, forward-egress)")
+			e.logger.Debugf("Cleaned up proxy redirect chains (prerouting, forward-egress, input-egress)")
 		}
 		return nil
 	}
