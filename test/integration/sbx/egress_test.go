@@ -295,6 +295,35 @@ egress:
 	assert.False(t, isProcessAlive(pid), "proxy process (PID %d) should be killed after stop", pid)
 }
 
+func TestEgressNonStandardPortBlocked(t *testing.T) {
+	config := intsbx.NewConfig(t)
+	dbPath := newTestDB(t)
+	name := uniqueName("egrport")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	_ = startSandboxWithEgress(ctx, t, config, dbPath, name, `name: egress-port-block-test
+egress:
+  default: allow
+`)
+
+	// Standard ports should work (DNAT'd to proxy, allowed by default policy).
+	stdout, stderr, err := intsbx.RunExec(ctx, config, dbPath, name, []string{
+		"curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "10", "http://example.com/",
+	})
+	require.NoError(t, err, "HTTP on port 80 should work: stderr=%s", stderr)
+	httpCode := strings.TrimSpace(string(stdout))
+	assert.NotEqual(t, "000", httpCode, "HTTP on port 80 should not get connection failure")
+
+	// Non-standard port should be blocked by forward-egress chain.
+	// nc to a well-known IP on port 853 (DNS-over-TLS) should fail.
+	_, stderr, err = intsbx.RunExec(ctx, config, dbPath, name, []string{
+		"bash", "-c", "echo test | nc -w 3 1.1.1.1 853",
+	})
+	assert.Error(t, err, "connection to port 853 should be blocked by forward-egress: stderr=%s", stderr)
+}
+
 func TestEgressNoProxyWithoutEgressConfig(t *testing.T) {
 	config := intsbx.NewConfig(t)
 	dbPath := newTestDB(t)
