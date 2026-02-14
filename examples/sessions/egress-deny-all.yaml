@@ -1,0 +1,8 @@
+# Block all outbound HTTP/HTTPS and DNS traffic from the sandbox.
+# Useful for fully isolated environments where no network access is needed.
+#
+# Usage: sbx start my-sandbox -f examples/sessions/egress-deny-all.yaml
+
+name: isolated
+egress:
+  default: deny

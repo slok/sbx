@@ -1,0 +1,13 @@
+# Allow all traffic by default, but block specific domains.
+# Useful when you want broad access but need to prevent
+# communication with certain services.
+#
+# Usage: sbx start my-sandbox -f examples/sessions/egress-deny-list.yaml
+
+name: denylist
+egress:
+  default: allow
+  rules:
+    - { domain: "*.evil.com", action: deny }
+    - { domain: "malware.example.org", action: deny }
+    - { domain: "*.crypto-mining.io", action: deny }

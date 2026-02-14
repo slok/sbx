@@ -1,0 +1,22 @@
+# Deny all traffic by default, but allow specific domains.
+# This is the recommended pattern for production sandboxes that need
+# controlled access to package registries and APIs.
+#
+# Usage: sbx start my-sandbox -f examples/sessions/egress-allow-list.yaml
+
+name: allowlist
+egress:
+  default: deny
+  rules:
+    # Package registries
+    - { domain: "*.npmjs.org", action: allow }
+    - { domain: "registry.npmjs.org", action: allow }
+    - { domain: "*.pypi.org", action: allow }
+    - { domain: "pypi.org", action: allow }
+    - { domain: "*.golang.org", action: allow }
+    - { domain: "*.github.com", action: allow }
+    - { domain: "github.com", action: allow }
+
+    # Common APIs
+    - { domain: "api.openai.com", action: allow }
+    - { domain: "*.amazonaws.com", action: allow }

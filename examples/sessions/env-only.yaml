@@ -1,0 +1,11 @@
+# Session with only environment variables, no egress restrictions.
+# All network traffic passes through normally.
+#
+# Usage: sbx start my-sandbox -f examples/sessions/env-only.yaml
+
+name: env-only
+env:
+  APP_ENV: staging
+  DATABASE_URL: postgres://localhost:5432/mydb
+  API_KEY: sk-test-1234567890
+  LOG_LEVEL: debug
