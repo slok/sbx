@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/nftables"
+	"github.com/google/nftables/binaryutil"
 	"github.com/google/nftables/expr"
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
@@ -412,6 +413,168 @@ func ruleMatchesTapDevice(rule *nftables.Rule, tapName []byte) bool {
 		}
 	}
 	return false
+}
+
+// setupProxyRedirect adds PREROUTING DNAT rules to redirect VM traffic through the proxy.
+// TCP ports 80 and 443 are redirected to the proxy's HTTP port on the gateway IP.
+// UDP port 53 is redirected to the proxy's DNS port on the gateway IP.
+// This ensures all HTTP/HTTPS/DNS traffic from the VM is subject to egress filtering.
+func (e *Engine) setupProxyRedirect(tapDevice, gateway, vmIP string, ports ProxyPorts) error {
+	gatewayIP := net.ParseIP(gateway).To4()
+	if gatewayIP == nil {
+		return fmt.Errorf("invalid gateway IP: %s", gateway)
+	}
+
+	sourceIP := net.ParseIP(vmIP).To4()
+	if sourceIP == nil {
+		return fmt.Errorf("invalid VM IP: %s", vmIP)
+	}
+
+	conn, err := nftables.New()
+	if err != nil {
+		return fmt.Errorf("failed to connect to nftables: %w", err)
+	}
+
+	// Use the existing sbx table.
+	sbxTable := &nftables.Table{
+		Family: nftables.TableFamilyIPv4,
+		Name:   nftTableName,
+	}
+	conn.AddTable(sbxTable)
+
+	// Create PREROUTING chain for DNAT.
+	preroutingChain := &nftables.Chain{
+		Name:     "prerouting",
+		Table:    sbxTable,
+		Type:     nftables.ChainTypeNAT,
+		Hooknum:  nftables.ChainHookPrerouting,
+		Priority: nftables.ChainPriorityNATDest,
+	}
+	conn.AddChain(preroutingChain)
+
+	// Helper: build a DNAT rule for a specific protocol + destination port.
+	// Matches: iifname <tap> && ip saddr <vmIP> && <proto> dport <origPort> → DNAT to <gateway>:<proxyPort>.
+	addDNATRule := func(proto byte, origPort, proxyPort uint16) {
+		// Protocol field offset in IPv4 header is 9, length 1.
+		// For TCP/UDP, destination port is at transport header offset 2, length 2.
+		conn.AddRule(&nftables.Rule{
+			Table: sbxTable,
+			Chain: preroutingChain,
+			Exprs: []expr.Any{
+				// Match input interface = TAP device.
+				&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+				&expr.Cmp{
+					Op:       expr.CmpOpEq,
+					Register: 1,
+					Data:     ifname(tapDevice),
+				},
+				// Match source IP = VM IP.
+				&expr.Payload{
+					DestRegister: 1,
+					Base:         expr.PayloadBaseNetworkHeader,
+					Offset:       12, // Source IP offset.
+					Len:          4,
+				},
+				&expr.Cmp{
+					Op:       expr.CmpOpEq,
+					Register: 1,
+					Data:     sourceIP,
+				},
+				// Match protocol (TCP=6, UDP=17).
+				&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
+				&expr.Cmp{
+					Op:       expr.CmpOpEq,
+					Register: 1,
+					Data:     []byte{proto},
+				},
+				// Match destination port.
+				&expr.Payload{
+					DestRegister: 1,
+					Base:         expr.PayloadBaseTransportHeader,
+					Offset:       2, // Destination port offset.
+					Len:          2,
+				},
+				&expr.Cmp{
+					Op:       expr.CmpOpEq,
+					Register: 1,
+					Data:     binaryutil.BigEndian.PutUint16(origPort),
+				},
+				// DNAT to gateway:proxyPort.
+				&expr.Immediate{
+					Register: 1,
+					Data:     gatewayIP,
+				},
+				&expr.Immediate{
+					Register: 2,
+					Data:     binaryutil.BigEndian.PutUint16(proxyPort),
+				},
+				&expr.NAT{
+					Type:        expr.NATTypeDestNAT,
+					Family:      unix.NFPROTO_IPV4,
+					RegAddrMin:  1,
+					RegProtoMin: 2,
+				},
+			},
+		})
+	}
+
+	// Redirect HTTP (TCP 80) → proxy HTTP port.
+	addDNATRule(unix.IPPROTO_TCP, 80, uint16(ports.HTTPPort))
+	// Redirect HTTPS (TCP 443) → proxy HTTP port (proxy handles CONNECT).
+	addDNATRule(unix.IPPROTO_TCP, 443, uint16(ports.HTTPPort))
+	// Redirect DNS (UDP 53) → proxy DNS port.
+	addDNATRule(unix.IPPROTO_UDP, 53, uint16(ports.DNSPort))
+
+	if err := conn.Flush(); err != nil {
+		return fmt.Errorf("failed to apply proxy redirect rules: %w", err)
+	}
+
+	e.logger.Debugf("Set up proxy DNAT redirect: %s TCP 80,443 -> %s:%d, UDP 53 -> %s:%d",
+		vmIP, gateway, ports.HTTPPort, gateway, ports.DNSPort)
+	return nil
+}
+
+// cleanupProxyRedirect removes the PREROUTING chain with proxy DNAT rules.
+// This is called during Stop/Remove when egress filtering was active.
+func (e *Engine) cleanupProxyRedirect() error {
+	conn, err := nftables.New()
+	if err != nil {
+		e.logger.Warningf("Failed to connect to nftables for proxy redirect cleanup: %v", err)
+		return nil
+	}
+
+	// Find the sbx table and its prerouting chain.
+	tables, err := conn.ListTables()
+	if err != nil {
+		e.logger.Warningf("Failed to list nftables tables: %v", err)
+		return nil
+	}
+
+	for _, table := range tables {
+		if table.Name != nftTableName || table.Family != nftables.TableFamilyIPv4 {
+			continue
+		}
+
+		chains, err := conn.ListChainsOfTableFamily(nftables.TableFamilyIPv4)
+		if err != nil {
+			e.logger.Warningf("Failed to list chains: %v", err)
+			return nil
+		}
+
+		for _, chain := range chains {
+			if chain.Table.Name == nftTableName && chain.Name == "prerouting" {
+				conn.DelChain(chain)
+				if err := conn.Flush(); err != nil {
+					e.logger.Warningf("Failed to delete prerouting chain: %v", err)
+				} else {
+					e.logger.Debugf("Cleaned up proxy redirect prerouting chain")
+				}
+				return nil
+			}
+		}
+	}
+
+	return nil
 }
 
 // setupIPTables is a wrapper for backwards compatibility - now uses nftables.

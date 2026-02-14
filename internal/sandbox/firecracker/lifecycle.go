@@ -81,7 +81,7 @@ func (e *Engine) Start(ctx context.Context, id string, opts sandbox.StartOpts) e
 		goto cleanup
 	}
 
-	// Task 2 (optional): Spawn proxy process for egress filtering
+	// Task 2 (optional): Spawn proxy process for egress filtering and set up DNAT redirect
 	if opts.Egress != nil {
 		step++
 		e.logger.Debugf("[%d/%d] Spawning egress proxy", step, totalSteps)
@@ -92,6 +92,12 @@ func (e *Engine) Start(ctx context.Context, id string, opts sandbox.StartOpts) e
 			goto cleanup
 		}
 		e.logger.Infof("Proxy started (PID: %d, HTTP: %d, DNS: %d)", proxyPID, proxyPorts.HTTPPort, proxyPorts.DNSPort)
+
+		// Set up nftables DNAT rules to redirect VM traffic through the proxy.
+		if err := e.setupProxyRedirect(tapDevice, gateway, vmIP, proxyPorts); err != nil {
+			startErr = fmt.Errorf("could not set up proxy redirect: %w", err)
+			goto cleanup
+		}
 	}
 
 	// Task N: Spawn Firecracker process
@@ -185,20 +191,26 @@ func (e *Engine) Stop(ctx context.Context, id string) error {
 	vmDir := e.VMDir(id)
 
 	// Task 1: Try graceful shutdown via SSH
-	e.logger.Debugf("[1/3] Attempting graceful shutdown")
+	e.logger.Debugf("[1/4] Attempting graceful shutdown")
 	if err := e.gracefulShutdown(ctx, id); err != nil {
 		// Continue to kill process even if graceful shutdown fails
 		e.logger.Warningf("Graceful shutdown failed: %v", err)
 	}
 
 	// Task 2: Kill the firecracker process
-	e.logger.Debugf("[2/3] Killing Firecracker process")
+	e.logger.Debugf("[2/4] Killing Firecracker process")
 	if err := e.killFirecracker(vmDir); err != nil {
 		return err
 	}
 
-	// Task 3: Kill the proxy process (if running)
-	e.logger.Debugf("[3/3] Killing proxy process")
+	// Task 3: Clean up proxy redirect rules (if any)
+	e.logger.Debugf("[3/4] Cleaning up proxy redirect rules")
+	if err := e.cleanupProxyRedirect(); err != nil {
+		e.logger.Warningf("Could not clean up proxy redirect rules: %v", err)
+	}
+
+	// Task 4: Kill the proxy process (if running)
+	e.logger.Debugf("[4/4] Killing proxy process")
 	if err := e.killProxy(vmDir); err != nil {
 		e.logger.Warningf("Could not kill proxy process: %v", err)
 	}
@@ -216,31 +228,37 @@ func (e *Engine) Remove(ctx context.Context, id string) error {
 	_, gateway, vmIP, tapDevice := e.allocateNetwork(id)
 
 	// Task 1: Kill firecracker process if running
-	e.logger.Debugf("[1/5] Killing Firecracker process")
+	e.logger.Debugf("[1/6] Killing Firecracker process")
 	if err := e.killFirecracker(vmDir); err != nil {
 		e.logger.Warningf("Could not kill process (may already be stopped): %v", err)
 	}
 
 	// Task 2: Kill proxy process if running
-	e.logger.Debugf("[2/5] Killing proxy process")
+	e.logger.Debugf("[2/6] Killing proxy process")
 	if err := e.killProxy(vmDir); err != nil {
 		e.logger.Warningf("Could not kill proxy process: %v", err)
 	}
 
-	// Task 3: Cleanup iptables rules
-	e.logger.Debugf("[3/5] Cleaning up iptables rules")
+	// Task 3: Clean up proxy redirect rules
+	e.logger.Debugf("[3/6] Cleaning up proxy redirect rules")
+	if err := e.cleanupProxyRedirect(); err != nil {
+		e.logger.Warningf("Could not clean up proxy redirect rules: %v", err)
+	}
+
+	// Task 4: Cleanup iptables rules
+	e.logger.Debugf("[4/6] Cleaning up iptables rules")
 	if err := e.cleanupIPTables(tapDevice, gateway, vmIP); err != nil {
 		e.logger.Warningf("Could not cleanup iptables: %v", err)
 	}
 
-	// Task 4: Delete TAP device
-	e.logger.Debugf("[4/5] Deleting TAP device: %s", tapDevice)
+	// Task 5: Delete TAP device
+	e.logger.Debugf("[5/6] Deleting TAP device: %s", tapDevice)
 	if err := e.deleteTAP(tapDevice); err != nil {
 		e.logger.Warningf("Could not delete TAP device: %v", err)
 	}
 
-	// Task 5: Delete VM files
-	e.logger.Debugf("[5/5] Deleting VM files")
+	// Task 6: Delete VM files
+	e.logger.Debugf("[6/6] Deleting VM files")
 	if err := os.RemoveAll(vmDir); err != nil {
 		return fmt.Errorf("failed to delete VM files: %w", err)
 	}
