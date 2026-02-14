@@ -20,7 +20,7 @@ graph LR
     end
 ```
 
-When egress filtering is active, the picture changes — traffic on ports 80, 443, and 53 is redirected to a proxy before it can leave:
+When egress filtering is active, the picture changes — traffic on ports 80, 443, and 53 is redirected to a proxy before it can leave. All other traffic to the internet or to the host is dropped:
 
 ```mermaid
 graph TB
@@ -35,7 +35,8 @@ graph TB
         PRE -->|port 80| HTTP_P[HTTP Proxy]
         PRE -->|port 443| TLS_P[TLS/SNI Proxy]
         PRE -->|port 53| DNS_P[DNS Proxy]
-        PRE -->|other ports| FWD[forward-egress<br/>DROP]
+        PRE -->|other ports<br/>to internet| FWD[forward-egress<br/>DROP]
+        TAP -->|direct to host<br/>non-DNAT| INPUT[input-egress<br/>DROP]
     end
 
     subgraph Proxy Process
@@ -132,7 +133,7 @@ If SBX detects the `DOCKER-USER` chain in the `filter` table, it adds the forwar
 
 ### Egress Filtering Rules (When Enabled)
 
-When a session has an `egress:` configuration, two additional chains are created:
+When a session has an `egress:` configuration, three additional chains are created:
 
 **Prerouting chain** (DNAT):
 
@@ -163,23 +164,51 @@ table ip sbx {
 
 This chain drops ALL forwarded traffic from the VM. Since DNAT'd traffic (ports 80, 443, 53) is delivered locally and never reaches the forward hook, only non-standard port traffic is affected. The priority of -1 ensures this chain is evaluated before the permissive forward chain at priority 0.
 
-> **Source**: `internal/sandbox/firecracker/network.go:422-574`
+**Input-egress chain** (block VM-to-host traffic):
+
+```
+table ip sbx {
+    chain input-egress {
+        type filter hook input priority -1;
+        iifname "sbx-XXYY" ct state established,related accept
+        iifname "sbx-XXYY" ct status dnat accept
+        iifname "sbx-XXYY" drop
+    }
+}
+```
+
+This chain blocks all traffic from the VM to the host, except:
+
+1. **Established/related** — return traffic for existing connections.
+2. **DNAT'd flows** — new connections that went through PREROUTING DNAT (i.e., traffic originally on ports 80, 443, or 53 that was rewritten to the proxy ports). The kernel sets the `IPS_DST_NAT` conntrack status bit during DNAT; direct connections to the same proxy ports do NOT have this bit.
+
+Without this chain, the VM could:
+- **Port-scan the gateway** and discover the proxy's actual listening ports, then connect directly and use the HTTP proxy's CONNECT method to tunnel to any destination.
+- **Reach host services** (Ollama, dev servers, databases, SSH) by connecting to the gateway IP on arbitrary ports.
+
+> **Source**: `internal/sandbox/firecracker/network.go:422-700`
 
 ### Packet Flow with Egress Filtering
 
 ```mermaid
 flowchart TD
-    VM[VM sends packet] --> PRE{prerouting:<br/>port 80/443/53?}
+    VM[VM sends packet] --> DEST{Destination?}
+
+    DEST -->|To internet<br/>any external IP| PRE{prerouting:<br/>port 80/443/53?}
     PRE -->|Yes| DNAT[DNAT to gateway:proxyPort]
-    DNAT --> LOCAL[Local delivery to proxy]
-    LOCAL --> PROXY{Proxy: domain allowed?}
+    DNAT --> INPUT_DNAT{input-egress:<br/>ct status dnat?}
+    INPUT_DNAT -->|Yes, DNAT'd| PROXY{Proxy: domain allowed?}
     PROXY -->|Yes| INET[Forward to internet]
     PROXY -->|No| BLOCK_PROXY[403 / connection reset / REFUSED]
 
     PRE -->|No| FWD{forward-egress chain}
-    FWD --> DROP[DROP - packet discarded]
+    FWD --> DROP_FWD[DROP - non-standard port]
 
-    style DROP fill:#f66,color:#fff
+    DEST -->|To gateway IP<br/>direct connection| INPUT{input-egress:<br/>ct status dnat?}
+    INPUT -->|No, direct| DROP_INPUT[DROP - host access blocked]
+
+    style DROP_FWD fill:#f66,color:#fff
+    style DROP_INPUT fill:#f66,color:#fff
     style BLOCK_PROXY fill:#f66,color:#fff
     style INET fill:#6f6,color:#000
 ```
@@ -217,6 +246,7 @@ egress:
   - `"github.com"` — exact match only.
   - `"*.github.com"` — matches any subdomain (`api.github.com`, `a.b.github.com`) but NOT `github.com` itself.
   - `"*"` — matches everything (catch-all).
+  - Trailing dots are normalized: `github.com.` is treated identically to `github.com` across HTTP, TLS, and DNS proxies.
 
 If there is no `egress:` section, no proxy is spawned, no DNAT rules are created, and the VM has unrestricted internet access.
 
@@ -228,6 +258,7 @@ The proxy is the same `sbx` binary, run as a hidden subcommand:
 
 ```bash
 sbx --no-log internal-vm-proxy \
+    --bind-address 10.XX.YY.1 \
     --port <http-port> \
     --tls-port <tls-port> \
     --dns-port <dns-port> \
@@ -235,6 +266,8 @@ sbx --no-log internal-vm-proxy \
     --rule '{"action":"deny","domain":"*.github.com"}' \
     --rule '{"action":"deny","domain":"github.com"}'
 ```
+
+The `--bind-address` flag restricts the proxy to listen only on the gateway IP. This prevents the VM from reaching the proxy on other host interfaces (e.g., the main ethernet IP or Docker bridge). Combined with the `input-egress` nftables chain, this ensures the VM can only reach the proxy through DNAT'd flows on ports 80, 443, and 53.
 
 It runs as a background process on the host. Its PID is saved to `proxy.pid` and its ports to `proxy.json` in the VM directory (`~/.sbx/vms/<id>/`). Logs go to `proxy.log`.
 
@@ -300,6 +333,8 @@ The proxy ports are allocated dynamically by binding to `127.0.0.1:0` and using 
 - HTTP and TLS ports: `getFreePort()` — checks TCP availability.
 - DNS port: `getFreeDualPort()` — checks both TCP and UDP availability on the same port (required because the DNS proxy and DNAT rules use both protocols).
 
+At runtime, the proxy binds to the gateway IP (`--bind-address 10.XX.YY.1`) rather than `0.0.0.0`. This means the proxy is only reachable on the TAP interface, not on the host's other network interfaces.
+
 > **Source**: `internal/sandbox/firecracker/proxy.go:159-189`
 
 ## Security Model
@@ -337,16 +372,20 @@ graph TD
 | Use raw IP to bypass domain rules | Proxy returns 403 for any IP-based request (HTTP and CONNECT) |
 | Resolve blocked domains via UDP DNS | UDP 53 is DNAT'd to DNS proxy, which returns `REFUSED` |
 | Resolve blocked domains via TCP DNS | TCP 53 is also DNAT'd to DNS proxy |
-| Resolve blocked domains via DoH | DoH goes through HTTPS (port 443), TLS proxy checks the SNI. Even if resolved, the IP can't be used directly (proxy blocks IPs) |
+| Resolve blocked domains via DoH | DoH goes through HTTPS (port 443), TLS proxy checks the SNI. Even if resolved, the IP can't be used directly (proxy blocks IPs). See [Known Limitations](#known-limitations) |
 | Connect on non-standard ports (SSH 22, DoT 853, etc.) | `forward-egress` drops all forwarded traffic from the TAP |
 | Use CONNECT tunnel with an IP address | Proxy blocks CONNECT to IPs with 403 |
+| Use trailing dot to bypass domain rules (`github.com.`) | Trailing dots are stripped before rule matching in all three proxies (HTTP, TLS, DNS) |
+| Port-scan gateway to find proxy ports | `input-egress` chain drops all non-DNAT'd traffic to the host. Direct connections to proxy ports lack the `ct status dnat` bit |
+| Access host services (Ollama, dev servers, SSH, etc.) | `input-egress` chain drops all traffic from VM to host that isn't DNAT'd |
+| Reach proxy on non-gateway host IPs | Proxy binds to gateway IP only (`--bind-address`), not `0.0.0.0` |
 
 ### What the VM CAN Do (With Egress Enabled)
 
 - Make HTTP requests on port 80 to allowed domains.
 - Make HTTPS requests on port 443 to allowed domains (with full TLS integrity — no MITM).
 - Resolve DNS for allowed domains (both UDP and TCP).
-- Communicate with the host gateway IP (for the proxy connections).
+- Communicate with the proxy via DNAT'd flows only (the VM cannot directly access the gateway IP on arbitrary ports).
 
 ### Without Egress Filtering
 
@@ -450,11 +489,12 @@ sequenceDiagram
     NET->>NET: Setup nftables (masquerade + forward)
 
     alt Egress filtering enabled
-        CLI->>PROXY: 2. spawnProxy()
-        PROXY->>PROXY: Allocate ports, start process
+        CLI->>PROXY: 2. spawnProxy(bindAddress=gateway)
+        PROXY->>PROXY: Allocate ports, start process on gateway IP
         CLI->>NET: 3. setupProxyRedirect()
         NET->>NET: Add DNAT prerouting chain
         NET->>NET: Add forward-egress drop chain
+        NET->>NET: Add input-egress chain (ct status dnat)
     end
 
     CLI->>FC: 4. Start Firecracker
@@ -468,7 +508,7 @@ sequenceDiagram
 
 1. Graceful shutdown via SSH (`poweroff` command inside VM).
 2. Kill Firecracker process (SIGTERM, then SIGKILL).
-3. Clean up proxy redirect rules (delete `prerouting` and `forward-egress` chains).
+3. Clean up proxy redirect rules (delete `prerouting`, `forward-egress`, and `input-egress` chains).
 4. Kill proxy process.
 5. **TAP device and base nftables rules are preserved** (for fast restart).
 
@@ -477,7 +517,7 @@ sequenceDiagram
 Full teardown:
 
 1. Kill Firecracker and proxy processes.
-2. Delete all nftables chains (`prerouting`, `forward-egress`, then entire `sbx` table).
+2. Delete all nftables chains (`prerouting`, `forward-egress`, `input-egress`, then entire `sbx` table).
 3. Clean up Docker-USER rules if applicable.
 4. Delete TAP device.
 5. Delete VM directory and SSH keys.
@@ -561,6 +601,13 @@ sbx start my-sandbox
 
 No proxy, no DNAT, no forward restrictions. Full internet access.
 
+## Known Limitations
+
+| Limitation | Details |
+|---|---|
+| **DNS-over-HTTPS (DoH) bypass** | If an allowed HTTPS domain (e.g., `dns.google`, `cloudflare-dns.com`) serves DoH, the VM can resolve blocked domains through it. The TLS proxy allows the HTTPS connection based on SNI, and cannot inspect the encrypted payload to detect DNS queries. Mitigation: deny DoH providers in your rules if this is a concern. |
+| **IPv6 not filtered** | nftables rules are IPv4 only (`table ip sbx`). IPv6 traffic is not intercepted. In practice, Firecracker VMs have no IPv6 connectivity (no IPv6 gateway configured), so this is not exploitable. |
+
 ## Debugging
 
 ### Check VM Connectivity
@@ -610,8 +657,14 @@ sudo nft list chain ip sbx forward-egress 2>/dev/null \
 # List DNAT prerouting rules
 sudo nft list chain ip sbx prerouting 2>/dev/null
 
+# List input-egress rules (VM-to-host blocking)
+sudo nft list chain ip sbx input-egress 2>/dev/null
+
 # Check Docker-USER for sbx rules
 sudo nft list chain ip filter DOCKER-USER 2>/dev/null
+
+# Verify proxy is bound to gateway IP (not 0.0.0.0)
+ss -tlnp | grep internal-vm-proxy
 ```
 
 ### Inspect TAP Device
@@ -637,5 +690,7 @@ cat /proc/sys/net/ipv4/ip_forward
 | Proxy not running after stop/start | Egress config is per-session, not persisted | Start with `-f session.yaml` again |
 | `dig` works but `curl https` fails with cert error | CA bundle incomplete in VM image | Use `curl -k` or install CA certs in rootfs |
 | Non-standard port blocked unexpectedly | `forward-egress` chain active | Expected with egress filtering — only 80/443/53 allowed |
+| VM can't reach gateway services | `input-egress` chain active | Expected with egress filtering — only DNAT'd proxy flows are accepted |
 | `CAP_NET_ADMIN` error on start | Binary missing capability | `sudo setcap cap_net_admin+ep ./bin/sbx` |
 | Sandbox works but newly installed Docker breaks it | Docker added `FORWARD policy drop` after sbx rules were created | Restart sandbox: `sbx stop && sbx start -f session.yaml` |
+| DNS times out after stop/start with stale nftables | Old nftables chains not cleaned up | Do a full `sbx stop && sbx start -f session.yaml` cycle |
