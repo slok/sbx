@@ -131,6 +131,25 @@ func GetFreeUDPPort(t *testing.T) int {
 	return port
 }
 
+// GetFreeDualPort returns a port that is available on both TCP and UDP.
+// This is needed for the DNS proxy, which listens on both protocols.
+func GetFreeDualPort(t *testing.T) int {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("could not get free TCP port: %v", err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+
+	pc, err := net.ListenPacket("udp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		t.Fatalf("port %d is free on TCP but not UDP: %v", port, err)
+	}
+	pc.Close()
+	return port
+}
+
 // WaitForDNSPort waits until a DNS server is responding on the given address.
 func WaitForDNSPort(t *testing.T, addr string, timeout time.Duration) {
 	t.Helper()
