@@ -231,12 +231,15 @@ sbx --no-log internal-vm-proxy \
     --port <http-port> \
     --tls-port <tls-port> \
     --dns-port <dns-port> \
+    --bind-address 10.XX.YY.1 \
     --default-policy allow \
     --rule '{"action":"deny","domain":"*.github.com"}' \
     --rule '{"action":"deny","domain":"github.com"}'
 ```
 
 It runs as a background process on the host. Its PID is saved to `proxy.pid` and its ports to `proxy.json` in the VM directory (`~/.sbx/vms/<id>/`). Logs go to `proxy.log`.
+
+The `--bind-address` flag binds all proxy listeners (HTTP, TLS, DNS) to the gateway IP (`10.XX.YY.1`) instead of `0.0.0.0`. This is a security measure: without it, the VM could use the host's other network interfaces to reach the proxy on a different IP, potentially bypassing filtering. By binding to the gateway IP, only traffic arriving through the TAP device can reach the proxy.
 
 The proxy consists of three components, each handling a different protocol:
 
@@ -272,13 +275,72 @@ How it works:
 
 1. Accepts the raw TCP connection (DNAT'd from port 443).
 2. Peeks at the TLS ClientHello to extract the SNI (Server Name Indication) field.
-3. Checks the SNI domain against rules.
-4. If **allowed**: Dials the real destination on port 443, replays the ClientHello bytes, and creates a bidirectional tunnel. The TLS handshake completes directly between the client and the real server.
-5. If **denied**: Closes the connection (client sees connection reset).
+3. Normalizes the SNI: strips trailing dots (FQDN form, e.g., `github.com.` → `github.com`).
+4. Runs three layers of checks (see below).
+5. If **allowed**: Dials the real destination on port 443, replays the ClientHello bytes, inspects the server's response, and creates a bidirectional tunnel. The TLS handshake completes directly between the client and the real server.
+6. If **denied** (at any layer): Closes the connection (client sees connection reset).
 
 The SNI extraction uses Go's `tls.Server` with a `GetConfigForClient` callback to capture `hello.ServerName`, then aborts the handshake. This reuses Go's battle-tested TLS parser instead of implementing manual ClientHello parsing.
 
+##### Defense Layer 1: Empty Domain / IP-as-SNI Check
+
+If the SNI is an IP address (e.g., `140.82.121.4`) or empty, `ExtractDomain()` returns `""`. The TLS proxy immediately denies such connections — domain-based rules cannot be evaluated without a domain. This mirrors the HTTP proxy's behavior.
+
+Without this check, an attacker could send a TLS ClientHello with an IP as SNI. Since `Match("")` would fall through to the default policy, a `default: allow` configuration would let the connection through.
+
+> **Note**: Go's TLS client does NOT send IP addresses as SNI (per RFC 6066 §3, which forbids it). However, other clients like `openssl s_client` and `curl` can send IP-based SNI.
+
+##### Defense Layer 2: IP Overlap Check
+
+After the SNI passes domain rule matching, the proxy resolves the SNI domain and all explicitly denied domains to their IP addresses. If any IP overlaps, the connection is denied.
+
+This blocks attacks like **sslip.io** where an attacker uses a domain like `140-82-121-4.sslip.io` (which resolves to `140.82.121.4` — GitHub's IP). The SNI `140-82-121-4.sslip.io` wouldn't match a `github.com` deny rule, but the resolved IP reveals the real target.
+
+Behavior:
+- DNS resolution failures are **fail-open** — if the proxy can't resolve a domain, it doesn't block. The primary domain-based check already passed.
+- Only exact deny domains are checked (not wildcard patterns like `*.github.com`), since wildcard patterns can't be resolved as hostnames.
+- The `LookupHost` function is injectable for testing.
+
+##### Defense Layer 3: Server Certificate Inspection
+
+After dialing the target server and replaying the ClientHello, the proxy peeks at the server's TLS response before forwarding it to the client. It reads TLS records looking for the **Certificate** handshake message (type 11), parses the leaf certificate's Subject Alternative Names (SANs) and Common Name (CN), and checks each domain against the deny rules.
+
+This is the most definitive check: the server's real certificate reveals its identity regardless of what SNI the attacker used. A server at GitHub's IP will present a certificate with `github.com` in its SANs, even when reached via `sslip.io`.
+
+How it works internally:
+1. Reads up to 10 TLS records from the server connection.
+2. For each Handshake record (content type 22), parses handshake messages looking for type 11 (Certificate).
+3. When found, extracts the leaf certificate using `x509.ParseCertificate` and collects all DNS SANs and the CN.
+4. Checks each domain against the rule matcher. If any match a deny rule, blocks the connection.
+5. All bytes read from the server are buffered and forwarded to the client after the check passes — this doesn't break the TLS handshake because the bytes are replayed in order.
+
+**TLS 1.3 limitation**: TLS 1.3 encrypts the Certificate message inside Application Data records (content type 23) after the ServerHello. When the proxy encounters ChangeCipherSpec (type 20) or Application Data (type 23), it stops reading and allows the connection (fail-open). The IP overlap check (Layer 2) provides backup coverage for TLS 1.3 connections.
+
 > **Source**: `internal/proxy/tls.go`
+
+##### TLS Proxy Connection Flow
+
+```mermaid
+flowchart TD
+    CONN[Accept TCP connection<br/>DNAT from port 443] --> PEEK[Peek ClientHello<br/>extract SNI]
+    PEEK --> NORM[Normalize: strip trailing dot]
+    NORM --> L1{Layer 1:<br/>ExtractDomain empty?}
+    L1 -->|Yes: IP or empty| DENY1[DENY — close connection]
+    L1 -->|No: valid domain| RULES{Domain rule<br/>match?}
+    RULES -->|Deny| DENY2[DENY — close connection]
+    RULES -->|Allow| L2{Layer 2:<br/>IP overlap with<br/>denied domains?}
+    L2 -->|Overlap found| DENY3[DENY — close connection]
+    L2 -->|No overlap| DIAL[Dial target:443<br/>replay ClientHello]
+    DIAL --> L3{Layer 3:<br/>Server cert SANs/CN<br/>match deny rules?}
+    L3 -->|Match found| DENY4[DENY — close connection]
+    L3 -->|No match or<br/>TLS 1.3 encrypted| TUNNEL[Forward buffered bytes<br/>to client, start tunnel]
+
+    style DENY1 fill:#f66,color:#fff
+    style DENY2 fill:#f66,color:#fff
+    style DENY3 fill:#f66,color:#fff
+    style DENY4 fill:#f66,color:#fff
+    style TUNNEL fill:#6f6,color:#000
+```
 
 #### DNS Proxy
 
@@ -334,12 +396,15 @@ graph TD
 | Attack Vector | How It's Blocked |
 |---|---|
 | Connect to arbitrary IP:port | `forward-egress` chain drops all forwarded (non-DNAT'd) traffic |
-| Use raw IP to bypass domain rules | Proxy returns 403 for any IP-based request (HTTP and CONNECT) |
+| Use raw IP to bypass domain rules (HTTP) | HTTP proxy returns 403 for any IP-based request (HTTP and CONNECT) |
+| Use raw IP as TLS SNI | TLS proxy denies connections where `ExtractDomain(sni)` returns empty (Layer 1) |
 | Resolve blocked domains via UDP DNS | UDP 53 is DNAT'd to DNS proxy, which returns `REFUSED` |
 | Resolve blocked domains via TCP DNS | TCP 53 is also DNAT'd to DNS proxy |
-| Resolve blocked domains via DoH | DoH goes through HTTPS (port 443), TLS proxy checks the SNI. Even if resolved, the IP can't be used directly (proxy blocks IPs) |
 | Connect on non-standard ports (SSH 22, DoT 853, etc.) | `forward-egress` drops all forwarded traffic from the TAP |
-| Use CONNECT tunnel with an IP address | Proxy blocks CONNECT to IPs with 403 |
+| Use CONNECT tunnel with an IP address | HTTP proxy blocks CONNECT to IPs with 403 |
+| Trailing dot in domain (e.g., `github.com.`) | `ExtractDomain()` strips trailing dots before rule matching |
+| sslip.io / DNS rebinding (e.g., `140-82-121-4.sslip.io`) | IP overlap check (Layer 2) detects the SNI resolves to a denied domain's IP; server certificate inspection (Layer 3) catches the server's real identity |
+| Any SNI trick pointing to a denied server (TLS 1.2) | Server certificate inspection (Layer 3) parses the server cert's SANs/CN and matches against deny rules |
 
 ### What the VM CAN Do (With Egress Enabled)
 
@@ -347,6 +412,15 @@ graph TD
 - Make HTTPS requests on port 443 to allowed domains (with full TLS integrity — no MITM).
 - Resolve DNS for allowed domains (both UDP and TCP).
 - Communicate with the host gateway IP (for the proxy connections).
+
+### Known Limitations
+
+| Limitation | Impact | Mitigation |
+|---|---|---|
+| **TLS 1.3 certificate inspection** | Server certificate inspection (Layer 3) cannot read the Certificate message in TLS 1.3, because it's encrypted inside Application Data records. The check fails open. | The IP overlap check (Layer 2) provides backup coverage. Most TLS 1.3 bypass attempts still require DNS resolution (caught by the DNS proxy) and IP resolution (caught by Layer 2). |
+| **DNS-over-HTTPS (DoH)** | If the VM makes HTTPS requests to a DoH provider (e.g., `cloudflare-dns.com`, `dns.google`), it can resolve blocked domains. The resolved IPs could then be used to construct SNI tricks. | DoH providers are well-known and can be added to deny rules. The TLS proxy's defense layers still block the final connection to the denied server. |
+| **Default-allow + novel SNI tricks** | With `default: allow`, new SNI bypass techniques could emerge. The three defense layers significantly raise the bar but are not a guarantee against all future attacks. | Use `default: deny` with an explicit allowlist for the strongest security posture. |
+| **IPv6** | All nftables rules are IPv4-only (`table ip sbx`). IPv6 traffic is not filtered. | Firecracker VMs typically don't have IPv6 connectivity. If IPv6 is configured, it would bypass all egress filtering. |
 
 ### Without Egress Filtering
 
