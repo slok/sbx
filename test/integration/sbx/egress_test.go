@@ -20,6 +20,7 @@ import (
 // proxyPorts mirrors firecracker.ProxyPorts for reading proxy.json in tests.
 type proxyPorts struct {
 	HTTPPort int `json:"http_port"`
+	TLSPort  int `json:"tls_port"`
 	DNSPort  int `json:"dns_port"`
 }
 

@@ -18,17 +18,20 @@ func TestBuildProxyArgs(t *testing.T) {
 	tests := map[string]struct {
 		egress   model.EgressPolicy
 		httpPort int
+		tlsPort  int
 		dnsPort  int
 		expArgs  []string
 	}{
 		"Allow-default policy with no rules.": {
 			egress:   model.EgressPolicy{Default: model.EgressActionAllow},
 			httpPort: 8080,
+			tlsPort:  8443,
 			dnsPort:  5353,
 			expArgs: []string{
 				"--no-log",
 				"internal-vm-proxy",
 				"--port", "8080",
+				"--tls-port", "8443",
 				"--dns-port", "5353",
 				"--default-policy", "allow",
 			},
@@ -43,11 +46,13 @@ func TestBuildProxyArgs(t *testing.T) {
 				},
 			},
 			httpPort: 9090,
+			tlsPort:  9443,
 			dnsPort:  5354,
 			expArgs: []string{
 				"--no-log",
 				"internal-vm-proxy",
 				"--port", "9090",
+				"--tls-port", "9443",
 				"--dns-port", "5354",
 				"--default-policy", "deny",
 				"--rule", `{"action":"allow","domain":"github.com"}`,
@@ -63,11 +68,13 @@ func TestBuildProxyArgs(t *testing.T) {
 				},
 			},
 			httpPort: 3128,
+			tlsPort:  3129,
 			dnsPort:  5300,
 			expArgs: []string{
 				"--no-log",
 				"internal-vm-proxy",
 				"--port", "3128",
+				"--tls-port", "3129",
 				"--dns-port", "5300",
 				"--default-policy", "allow",
 				"--rule", `{"action":"deny","domain":"evil.com"}`,
@@ -79,7 +86,7 @@ func TestBuildProxyArgs(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			assert := assert.New(t)
 
-			got := buildProxyArgs(test.egress, test.httpPort, test.dnsPort)
+			got := buildProxyArgs(test.egress, test.httpPort, test.tlsPort, test.dnsPort)
 			assert.Equal(test.expArgs, got)
 		})
 	}
@@ -126,13 +133,13 @@ func TestReadProxyPorts(t *testing.T) {
 	}{
 		"Valid port file.": {
 			setup: func(t *testing.T, vmDir string) {
-				ports := ProxyPorts{HTTPPort: 8080, DNSPort: 5353}
+				ports := ProxyPorts{HTTPPort: 8080, TLSPort: 8443, DNSPort: 5353}
 				data, err := json.Marshal(ports)
 				require.NoError(t, err)
 				err = os.WriteFile(filepath.Join(vmDir, conventions.ProxyPortFile), data, 0644)
 				require.NoError(t, err)
 			},
-			expPorts: ProxyPorts{HTTPPort: 8080, DNSPort: 5353},
+			expPorts: ProxyPorts{HTTPPort: 8080, TLSPort: 8443, DNSPort: 5353},
 		},
 
 		"Missing port file.": {

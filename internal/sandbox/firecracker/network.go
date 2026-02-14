@@ -520,8 +520,8 @@ func (e *Engine) setupProxyRedirect(tapDevice, gateway, vmIP string, ports Proxy
 
 	// Redirect HTTP (TCP 80) → proxy HTTP port.
 	addDNATRule(unix.IPPROTO_TCP, 80, uint16(ports.HTTPPort))
-	// Redirect HTTPS (TCP 443) → proxy HTTP port (proxy handles CONNECT).
-	addDNATRule(unix.IPPROTO_TCP, 443, uint16(ports.HTTPPort))
+	// Redirect HTTPS (TCP 443) → transparent TLS proxy port (SNI-based filtering).
+	addDNATRule(unix.IPPROTO_TCP, 443, uint16(ports.TLSPort))
 	// Redirect DNS (UDP 53) → proxy DNS port.
 	addDNATRule(unix.IPPROTO_UDP, 53, uint16(ports.DNSPort))
 
@@ -529,8 +529,8 @@ func (e *Engine) setupProxyRedirect(tapDevice, gateway, vmIP string, ports Proxy
 		return fmt.Errorf("failed to apply proxy redirect rules: %w", err)
 	}
 
-	e.logger.Debugf("Set up proxy DNAT redirect: %s TCP 80,443 -> %s:%d, UDP 53 -> %s:%d",
-		vmIP, gateway, ports.HTTPPort, gateway, ports.DNSPort)
+	e.logger.Debugf("Set up proxy DNAT redirect: %s TCP 80 -> %s:%d, TCP 443 -> %s:%d, UDP 53 -> %s:%d",
+		vmIP, gateway, ports.HTTPPort, gateway, ports.TLSPort, gateway, ports.DNSPort)
 	return nil
 }
 

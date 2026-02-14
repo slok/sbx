@@ -91,7 +91,7 @@ func (e *Engine) Start(ctx context.Context, id string, opts sandbox.StartOpts) e
 			startErr = fmt.Errorf("could not spawn proxy: %w", err)
 			goto cleanup
 		}
-		e.logger.Infof("Proxy started (PID: %d, HTTP: %d, DNS: %d)", proxyPID, proxyPorts.HTTPPort, proxyPorts.DNSPort)
+		e.logger.Infof("Proxy started (PID: %d, HTTP: %d, TLS: %d, DNS: %d)", proxyPID, proxyPorts.HTTPPort, proxyPorts.TLSPort, proxyPorts.DNSPort)
 
 		// Set up nftables DNAT rules to redirect VM traffic through the proxy.
 		if err := e.setupProxyRedirect(tapDevice, gateway, vmIP, proxyPorts); err != nil {
