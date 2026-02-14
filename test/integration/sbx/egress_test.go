@@ -209,8 +209,10 @@ egress:
 	// From inside the VM, curl an HTTPS endpoint.
 	// DNAT redirects port 443 to the transparent TLS proxy, which reads the SNI,
 	// allows it, and tunnels the TLS handshake to the real server.
+	// We use httpbin.org instead of example.com because example.com's Cloudflare
+	// certificate chain is not fully trusted by the Alpine CA bundle.
 	stdout, stderr, err := intsbx.RunExec(ctx, config, dbPath, name, []string{
-		"curl", "-sk", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "10", "https://example.com/",
+		"curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "10", "https://httpbin.org/get",
 	})
 	require.NoError(t, err, "curl https should succeed with allow policy: stderr=%s", stderr)
 	httpCode := strings.TrimSpace(string(stdout))
@@ -234,7 +236,7 @@ egress:
 	// DNAT redirects port 443 to the transparent TLS proxy, which reads the SNI,
 	// denies it, and closes the connection. curl should fail.
 	_, stderr, err := intsbx.RunExec(ctx, config, dbPath, name, []string{
-		"curl", "-sk", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "5", "https://example.com/",
+		"curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "5", "https://httpbin.org/get",
 	})
 	assert.Error(t, err, "curl https should fail with deny policy: stderr=%s", stderr)
 }
@@ -251,16 +253,16 @@ func TestEgressHTTPSAllowRuleOverridesDeny(t *testing.T) {
 egress:
   default: deny
   rules:
-    - domain: "example.com"
+    - domain: "httpbin.org"
       action: allow
 `)
 
-	// From inside the VM, curl to example.com over HTTPS — allowed by rule.
-	// DNS must also resolve (DNS proxy also checks rules, "example.com" matches the allow rule).
+	// From inside the VM, curl to httpbin.org over HTTPS — allowed by rule.
+	// DNS must also resolve (DNS proxy also checks rules, "httpbin.org" matches the allow rule).
 	stdout, stderr, err := intsbx.RunExec(ctx, config, dbPath, name, []string{
-		"curl", "-sk", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "10", "https://example.com/",
+		"curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "10", "https://httpbin.org/get",
 	})
-	require.NoError(t, err, "curl https should succeed with allow rule for example.com: stderr=%s", stderr)
+	require.NoError(t, err, "curl https should succeed with allow rule for httpbin.org: stderr=%s", stderr)
 	httpCode := strings.TrimSpace(string(stdout))
 	assert.NotEqual(t, "000", httpCode, "should not get connection failure for HTTPS with allow rule")
 }
