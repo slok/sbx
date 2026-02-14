@@ -189,6 +189,83 @@ egress:
 	assert.NotEqual(t, "000", httpCode, "should not get connection failure with wildcard allow rule")
 }
 
+func TestEgressHTTPSAllowPassesTraffic(t *testing.T) {
+	config := intsbx.NewConfig(t)
+	dbPath := newTestDB(t)
+	name := uniqueName("egrtls")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	sandboxID := startSandboxWithEgress(ctx, t, config, dbPath, name, `name: egress-tls-allow-test
+egress:
+  default: allow
+`)
+
+	// Verify TLS proxy port is allocated.
+	ports := readProxyPorts(t, sandboxID)
+	require.Greater(t, ports.TLSPort, 0, "TLS proxy port should be allocated")
+
+	// From inside the VM, curl an HTTPS endpoint.
+	// DNAT redirects port 443 to the transparent TLS proxy, which reads the SNI,
+	// allows it, and tunnels the TLS handshake to the real server.
+	stdout, stderr, err := intsbx.RunExec(ctx, config, dbPath, name, []string{
+		"curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "10", "https://example.com/",
+	})
+	require.NoError(t, err, "curl https should succeed with allow policy: stderr=%s", stderr)
+	httpCode := strings.TrimSpace(string(stdout))
+	assert.NotEqual(t, "000", httpCode, "should not get connection failure for HTTPS with allow policy")
+	assert.NotEqual(t, "035", httpCode, "should not get TLS error with allow policy")
+}
+
+func TestEgressHTTPSDenyBlocksTraffic(t *testing.T) {
+	config := intsbx.NewConfig(t)
+	dbPath := newTestDB(t)
+	name := uniqueName("egrtlsd")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	_ = startSandboxWithEgress(ctx, t, config, dbPath, name, `name: egress-tls-deny-test
+egress:
+  default: deny
+`)
+
+	// From inside the VM, curl an HTTPS endpoint.
+	// DNAT redirects port 443 to the transparent TLS proxy, which reads the SNI,
+	// denies it, and closes the connection. curl should fail.
+	_, stderr, err := intsbx.RunExec(ctx, config, dbPath, name, []string{
+		"curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "5", "https://example.com/",
+	})
+	assert.Error(t, err, "curl https should fail with deny policy: stderr=%s", stderr)
+}
+
+func TestEgressHTTPSAllowRuleOverridesDeny(t *testing.T) {
+	config := intsbx.NewConfig(t)
+	dbPath := newTestDB(t)
+	name := uniqueName("egrtlsr")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	_ = startSandboxWithEgress(ctx, t, config, dbPath, name, `name: egress-tls-rule-test
+egress:
+  default: deny
+  rules:
+    - domain: "example.com"
+      action: allow
+`)
+
+	// From inside the VM, curl to example.com over HTTPS — allowed by rule.
+	// DNS must also resolve (DNS proxy also checks rules, "example.com" matches the allow rule).
+	stdout, stderr, err := intsbx.RunExec(ctx, config, dbPath, name, []string{
+		"curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "10", "https://example.com/",
+	})
+	require.NoError(t, err, "curl https should succeed with allow rule for example.com: stderr=%s", stderr)
+	httpCode := strings.TrimSpace(string(stdout))
+	assert.NotEqual(t, "000", httpCode, "should not get connection failure for HTTPS with allow rule")
+}
+
 func TestEgressProxyKilledOnStop(t *testing.T) {
 	config := intsbx.NewConfig(t)
 	dbPath := newTestDB(t)

@@ -12,3 +12,4 @@ egress:
   default: allow
   rules:
     - { action: deny, domain: "*.github.com" }
+    - { action: deny, domain: "github.com" }
