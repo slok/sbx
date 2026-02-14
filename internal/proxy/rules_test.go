@@ -217,6 +217,22 @@ func TestRuleMatcherMatch(t *testing.T) {
 			domain:    "evil.com",
 			expAction: proxy.ActionDeny,
 		},
+		"Trailing dot on domain is normalized for exact match.": {
+			defaultPolicy: proxy.ActionAllow,
+			rules: []proxy.Rule{
+				{Action: proxy.ActionDeny, Domain: "evil.com"},
+			},
+			domain:    "evil.com.",
+			expAction: proxy.ActionDeny,
+		},
+		"Trailing dot on domain is normalized for wildcard match.": {
+			defaultPolicy: proxy.ActionDeny,
+			rules: []proxy.Rule{
+				{Action: proxy.ActionAllow, Domain: "*.github.com"},
+			},
+			domain:    "api.github.com.",
+			expAction: proxy.ActionAllow,
+		},
 	}
 
 	for name, test := range tests {

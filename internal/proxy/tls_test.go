@@ -304,6 +304,18 @@ func TestTLSProxy_DomainRuleCheck(t *testing.T) {
 			sni:           "evil.com",
 			expectConnect: false,
 		},
+		"Trailing dot on denied domain should be blocked.": {
+			defaultPolicy: ActionAllow,
+			rules:         []Rule{{Action: ActionDeny, Domain: "evil.com"}},
+			sni:           "evil.com.",
+			expectConnect: false,
+		},
+		"Trailing dot on allowed domain should connect.": {
+			defaultPolicy: ActionDeny,
+			rules:         []Rule{{Action: ActionAllow, Domain: "good.example.com"}},
+			sni:           "good.example.com.",
+			expectConnect: true,
+		},
 	}
 
 	for name, test := range tests {

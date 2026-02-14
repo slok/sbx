@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -116,6 +117,10 @@ func (t *TLSProxy) handleConn(ctx context.Context, clientConn net.Conn) {
 
 	// Clear the read deadline for the tunnel phase.
 	_ = clientConn.SetReadDeadline(time.Time{})
+
+	// Normalize SNI: strip trailing dot (FQDN form) so that "github.com."
+	// is treated identically to "github.com" for both rule matching and dialing.
+	sni = strings.TrimSuffix(sni, ".")
 
 	domain := ExtractDomain(sni)
 	action := t.matcher.Match(domain)

@@ -61,7 +61,7 @@ func NewRuleMatcher(defaultPolicy Action, rules []Rule) (*RuleMatcher, error) {
 // Match evaluates the domain against rules in order and returns the action.
 // First matching rule wins. If no rule matches, returns the default policy.
 func (m *RuleMatcher) Match(domain string) Action {
-	domain = strings.ToLower(strings.TrimSpace(domain))
+	domain = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(domain)), ".")
 
 	for _, r := range m.rules {
 		if matchDomain(r.Domain, domain) {
