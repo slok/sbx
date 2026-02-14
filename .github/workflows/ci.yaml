@@ -63,6 +63,7 @@ jobs:
       - name: Run integration tests
         env:
           SBX_INTEGRATION: "true"
+          SBX_INTEGRATION_PROXY: "true"
           SBX_INTEGRATION_BINARY: ${{ github.workspace }}/bin/sbx
           SBX_INTEGRATION_IMAGE_VERSION: ${{ env.SBX_IMAGE_VERSION }}
           SBX_INTEGRATION_IMAGES_DIR: ${{ env.SBX_IMAGES_DIR }}
