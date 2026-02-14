@@ -231,6 +231,22 @@ func TestProxyHTTPDomainMatching(t *testing.T) {
 			requestHost: "example.com",
 			expStatus:   http.StatusForbidden,
 		},
+		"Trailing dot should be normalized and denied.": {
+			defaultPolicy: proxy.ActionAllow,
+			rules: []proxy.Rule{
+				{Action: proxy.ActionDeny, Domain: "blocked.example.com"},
+			},
+			requestHost: "blocked.example.com.",
+			expStatus:   http.StatusForbidden,
+		},
+		"Trailing dot should be normalized and allowed.": {
+			defaultPolicy: proxy.ActionDeny,
+			rules: []proxy.Rule{
+				{Action: proxy.ActionAllow, Domain: "allowed.example.com"},
+			},
+			requestHost: "allowed.example.com.",
+			expStatus:   http.StatusOK,
+		},
 	}
 
 	for name, test := range tests {
@@ -314,6 +330,14 @@ func TestProxyConnect(t *testing.T) {
 			requestDomain: "upstream.test",
 			expErr:        true,
 		},
+		"Trailing dot on denied domain should block CONNECT.": {
+			defaultPolicy: proxy.ActionAllow,
+			rules: []proxy.Rule{
+				{Action: proxy.ActionDeny, Domain: "upstream.test"},
+			},
+			requestDomain: "upstream.test.",
+			expErr:        true,
+		},
 	}
 
 	for name, test := range tests {
@@ -371,6 +395,8 @@ func TestProxyConnect(t *testing.T) {
 			}
 
 			// Use a domain name (not IP) so the proxy can evaluate domain rules.
+			// Strip trailing dot for URL (Go's HTTP client handles DNS itself for the CONNECT),
+			// but send the raw domain as the CONNECT target through a raw socket test below.
 			reqURL := fmt.Sprintf("https://%s:%s/", test.requestDomain, upstreamPort)
 			resp, err := client.Get(reqURL)
 
@@ -393,6 +419,41 @@ func TestProxyConnect(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestProxyCONNECTTrailingDotBlocked(t *testing.T) {
+	// A CONNECT request with a trailing dot (FQDN form) must be correctly
+	// matched against deny rules. This uses raw sockets to ensure the trailing
+	// dot is sent verbatim, since Go's http.Client may normalize it away.
+	assert := assert.New(t)
+	require := require.New(t)
+
+	matcher, err := proxy.NewRuleMatcher(proxy.ActionAllow, []proxy.Rule{
+		{Action: proxy.ActionDeny, Domain: "blocked.test"},
+	})
+	require.NoError(err)
+
+	proxyURL, cancel := startProxy(t, matcher)
+	defer cancel()
+
+	// Parse proxy address from URL.
+	pURL, _ := url.Parse(proxyURL)
+	proxyAddr := pURL.Host
+
+	// Send raw CONNECT with trailing dot.
+	conn, err := net.DialTimeout("tcp", proxyAddr, 2*time.Second)
+	require.NoError(err)
+	defer conn.Close()
+
+	_, err = fmt.Fprintf(conn, "CONNECT blocked.test.:443 HTTP/1.1\r\nHost: blocked.test.:443\r\n\r\n")
+	require.NoError(err)
+
+	buf := make([]byte, 4096)
+	n, err := conn.Read(buf)
+	require.NoError(err)
+	resp := string(buf[:n])
+
+	assert.Contains(resp, "403 Forbidden", "CONNECT with trailing dot should be denied")
 }
 
 func TestProxyIPAddressUnidentifiable(t *testing.T) {
@@ -599,6 +660,18 @@ func TestExtractDomain(t *testing.T) {
 		},
 		"Uppercase domain is lowered.": {
 			host:      "GitHub.COM:443",
+			expDomain: "github.com",
+		},
+		"Trailing dot is stripped (FQDN normalization).": {
+			host:      "github.com.",
+			expDomain: "github.com",
+		},
+		"Trailing dot with port is stripped.": {
+			host:      "github.com.:443",
+			expDomain: "github.com",
+		},
+		"Trailing dot with uppercase is normalized.": {
+			host:      "GitHub.COM.",
 			expDomain: "github.com",
 		},
 	}

@@ -345,6 +345,74 @@ func dnsQueryProto(t *testing.T, addr, domain string, qtype uint16, net string) 
 	return resp
 }
 
+func TestProxyTrailingDotHTTPDeny(t *testing.T) {
+	// A trailing dot in the Host header (FQDN form) must NOT bypass deny rules.
+	// This is a regression test for an egress bypass where "blocked.test." would
+	// pass through a deny rule for "blocked.test".
+	config := intproxy.NewConfig(t)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("should-not-reach"))
+	}))
+	defer upstream.Close()
+
+	port := intproxy.GetFreePort(t)
+	rules := []string{
+		`{"action":"deny","domain":"localhost"}`,
+	}
+	proxyAddr, cancel := intproxy.StartProxy(t, config, port, "allow", rules)
+	defer cancel()
+
+	// Send a raw HTTP request with trailing dot via the proxy.
+	// We use raw sockets because Go's http.Client may strip the trailing dot.
+	conn, err := net.DialTimeout("tcp", proxyAddr, 2*time.Second)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	// Proxy-style HTTP request with absolute URI and trailing dot in Host.
+	upstreamURL := strings.Replace(upstream.URL, "127.0.0.1", "localhost.", 1)
+	req := fmt.Sprintf("GET %s/ HTTP/1.1\r\nHost: localhost.\r\nConnection: close\r\n\r\n", upstreamURL)
+	_, err = conn.Write([]byte(req))
+	require.NoError(t, err)
+
+	buf := make([]byte, 4096)
+	n, err := conn.Read(buf)
+	require.NoError(t, err)
+	resp := string(buf[:n])
+
+	assert.Contains(t, resp, "403 Forbidden",
+		"HTTP request with trailing dot should be denied by the proxy")
+}
+
+func TestProxyTrailingDotCONNECTDeny(t *testing.T) {
+	// A trailing dot in the CONNECT target must NOT bypass deny rules.
+	config := intproxy.NewConfig(t)
+
+	port := intproxy.GetFreePort(t)
+	rules := []string{
+		`{"action":"deny","domain":"blocked.test"}`,
+	}
+	proxyAddr, cancel := intproxy.StartProxy(t, config, port, "allow", rules)
+	defer cancel()
+
+	// Send raw CONNECT with trailing dot.
+	conn, err := net.DialTimeout("tcp", proxyAddr, 2*time.Second)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	_, err = fmt.Fprintf(conn, "CONNECT blocked.test.:443 HTTP/1.1\r\nHost: blocked.test.:443\r\n\r\n")
+	require.NoError(t, err)
+
+	buf := make([]byte, 4096)
+	n, err := conn.Read(buf)
+	require.NoError(t, err)
+	resp := string(buf[:n])
+
+	assert.Contains(t, resp, "403 Forbidden",
+		"CONNECT with trailing dot should be denied by the proxy")
+}
+
 func TestDNSProxyDefaultAllow(t *testing.T) {
 	config := intproxy.NewConfig(t)
 

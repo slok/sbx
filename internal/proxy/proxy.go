@@ -258,6 +258,11 @@ func ExtractDomain(host string) string {
 
 	h = strings.TrimSpace(h)
 
+	// Strip trailing dot (FQDN form) so that "github.com." normalizes to
+	// "github.com" and matches domain rules consistently. Without this,
+	// a request with Host: "github.com." would bypass a deny rule for "github.com".
+	h = strings.TrimSuffix(h, ".")
+
 	// If it's an IP address, return empty (unidentifiable domain).
 	if net.ParseIP(h) != nil {
 		return ""
