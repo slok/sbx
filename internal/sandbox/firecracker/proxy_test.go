@@ -16,20 +16,23 @@ import (
 
 func TestBuildProxyArgs(t *testing.T) {
 	tests := map[string]struct {
-		egress   model.EgressPolicy
-		httpPort int
-		tlsPort  int
-		dnsPort  int
-		expArgs  []string
+		egress      model.EgressPolicy
+		httpPort    int
+		tlsPort     int
+		dnsPort     int
+		bindAddress string
+		expArgs     []string
 	}{
-		"Allow-default policy with no rules.": {
-			egress:   model.EgressPolicy{Default: model.EgressActionAllow},
-			httpPort: 8080,
-			tlsPort:  8443,
-			dnsPort:  5353,
+		"Allow-default policy with no rules and bind address.": {
+			egress:      model.EgressPolicy{Default: model.EgressActionAllow},
+			httpPort:    8080,
+			tlsPort:     8443,
+			dnsPort:     5353,
+			bindAddress: "10.68.40.1",
 			expArgs: []string{
 				"--no-log",
 				"internal-vm-proxy",
+				"--bind-address", "10.68.40.1",
 				"--port", "8080",
 				"--tls-port", "8443",
 				"--dns-port", "5353",
@@ -37,7 +40,7 @@ func TestBuildProxyArgs(t *testing.T) {
 			},
 		},
 
-		"Deny-default policy with rules.": {
+		"Deny-default policy with rules and bind address.": {
 			egress: model.EgressPolicy{
 				Default: model.EgressActionDeny,
 				Rules: []model.EgressRule{
@@ -45,12 +48,14 @@ func TestBuildProxyArgs(t *testing.T) {
 					{Action: model.EgressActionAllow, Domain: "*.github.com"},
 				},
 			},
-			httpPort: 9090,
-			tlsPort:  9443,
-			dnsPort:  5354,
+			httpPort:    9090,
+			tlsPort:     9443,
+			dnsPort:     5354,
+			bindAddress: "10.68.40.1",
 			expArgs: []string{
 				"--no-log",
 				"internal-vm-proxy",
+				"--bind-address", "10.68.40.1",
 				"--port", "9090",
 				"--tls-port", "9443",
 				"--dns-port", "5354",
@@ -60,19 +65,21 @@ func TestBuildProxyArgs(t *testing.T) {
 			},
 		},
 
-		"Allow-default policy with deny rule.": {
+		"Allow-default policy with deny rule and empty bind address.": {
 			egress: model.EgressPolicy{
 				Default: model.EgressActionAllow,
 				Rules: []model.EgressRule{
 					{Action: model.EgressActionDeny, Domain: "evil.com"},
 				},
 			},
-			httpPort: 3128,
-			tlsPort:  3129,
-			dnsPort:  5300,
+			httpPort:    3128,
+			tlsPort:     3129,
+			dnsPort:     5300,
+			bindAddress: "",
 			expArgs: []string{
 				"--no-log",
 				"internal-vm-proxy",
+				"--bind-address", "",
 				"--port", "3128",
 				"--tls-port", "3129",
 				"--dns-port", "5300",
@@ -86,7 +93,7 @@ func TestBuildProxyArgs(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			assert := assert.New(t)
 
-			got := buildProxyArgs(test.egress, test.httpPort, test.tlsPort, test.dnsPort)
+			got := buildProxyArgs(test.egress, test.httpPort, test.tlsPort, test.dnsPort, test.bindAddress)
 			assert.Equal(test.expArgs, got)
 		})
 	}

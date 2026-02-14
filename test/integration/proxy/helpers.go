@@ -169,6 +169,46 @@ func WaitForDNSPort(t *testing.T, addr string, timeout time.Duration) {
 	t.Fatalf("timeout waiting for DNS server at %s to be ready", addr)
 }
 
+// StartProxyOnAddr starts the sbx internal-vm-proxy command bound to a specific IP address.
+// If bindAddress is empty, the proxy binds to all interfaces (same as StartProxy).
+// Returns the proxy address and a cancel function to stop it.
+func StartProxyOnAddr(t *testing.T, config Config, bindAddress string, port int, defaultPolicy string, rules []string) (proxyAddr string, cancel func()) {
+	t.Helper()
+
+	ctx, ctxCancel := context.WithCancel(context.Background())
+
+	args := []string{
+		"--no-log",
+		"internal-vm-proxy",
+		"--bind-address", bindAddress,
+		"--port", fmt.Sprintf("%d", port),
+		"--default-policy", defaultPolicy,
+	}
+	for _, r := range rules {
+		args = append(args, "--rule", r)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _, _ = testutils.RunSBXArgs(ctx, nil, config.Binary, args, true)
+	}()
+
+	if bindAddress == "" {
+		proxyAddr = fmt.Sprintf("127.0.0.1:%d", port)
+	} else {
+		proxyAddr = fmt.Sprintf("%s:%d", bindAddress, port)
+	}
+	WaitForPort(t, proxyAddr, 5*time.Second)
+
+	cancel = func() {
+		ctxCancel()
+		<-done
+	}
+
+	return proxyAddr, cancel
+}
+
 // StartProxyWithDNS starts the sbx internal-vm-proxy command with DNS proxy enabled.
 // Returns the HTTP proxy address, DNS proxy address, and a cancel function to stop both.
 func StartProxyWithDNS(t *testing.T, config Config, httpPort, dnsPort int, dnsUpstream, defaultPolicy string, rules []string) (proxyAddr, dnsAddr string, cancel func()) {

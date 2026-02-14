@@ -14,6 +14,7 @@ type ProxyCommand struct {
 	Cmd     *kingpin.CmdClause
 	rootCmd *RootCommand
 
+	bindAddress   string
 	port          int
 	tlsPort       int
 	dnsPort       int
@@ -27,6 +28,7 @@ func NewProxyCommand(rootCmd *RootCommand, app *kingpin.Application) *ProxyComma
 	c := &ProxyCommand{rootCmd: rootCmd}
 
 	c.Cmd = app.Command("internal-vm-proxy", "Internal: run a network proxy with domain-based rules.").Hidden()
+	c.Cmd.Flag("bind-address", "IP address to bind proxy listeners to (empty for all interfaces).").Default("").StringVar(&c.bindAddress)
 	c.Cmd.Flag("port", "Port to listen on for HTTP/HTTPS proxy.").Default("9666").IntVar(&c.port)
 	c.Cmd.Flag("tls-port", "Port to listen on for transparent TLS proxy (0 to disable).").Default("0").IntVar(&c.tlsPort)
 	c.Cmd.Flag("dns-port", "Port to listen on for DNS proxy (0 to disable).").Default("0").IntVar(&c.dnsPort)
@@ -58,15 +60,23 @@ func (c ProxyCommand) Run(ctx context.Context) error {
 		return fmt.Errorf("could not create rule matcher: %w", err)
 	}
 
+	// Build listen address helper: bind to specific IP or all interfaces.
+	listenAddr := func(port int) string {
+		if c.bindAddress != "" {
+			return fmt.Sprintf("%s:%d", c.bindAddress, port)
+		}
+		return fmt.Sprintf(":%d", port)
+	}
+
 	// Log configuration.
-	logger.Infof("starting proxy on :%d with default policy %q (%d rules loaded)", c.port, c.defaultPolicy, len(rules))
+	logger.Infof("starting proxy on %s with default policy %q (%d rules loaded)", listenAddr(c.port), c.defaultPolicy, len(rules))
 	for i, r := range rules {
 		logger.Infof("  rule[%d]: %s %s", i, r.Action, r.Domain)
 	}
 
 	// Create HTTP proxy.
 	httpProxy, err := proxy.NewProxy(proxy.ProxyConfig{
-		ListenAddr: fmt.Sprintf(":%d", c.port),
+		ListenAddr: listenAddr(c.port),
 		Matcher:    matcher,
 		Logger:     logger,
 	})
@@ -84,9 +94,9 @@ func (c ProxyCommand) Run(ctx context.Context) error {
 
 	// Create TLS proxy if enabled.
 	if c.tlsPort > 0 {
-		logger.Infof("starting transparent TLS proxy on :%d", c.tlsPort)
+		logger.Infof("starting transparent TLS proxy on %s", listenAddr(c.tlsPort))
 		tlsProxy, err := proxy.NewTLSProxy(proxy.TLSProxyConfig{
-			ListenAddr: fmt.Sprintf(":%d", c.tlsPort),
+			ListenAddr: listenAddr(c.tlsPort),
 			Matcher:    matcher,
 			Logger:     logger,
 		})
@@ -98,9 +108,9 @@ func (c ProxyCommand) Run(ctx context.Context) error {
 
 	// Create DNS proxy if enabled.
 	if c.dnsPort > 0 {
-		logger.Infof("starting DNS proxy on :%d with upstream %s", c.dnsPort, c.dnsUpstream)
+		logger.Infof("starting DNS proxy on %s with upstream %s", listenAddr(c.dnsPort), c.dnsUpstream)
 		dnsProxy, err := proxy.NewDNSProxy(proxy.DNSProxyConfig{
-			ListenAddr: fmt.Sprintf(":%d", c.dnsPort),
+			ListenAddr: listenAddr(c.dnsPort),
 			Upstream:   c.dnsUpstream,
 			Matcher:    matcher,
 			Logger:     logger,

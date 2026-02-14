@@ -86,7 +86,7 @@ func (e *Engine) Start(ctx context.Context, id string, opts sandbox.StartOpts) e
 		step++
 		e.logger.Debugf("[%d/%d] Spawning egress proxy", step, totalSteps)
 		var proxyPorts ProxyPorts
-		proxyPID, proxyPorts, err = e.spawnProxy(vmDir, *opts.Egress)
+		proxyPID, proxyPorts, err = e.spawnProxy(vmDir, *opts.Egress, gateway)
 		if err != nil {
 			startErr = fmt.Errorf("could not spawn proxy: %w", err)
 			goto cleanup

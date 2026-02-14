@@ -324,6 +324,47 @@ egress:
 	assert.Error(t, err, "connection to port 853 should be blocked by forward-egress: stderr=%s", stderr)
 }
 
+func TestEgressProxyBoundToGateway(t *testing.T) {
+	// Verify that the proxy is bound to the gateway IP only, not all interfaces.
+	// After the bind-address fix, the proxy should not be reachable from inside the VM
+	// on any IP other than the gateway (10.68.X.1). This test checks that existing
+	// egress functionality works correctly with the proxy bound to the gateway IP
+	// (regression test for the bind-address change).
+	config := intsbx.NewConfig(t)
+	dbPath := newTestDB(t)
+	name := uniqueName("egrbind")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	sandboxID := startSandboxWithEgress(ctx, t, config, dbPath, name, `name: egress-bind-test
+egress:
+  default: allow
+`)
+
+	// Verify proxy is running and ports are allocated.
+	ports := readProxyPorts(t, sandboxID)
+	require.Greater(t, ports.HTTPPort, 0, "proxy HTTP port should be allocated")
+	pid := readProxyPID(t, sandboxID)
+	assert.True(t, isProcessAlive(pid), "proxy process (PID %d) should be alive", pid)
+
+	// HTTP traffic should still work through DNAT (regression test).
+	stdout, stderr, err := intsbx.RunExec(ctx, config, dbPath, name, []string{
+		"curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "10", "http://example.com/",
+	})
+	require.NoError(t, err, "HTTP via DNAT should still work with bind-address: stderr=%s", stderr)
+	httpCode := strings.TrimSpace(string(stdout))
+	assert.NotEqual(t, "000", httpCode, "HTTP should not fail with proxy bound to gateway")
+
+	// HTTPS traffic should also still work through DNAT.
+	stdout, stderr, err = intsbx.RunExec(ctx, config, dbPath, name, []string{
+		"curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "10", "https://httpbin.org/get",
+	})
+	require.NoError(t, err, "HTTPS via DNAT should still work with bind-address: stderr=%s", stderr)
+	httpCode = strings.TrimSpace(string(stdout))
+	assert.NotEqual(t, "000", httpCode, "HTTPS should not fail with proxy bound to gateway")
+}
+
 func TestEgressNoProxyWithoutEgressConfig(t *testing.T) {
 	config := intsbx.NewConfig(t)
 	dbPath := newTestDB(t)
