@@ -1,0 +1,15 @@
+# Basic egress example: allow all traffic but block GitHub subdomains.
+# Also sets environment variables that are available inside the sandbox.
+#
+# Usage: sbx start my-sandbox -f examples/sessions/egress.yaml
+
+name: simple
+env:
+  THIS_IS_A_TEST: sbx test
+  THIS_IS_A_TEST2: $HOME
+
+egress:
+  default: allow
+  rules:
+    - { action: deny, domain: "*.github.com" }
+    - { action: deny, domain: "github.com" }

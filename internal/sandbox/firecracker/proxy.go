@@ -18,6 +18,7 @@ import (
 // ProxyPorts holds the allocated ports for the proxy process.
 type ProxyPorts struct {
 	HTTPPort int `json:"http_port"`
+	TLSPort  int `json:"tls_port"`
 	DNSPort  int `json:"dns_port"`
 }
 
@@ -34,12 +35,17 @@ func (e *Engine) spawnProxy(vmDir string, egress model.EgressPolicy) (int, Proxy
 		return 0, ProxyPorts{}, fmt.Errorf("could not allocate HTTP proxy port: %w", err)
 	}
 
+	tlsPort, err := getFreePort()
+	if err != nil {
+		return 0, ProxyPorts{}, fmt.Errorf("could not allocate TLS proxy port: %w", err)
+	}
+
 	dnsPort, err := getFreeUDPPort()
 	if err != nil {
 		return 0, ProxyPorts{}, fmt.Errorf("could not allocate DNS proxy port: %w", err)
 	}
 
-	args := buildProxyArgs(egress, httpPort, dnsPort)
+	args := buildProxyArgs(egress, httpPort, tlsPort, dnsPort)
 
 	logPath := filepath.Join(vmDir, conventions.ProxyLogFile)
 	logFile, err := os.Create(logPath)
@@ -67,7 +73,7 @@ func (e *Engine) spawnProxy(vmDir string, egress model.EgressPolicy) (int, Proxy
 	}
 
 	// Write port file.
-	ports := ProxyPorts{HTTPPort: httpPort, DNSPort: dnsPort}
+	ports := ProxyPorts{HTTPPort: httpPort, TLSPort: tlsPort, DNSPort: dnsPort}
 	portData, err := json.Marshal(ports)
 	if err != nil {
 		e.logger.Warningf("Could not marshal proxy ports: %v", err)
@@ -82,11 +88,12 @@ func (e *Engine) spawnProxy(vmDir string, egress model.EgressPolicy) (int, Proxy
 }
 
 // buildProxyArgs constructs the command-line arguments for the proxy process.
-func buildProxyArgs(egress model.EgressPolicy, httpPort, dnsPort int) []string {
+func buildProxyArgs(egress model.EgressPolicy, httpPort, tlsPort, dnsPort int) []string {
 	args := []string{
 		"--no-log",
 		"internal-vm-proxy",
 		"--port", strconv.Itoa(httpPort),
+		"--tls-port", strconv.Itoa(tlsPort),
 		"--dns-port", strconv.Itoa(dnsPort),
 		"--default-policy", string(egress.Default),
 	}

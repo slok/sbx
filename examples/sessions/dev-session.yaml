@@ -1,0 +1,30 @@
+# A typical development session with environment variables and
+# egress restricted to common development services.
+#
+# Usage: sbx start my-sandbox -f examples/sessions/dev-session.yaml
+
+name: dev
+env:
+  NODE_ENV: development
+  EDITOR: vim
+  GIT_AUTHOR_NAME: Developer
+  GIT_AUTHOR_EMAIL: dev@example.com
+
+egress:
+  default: deny
+  rules:
+    # Git hosting
+    - { domain: "github.com", action: allow }
+    - { domain: "*.github.com", action: allow }
+    - { domain: "gitlab.com", action: allow }
+    - { domain: "*.gitlab.com", action: allow }
+
+    # Package managers
+    - { domain: "registry.npmjs.org", action: allow }
+    - { domain: "*.npmjs.org", action: allow }
+    - { domain: "pypi.org", action: allow }
+    - { domain: "*.pypi.org", action: allow }
+    - { domain: "*.golang.org", action: allow }
+    - { domain: "proxy.golang.org", action: allow }
+    - { domain: "sum.golang.org", action: allow }
+    - { domain: "dl-cdn.alpinelinux.org", action: allow }

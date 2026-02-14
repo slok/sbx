@@ -1,0 +1,39 @@
+# Session with only environment variables, no egress restrictions.
+# All network traffic passes through normally.
+#
+# All values are treated as literal strings — no shell expansion occurs.
+# Values are single-quoted in the generated /etc/sbx/session-env.sh script,
+# so $HOME, backticks, and other shell metacharacters are safe.
+#
+# These env vars are available in:
+#   - sbx exec (sourced before your command runs)
+#   - sbx shell / interactive SSH (via /etc/profile.d hook)
+#
+# You can also pass env vars via CLI flags:
+#   sbx start my-sandbox -e KEY=VALUE -e ANOTHER=VALUE
+#   sbx start my-sandbox -f session.yaml -e OVERRIDE=VALUE   # CLI wins on conflicts
+#
+# Usage: sbx start my-sandbox -f examples/sessions/env-only.yaml
+
+name: env-only
+env:
+  # Simple literal values.
+  APP_ENV: staging
+  LOG_LEVEL: debug
+
+  # URLs and connection strings work as-is.
+  DATABASE_URL: postgres://user:pass@localhost:5432/mydb
+  REDIS_URL: redis://localhost:6379/0
+
+  # Dollar signs are NOT expanded — $HOME becomes the literal string "$HOME"
+  # inside the sandbox (values are single-quoted in the generated script).
+  EXAMPLE_LITERAL_DOLLAR: $HOME
+  EXAMPLE_TEMPLATE: ${API_URL}/v1/endpoint
+
+  # Values with special characters are safely escaped.
+  GREETING: Hello, World!
+  JSON_CONFIG: '{"key": "value", "nested": true}'
+  WITH_SINGLE_QUOTE: it's a test
+
+  # Empty values are valid.
+  EMPTY_VALUE: ""
