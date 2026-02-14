@@ -413,6 +413,31 @@ func TestProxyTrailingDotCONNECTDeny(t *testing.T) {
 		"CONNECT with trailing dot should be denied by the proxy")
 }
 
+func TestProxyBindAddressRestricts(t *testing.T) {
+	// When --bind-address is set, the proxy should only be reachable on that IP.
+	// We bind to 127.0.0.1 and verify that 127.0.0.2 (another loopback address)
+	// cannot reach the proxy.
+	config := intproxy.NewConfig(t)
+
+	port := intproxy.GetFreePort(t)
+	proxyAddr, cancel := intproxy.StartProxyOnAddr(t, config, "127.0.0.1", port, "allow", nil)
+	defer cancel()
+
+	// The proxy should be reachable on the bound address.
+	conn, err := net.DialTimeout("tcp", proxyAddr, 2*time.Second)
+	require.NoError(t, err, "proxy should be reachable on bound address 127.0.0.1")
+	conn.Close()
+
+	// The proxy should NOT be reachable on a different loopback address.
+	altAddr := fmt.Sprintf("127.0.0.2:%d", port)
+	conn, err = net.DialTimeout("tcp", altAddr, 1*time.Second)
+	if err == nil {
+		conn.Close()
+		t.Fatalf("proxy should NOT be reachable on 127.0.0.2 when bound to 127.0.0.1")
+	}
+	// Connection refused or timeout — expected.
+}
+
 func TestDNSProxyDefaultAllow(t *testing.T) {
 	config := intproxy.NewConfig(t)
 

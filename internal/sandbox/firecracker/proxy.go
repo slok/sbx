@@ -23,8 +23,10 @@ type ProxyPorts struct {
 }
 
 // spawnProxy starts the sbx internal-vm-proxy process with the given egress policy.
-// It writes the PID file and port file to vmDir. Returns the PID and allocated ports.
-func (e *Engine) spawnProxy(vmDir string, egress model.EgressPolicy) (int, ProxyPorts, error) {
+// It writes the PID file and port file to vmDir. The bindAddress is the IP the proxy
+// should listen on (typically the gateway IP) to prevent the VM from reaching the proxy
+// on other interfaces. Returns the PID and allocated ports.
+func (e *Engine) spawnProxy(vmDir string, egress model.EgressPolicy, bindAddress string) (int, ProxyPorts, error) {
 	sbxBinary, err := os.Executable()
 	if err != nil {
 		return 0, ProxyPorts{}, fmt.Errorf("could not find sbx binary: %w", err)
@@ -45,7 +47,7 @@ func (e *Engine) spawnProxy(vmDir string, egress model.EgressPolicy) (int, Proxy
 		return 0, ProxyPorts{}, fmt.Errorf("could not allocate DNS proxy port: %w", err)
 	}
 
-	args := buildProxyArgs(egress, httpPort, tlsPort, dnsPort)
+	args := buildProxyArgs(egress, httpPort, tlsPort, dnsPort, bindAddress)
 
 	logPath := filepath.Join(vmDir, conventions.ProxyLogFile)
 	logFile, err := os.Create(logPath)
@@ -88,10 +90,11 @@ func (e *Engine) spawnProxy(vmDir string, egress model.EgressPolicy) (int, Proxy
 }
 
 // buildProxyArgs constructs the command-line arguments for the proxy process.
-func buildProxyArgs(egress model.EgressPolicy, httpPort, tlsPort, dnsPort int) []string {
+func buildProxyArgs(egress model.EgressPolicy, httpPort, tlsPort, dnsPort int, bindAddress string) []string {
 	args := []string{
 		"--no-log",
 		"internal-vm-proxy",
+		"--bind-address", bindAddress,
 		"--port", strconv.Itoa(httpPort),
 		"--tls-port", strconv.Itoa(tlsPort),
 		"--dns-port", strconv.Itoa(dnsPort),
