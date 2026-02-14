@@ -248,3 +248,66 @@ func TestRuleMatcherMatch(t *testing.T) {
 		})
 	}
 }
+
+func TestRuleMatcherDeniedDomains(t *testing.T) {
+	tests := map[string]struct {
+		rules      []proxy.Rule
+		expDomains []string
+	}{
+		"No rules should return empty.": {
+			expDomains: nil,
+		},
+		"Only allow rules should return empty.": {
+			rules: []proxy.Rule{
+				{Action: proxy.ActionAllow, Domain: "github.com"},
+			},
+			expDomains: nil,
+		},
+		"Deny exact domain should be returned.": {
+			rules: []proxy.Rule{
+				{Action: proxy.ActionDeny, Domain: "github.com"},
+			},
+			expDomains: []string{"github.com"},
+		},
+		"Wildcard deny should be excluded.": {
+			rules: []proxy.Rule{
+				{Action: proxy.ActionDeny, Domain: "*.github.com"},
+			},
+			expDomains: nil,
+		},
+		"Catch-all wildcard should be excluded.": {
+			rules: []proxy.Rule{
+				{Action: proxy.ActionDeny, Domain: "*"},
+			},
+			expDomains: nil,
+		},
+		"Mixed rules should return only exact deny domains.": {
+			rules: []proxy.Rule{
+				{Action: proxy.ActionDeny, Domain: "github.com"},
+				{Action: proxy.ActionDeny, Domain: "*.github.com"},
+				{Action: proxy.ActionAllow, Domain: "google.com"},
+				{Action: proxy.ActionDeny, Domain: "evil.com"},
+			},
+			expDomains: []string{"github.com", "evil.com"},
+		},
+		"Domains are lowercased.": {
+			rules: []proxy.Rule{
+				{Action: proxy.ActionDeny, Domain: "GitHub.COM"},
+			},
+			expDomains: []string{"github.com"},
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert := assert.New(t)
+			require := require.New(t)
+
+			matcher, err := proxy.NewRuleMatcher(proxy.ActionAllow, test.rules)
+			require.NoError(err)
+
+			domains := matcher.DeniedDomains()
+			assert.Equal(test.expDomains, domains)
+		})
+	}
+}

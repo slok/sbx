@@ -397,3 +397,59 @@ func TestEgressNoProxyWithoutEgressConfig(t *testing.T) {
 	_, err = os.Stat(pidFile)
 	assert.True(t, os.IsNotExist(err), "proxy.pid should not exist when no egress config is set")
 }
+
+func TestEgressTLSSNIIPOverlapBlocked(t *testing.T) {
+	// The TLS proxy should block connections to domains that resolve to the same IP
+	// as a denied domain. This prevents the sslip.io-style bypass where an attacker
+	// uses a domain like "140-82-121-4.sslip.io" (which resolves to github.com's IP)
+	// to bypass domain-based deny rules.
+	config := intsbx.NewConfig(t)
+	dbPath := newTestDB(t)
+	name := uniqueName("egrsni")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	// Deny github.com explicitly and allow everything else.
+	_ = startSandboxWithEgress(ctx, t, config, dbPath, name, `name: egress-sni-overlap-test
+egress:
+  default: allow
+  rules:
+    - domain: "github.com"
+      action: deny
+    - domain: "*.github.com"
+      action: deny
+`)
+
+	// Direct HTTPS to github.com should be denied (baseline).
+	_, _, err := intsbx.RunExec(ctx, config, dbPath, name, []string{
+		"curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "5", "https://github.com/",
+	})
+	assert.Error(t, err, "direct HTTPS to github.com should be blocked by deny rule")
+
+	// Resolve github.com's IP from inside the VM. The DNS proxy allows this query
+	// since it's not github.com itself (the deny rule blocks github.com DNS queries,
+	// so we resolve from outside or use a known IP).
+	// Instead, try the sslip.io trick: use a domain that resolves to github.com's IP.
+	// The TLS proxy should detect the IP overlap and deny the connection.
+	//
+	// NOTE: This test requires sslip.io to be reachable from CI. If sslip.io is down,
+	// the DNS resolution will fail and curl will error before reaching the TLS proxy.
+	// We first verify sslip.io resolves, then test the bypass.
+	stdout, stderr, err := intsbx.RunExec(ctx, config, dbPath, name, []string{
+		"nslookup", "140-82-121-4.sslip.io",
+	})
+	if err != nil {
+		t.Skipf("sslip.io DNS resolution failed (service may be down): err=%v stderr=%s", err, stderr)
+	}
+	if !strings.Contains(string(stdout), "140.82.121.4") {
+		t.Skipf("sslip.io did not resolve to expected IP: stdout=%s", stdout)
+	}
+
+	// Now try the sslip.io bypass — should be blocked by IP overlap check.
+	_, stderr, err = intsbx.RunExec(ctx, config, dbPath, name, []string{
+		"curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "10",
+		"https://140-82-121-4.sslip.io/",
+	})
+	assert.Error(t, err, "sslip.io SNI trick should be blocked by IP overlap check: stderr=%s", stderr)
+}

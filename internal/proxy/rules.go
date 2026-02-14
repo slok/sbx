@@ -77,6 +77,19 @@ func (m *RuleMatcher) DefaultPolicy() Action {
 	return m.defaultPolicy
 }
 
+// DeniedDomains returns all explicit (non-wildcard) deny-action domains
+// from the rule list. Wildcard patterns (e.g. "*.github.com") are excluded
+// because they don't resolve to a single set of IPs.
+func (m *RuleMatcher) DeniedDomains() []string {
+	var domains []string
+	for _, r := range m.rules {
+		if r.Action == ActionDeny && !strings.HasPrefix(r.Domain, "*.") && r.Domain != "*" {
+			domains = append(domains, strings.ToLower(r.Domain))
+		}
+	}
+	return domains
+}
+
 // matchDomain checks if a domain matches a pattern.
 //
 // Matching rules:

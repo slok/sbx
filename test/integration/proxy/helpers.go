@@ -209,6 +209,43 @@ func StartProxyOnAddr(t *testing.T, config Config, bindAddress string, port int,
 	return proxyAddr, cancel
 }
 
+// StartProxyWithTLS starts the sbx internal-vm-proxy command with TLS proxy enabled.
+// Returns the HTTP proxy address, TLS proxy address, and a cancel function to stop both.
+func StartProxyWithTLS(t *testing.T, config Config, httpPort, tlsPort int, defaultPolicy string, rules []string) (proxyAddr, tlsAddr string, cancel func()) {
+	t.Helper()
+
+	ctx, ctxCancel := context.WithCancel(context.Background())
+
+	args := []string{
+		"--no-log",
+		"internal-vm-proxy",
+		"--port", fmt.Sprintf("%d", httpPort),
+		"--tls-port", fmt.Sprintf("%d", tlsPort),
+		"--default-policy", defaultPolicy,
+	}
+	for _, r := range rules {
+		args = append(args, "--rule", r)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _, _ = testutils.RunSBXArgs(ctx, nil, config.Binary, args, true)
+	}()
+
+	proxyAddr = fmt.Sprintf("127.0.0.1:%d", httpPort)
+	tlsAddr = fmt.Sprintf("127.0.0.1:%d", tlsPort)
+	WaitForPort(t, proxyAddr, 5*time.Second)
+	WaitForPort(t, tlsAddr, 5*time.Second)
+
+	cancel = func() {
+		ctxCancel()
+		<-done
+	}
+
+	return proxyAddr, tlsAddr, cancel
+}
+
 // StartProxyWithDNS starts the sbx internal-vm-proxy command with DNS proxy enabled.
 // Returns the HTTP proxy address, DNS proxy address, and a cancel function to stop both.
 func StartProxyWithDNS(t *testing.T, config Config, httpPort, dnsPort int, dnsUpstream, defaultPolicy string, rules []string) (proxyAddr, dnsAddr string, cancel func()) {
