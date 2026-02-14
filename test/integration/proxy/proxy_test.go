@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -33,8 +34,9 @@ func TestProxyDefaultAllow(t *testing.T) {
 	defer cancel()
 
 	// HTTP request through the proxy should succeed (default allow, no rules).
+	// Use domain-based URL (localhost) instead of raw IP — the proxy blocks IP-based requests.
 	client := newProxyClient(proxyAddr)
-	resp, err := client.Get(upstream.URL)
+	resp, err := client.Get(ipToLocalhostURL(upstream.URL))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
@@ -76,16 +78,17 @@ func TestProxyAllowRuleWithDenyDefault(t *testing.T) {
 	defer upstream.Close()
 
 	port := intproxy.GetFreePort(t)
-	// Default deny, but allow everything via wildcard rule.
+	// Default deny, but allow localhost via rule.
 	// This tests that an allow rule overrides default deny.
 	rules := []string{
-		`{"action":"allow","domain":"*"}`,
+		`{"action":"allow","domain":"localhost"}`,
 	}
 	proxyAddr, cancel := intproxy.StartProxy(t, config, port, "deny", rules)
 	defer cancel()
 
+	// Use domain-based URL (localhost) instead of raw IP.
 	client := newProxyClient(proxyAddr)
-	resp, err := client.Get(upstream.URL)
+	resp, err := client.Get(ipToLocalhostURL(upstream.URL))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
@@ -133,6 +136,7 @@ func TestProxyCONNECTAllow(t *testing.T) {
 	defer cancel()
 
 	// HTTPS request through CONNECT should tunnel successfully.
+	// Use domain-based URL (localhost) instead of raw IP — the proxy blocks IP-based CONNECT.
 	pURL, _ := url.Parse(fmt.Sprintf("http://%s", proxyAddr))
 	client := &http.Client{
 		Transport: &http.Transport{
@@ -142,7 +146,7 @@ func TestProxyCONNECTAllow(t *testing.T) {
 		Timeout: 5 * time.Second,
 	}
 
-	resp, err := client.Get(upstream.URL)
+	resp, err := client.Get(ipToLocalhostURL(upstream.URL))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
@@ -194,10 +198,10 @@ func TestProxyMultipleRulesFirstMatchWins(t *testing.T) {
 	defer upstream.Close()
 
 	port := intproxy.GetFreePort(t)
-	// First rule: allow *.example.com (won't match IP-based upstream).
+	// First rule: deny *.blocked.test.
 	// Second rule: allow * (catches everything).
-	// Third rule: deny * (should not be reached).
-	// Default deny. First match wins: allow * should let the request through.
+	// Third rule: deny * (should not be reached because 2nd rule matches first).
+	// Default deny. First match wins: "allow *" should let the request through.
 	rules := []string{
 		`{"action":"deny","domain":"*.blocked.test"}`,
 		`{"action":"allow","domain":"*"}`,
@@ -206,9 +210,10 @@ func TestProxyMultipleRulesFirstMatchWins(t *testing.T) {
 	proxyAddr, cancel := intproxy.StartProxy(t, config, port, "deny", rules)
 	defer cancel()
 
-	// Request to IP-based upstream: matches "allow *" (2nd rule) before "deny *" (3rd).
+	// Use domain-based URL (localhost) instead of raw IP — the proxy blocks IP-based requests.
+	// localhost matches "allow *" (2nd rule) before "deny *" (3rd rule).
 	client := newProxyClient(proxyAddr)
-	resp, err := client.Get(upstream.URL)
+	resp, err := client.Get(ipToLocalhostURL(upstream.URL))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
@@ -228,8 +233,9 @@ func TestProxyWildcardRule(t *testing.T) {
 	defer upstream.Close()
 
 	port := intproxy.GetFreePort(t)
-	// Allow *.0.0.1 pattern -- won't match 127.0.0.1 (it's an IP, not a domain).
-	// With default deny and IP-based upstream, request should be blocked.
+	// Allow *.example.com pattern — won't match raw IP addresses.
+	// The proxy blocks IP-based requests outright (403), so the upstream URL
+	// (http://127.0.0.1:PORT) never even reaches rule matching.
 	rules := []string{
 		`{"action":"allow","domain":"*.example.com"}`,
 	}
@@ -241,8 +247,7 @@ func TestProxyWildcardRule(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
-	// upstream.URL is http://127.0.0.1:PORT -- an IP, not a domain.
-	// IP = unidentifiable domain, falls to default deny.
+	// upstream.URL is http://127.0.0.1:PORT — an IP address, blocked by the proxy with 403.
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
 }
 
@@ -254,6 +259,13 @@ func newProxyClient(proxyAddr string) *http.Client {
 		},
 		Timeout: 5 * time.Second,
 	}
+}
+
+// ipToLocalhostURL replaces the IP (e.g. "127.0.0.1") in an httptest server URL with "localhost".
+// This is needed because the proxy blocks requests to raw IP addresses; using "localhost"
+// (which resolves to 127.0.0.1) lets the request reach the local upstream server via a domain name.
+func ipToLocalhostURL(rawURL string) string {
+	return strings.Replace(rawURL, "127.0.0.1", "localhost", 1)
 }
 
 // startFakeDNSUpstream starts a local DNS server that answers A queries with 93.184.216.34.

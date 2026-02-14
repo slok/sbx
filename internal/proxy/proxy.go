@@ -107,9 +107,13 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	domain := ExtractDomain(r.Host)
 
+	// Block requests to raw IP addresses — domain-based rules cannot be evaluated
+	// without a domain name, and allowing IPs would bypass all egress filtering.
 	if domain == "" {
-		p.logger.Warningf("unidentifiable domain, applying rules then default policy (%s) src=%s method=%s url=%s",
-			p.matcher.DefaultPolicy(), r.RemoteAddr, r.Method, r.URL.String())
+		p.logger.Infof("denied HTTP request to IP/unidentifiable host src=%s method=%s url=%s host=%s",
+			r.RemoteAddr, r.Method, r.URL.String(), r.Host)
+		http.Error(w, fmt.Sprintf("blocked by proxy policy (IP addresses not allowed): %s", r.Host), http.StatusForbidden)
+		return
 	}
 
 	action := p.matcher.Match(domain)
@@ -127,9 +131,13 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	domain := ExtractDomain(r.Host)
 
+	// Block CONNECT to raw IP addresses — this prevents attackers from bypassing
+	// domain-based TLS/SNI filtering by establishing a CONNECT tunnel directly to
+	// an IP address (which would bypass the TLS proxy's SNI inspection entirely).
 	if domain == "" {
-		p.logger.Warningf("unidentifiable domain on CONNECT, applying rules then default policy (%s) src=%s target=%s",
-			p.matcher.DefaultPolicy(), r.RemoteAddr, r.Host)
+		p.logger.Infof("denied CONNECT to IP/unidentifiable host src=%s target=%s", r.RemoteAddr, r.Host)
+		http.Error(w, fmt.Sprintf("blocked by proxy policy (IP addresses not allowed): %s", r.Host), http.StatusForbidden)
+		return
 	}
 
 	action := p.matcher.Match(domain)
