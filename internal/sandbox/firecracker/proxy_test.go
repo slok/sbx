@@ -180,8 +180,8 @@ func TestGetFreePort(t *testing.T) {
 	assert.LessOrEqual(t, port, 65535)
 }
 
-func TestGetFreeUDPPort(t *testing.T) {
-	port, err := getFreeUDPPort()
+func TestGetFreeDualPort(t *testing.T) {
+	port, err := getFreeDualPort()
 	require.NoError(t, err)
 	assert.Greater(t, port, 0)
 	assert.LessOrEqual(t, port, 65535)

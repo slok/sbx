@@ -40,7 +40,7 @@ func (e *Engine) spawnProxy(vmDir string, egress model.EgressPolicy) (int, Proxy
 		return 0, ProxyPorts{}, fmt.Errorf("could not allocate TLS proxy port: %w", err)
 	}
 
-	dnsPort, err := getFreeUDPPort()
+	dnsPort, err := getFreeDualPort()
 	if err != nil {
 		return 0, ProxyPorts{}, fmt.Errorf("could not allocate DNS proxy port: %w", err)
 	}
@@ -166,13 +166,24 @@ func getFreePort() (int, error) {
 	return port, nil
 }
 
-// getFreeUDPPort returns an available UDP port on localhost.
-func getFreeUDPPort() (int, error) {
-	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+// getFreeDualPort returns a port that is available on both TCP and UDP.
+// This is needed for the DNS proxy, which listens on both protocols and
+// whose DNAT rules redirect both TCP 53 and UDP 53 to this port.
+func getFreeDualPort() (int, error) {
+	// First, grab a free TCP port.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return 0, err
 	}
-	port := pc.LocalAddr().(*net.UDPAddr).Port
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+
+	// Verify the same port is available on UDP.
+	pc, err := net.ListenPacket("udp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		return 0, fmt.Errorf("port %d is free on TCP but not UDP: %w", port, err)
+	}
 	pc.Close()
+
 	return port, nil
 }

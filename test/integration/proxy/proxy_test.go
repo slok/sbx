@@ -268,15 +268,14 @@ func ipToLocalhostURL(rawURL string) string {
 	return strings.Replace(rawURL, "127.0.0.1", "localhost", 1)
 }
 
-// startFakeDNSUpstream starts a local DNS server that answers A queries with 93.184.216.34.
+// startFakeDNSUpstream starts a local DNS server (UDP + TCP) that answers A queries with 93.184.216.34.
 // Returns the address and a cleanup function.
 func startFakeDNSUpstream(t *testing.T) (addr string, cleanup func()) {
 	t.Helper()
 
-	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
-	require.NoError(t, err)
-	upstreamAddr := pc.LocalAddr().String()
-	pc.Close()
+	// Find a port that is free on both UDP and TCP.
+	upstreamPort := intproxy.GetFreeDualPort(t)
+	upstreamAddr := fmt.Sprintf("127.0.0.1:%d", upstreamPort)
 
 	mux := dns.NewServeMux()
 	mux.HandleFunc(".", func(w dns.ResponseWriter, r *dns.Msg) {
@@ -296,26 +295,48 @@ func startFakeDNSUpstream(t *testing.T) (addr string, cleanup func()) {
 		_ = w.WriteMsg(resp)
 	})
 
-	server := &dns.Server{
+	udpServer := &dns.Server{
 		Addr:              upstreamAddr,
 		Net:               "udp",
 		Handler:           mux,
 		NotifyStartedFunc: func() {},
 	}
+	tcpServer := &dns.Server{
+		Addr:              upstreamAddr,
+		Net:               "tcp",
+		Handler:           mux,
+		NotifyStartedFunc: func() {},
+	}
 
-	go func() { _ = server.ListenAndServe() }()
+	go func() { _ = udpServer.ListenAndServe() }()
+	go func() { _ = tcpServer.ListenAndServe() }()
 
-	// Wait for upstream to be ready.
+	// Wait for upstream to be ready (checks UDP).
 	intproxy.WaitForDNSPort(t, upstreamAddr, 3*time.Second)
 
-	return upstreamAddr, func() { _ = server.Shutdown() }
+	return upstreamAddr, func() {
+		_ = udpServer.Shutdown()
+		_ = tcpServer.Shutdown()
+	}
 }
 
 func dnsQuery(t *testing.T, addr, domain string, qtype uint16) *dns.Msg {
 	t.Helper()
+	return dnsQueryProto(t, addr, domain, qtype, "")
+}
 
-	c := new(dns.Client)
-	c.Timeout = 2 * time.Second
+func dnsQueryTCP(t *testing.T, addr, domain string, qtype uint16) *dns.Msg {
+	t.Helper()
+	return dnsQueryProto(t, addr, domain, qtype, "tcp")
+}
+
+func dnsQueryProto(t *testing.T, addr, domain string, qtype uint16, net string) *dns.Msg {
+	t.Helper()
+
+	c := &dns.Client{
+		Timeout: 2 * time.Second,
+		Net:     net, // "" = UDP (default), "tcp" = TCP.
+	}
 	m := new(dns.Msg)
 	m.SetQuestion(dns.Fqdn(domain), qtype)
 
@@ -331,7 +352,7 @@ func TestDNSProxyDefaultAllow(t *testing.T) {
 	defer cleanupUpstream()
 
 	httpPort := intproxy.GetFreePort(t)
-	dnsPort := intproxy.GetFreeUDPPort(t)
+	dnsPort := intproxy.GetFreeDualPort(t)
 	_, dnsAddr, cancel := intproxy.StartProxyWithDNS(t, config, httpPort, dnsPort, upstreamAddr, "allow", nil)
 	defer cancel()
 
@@ -348,7 +369,7 @@ func TestDNSProxyDefaultDeny(t *testing.T) {
 	defer cleanupUpstream()
 
 	httpPort := intproxy.GetFreePort(t)
-	dnsPort := intproxy.GetFreeUDPPort(t)
+	dnsPort := intproxy.GetFreeDualPort(t)
 	_, dnsAddr, cancel := intproxy.StartProxyWithDNS(t, config, httpPort, dnsPort, upstreamAddr, "deny", nil)
 	defer cancel()
 
@@ -365,7 +386,7 @@ func TestDNSProxyAllowRule(t *testing.T) {
 	defer cleanupUpstream()
 
 	httpPort := intproxy.GetFreePort(t)
-	dnsPort := intproxy.GetFreeUDPPort(t)
+	dnsPort := intproxy.GetFreeDualPort(t)
 	rules := []string{
 		`{"action":"allow","domain":"allowed.example.com"}`,
 	}
@@ -390,7 +411,7 @@ func TestDNSProxyWildcardRule(t *testing.T) {
 	defer cleanupUpstream()
 
 	httpPort := intproxy.GetFreePort(t)
-	dnsPort := intproxy.GetFreeUDPPort(t)
+	dnsPort := intproxy.GetFreeDualPort(t)
 	rules := []string{
 		`{"action":"allow","domain":"*.example.com"}`,
 	}
@@ -404,6 +425,65 @@ func TestDNSProxyWildcardRule(t *testing.T) {
 
 	// Bare domain should NOT match *.example.com and be refused.
 	resp = dnsQuery(t, dnsAddr, "example.com", dns.TypeA)
+	assert.Equal(t, dns.RcodeRefused, resp.Rcode)
+	assert.Empty(t, resp.Answer)
+}
+
+func TestDNSProxyTCPDefaultAllow(t *testing.T) {
+	config := intproxy.NewConfig(t)
+
+	upstreamAddr, cleanupUpstream := startFakeDNSUpstream(t)
+	defer cleanupUpstream()
+
+	httpPort := intproxy.GetFreePort(t)
+	dnsPort := intproxy.GetFreeDualPort(t)
+	_, dnsAddr, cancel := intproxy.StartProxyWithDNS(t, config, httpPort, dnsPort, upstreamAddr, "allow", nil)
+	defer cancel()
+
+	// DNS-over-TCP query should be forwarded (default allow).
+	resp := dnsQueryTCP(t, dnsAddr, "example.com", dns.TypeA)
+	assert.Equal(t, dns.RcodeSuccess, resp.Rcode)
+	assert.NotEmpty(t, resp.Answer)
+}
+
+func TestDNSProxyTCPDefaultDeny(t *testing.T) {
+	config := intproxy.NewConfig(t)
+
+	upstreamAddr, cleanupUpstream := startFakeDNSUpstream(t)
+	defer cleanupUpstream()
+
+	httpPort := intproxy.GetFreePort(t)
+	dnsPort := intproxy.GetFreeDualPort(t)
+	_, dnsAddr, cancel := intproxy.StartProxyWithDNS(t, config, httpPort, dnsPort, upstreamAddr, "deny", nil)
+	defer cancel()
+
+	// DNS-over-TCP query should be refused (default deny).
+	resp := dnsQueryTCP(t, dnsAddr, "example.com", dns.TypeA)
+	assert.Equal(t, dns.RcodeRefused, resp.Rcode)
+	assert.Empty(t, resp.Answer)
+}
+
+func TestDNSProxyTCPAllowRule(t *testing.T) {
+	config := intproxy.NewConfig(t)
+
+	upstreamAddr, cleanupUpstream := startFakeDNSUpstream(t)
+	defer cleanupUpstream()
+
+	httpPort := intproxy.GetFreePort(t)
+	dnsPort := intproxy.GetFreeDualPort(t)
+	rules := []string{
+		`{"action":"allow","domain":"allowed.example.com"}`,
+	}
+	_, dnsAddr, cancel := intproxy.StartProxyWithDNS(t, config, httpPort, dnsPort, upstreamAddr, "deny", rules)
+	defer cancel()
+
+	// Allowed domain should be forwarded over TCP.
+	resp := dnsQueryTCP(t, dnsAddr, "allowed.example.com", dns.TypeA)
+	assert.Equal(t, dns.RcodeSuccess, resp.Rcode)
+	assert.NotEmpty(t, resp.Answer)
+
+	// Non-matching domain should be refused over TCP.
+	resp = dnsQueryTCP(t, dnsAddr, "blocked.example.com", dns.TypeA)
 	assert.Equal(t, dns.RcodeRefused, resp.Rcode)
 	assert.Empty(t, resp.Answer)
 }
