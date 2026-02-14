@@ -529,16 +529,51 @@ func (e *Engine) setupProxyRedirect(tapDevice, gateway, vmIP string, ports Proxy
 	addDNATRule(unix.IPPROTO_UDP, 53, uint16(ports.DNSPort))
 	addDNATRule(unix.IPPROTO_TCP, 53, uint16(ports.DNSPort))
 
+	// Block all forwarded traffic from the VM on non-standard ports.
+	//
+	// DNAT'd traffic (ports 80, 443, 53) is rewritten to gateway:proxyPort in prerouting,
+	// so the kernel delivers it locally to the proxy — it never enters the forward chain.
+	// Only non-DNAT'd traffic (any other port) gets forwarded through the host to the
+	// internet. This chain drops all such traffic.
+	//
+	// Priority -1 ensures this chain is evaluated before the standard forward chain
+	// (priority 0) which has "accept all from TAP" rules for general connectivity.
+	// A drop verdict in a base chain is terminal: the packet is dropped immediately
+	// without consulting lower-priority chains.
+	egressFwdChain := &nftables.Chain{
+		Name:     "forward-egress",
+		Table:    sbxTable,
+		Type:     nftables.ChainTypeFilter,
+		Hooknum:  nftables.ChainHookForward,
+		Priority: nftables.ChainPriorityRef(-1),
+	}
+	conn.AddChain(egressFwdChain)
+
+	// Drop all forwarded traffic originating from the VM's TAP interface.
+	conn.AddRule(&nftables.Rule{
+		Table: sbxTable,
+		Chain: egressFwdChain,
+		Exprs: []expr.Any{
+			&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+			&expr.Cmp{
+				Op:       expr.CmpOpEq,
+				Register: 1,
+				Data:     ifname(tapDevice),
+			},
+			&expr.Verdict{Kind: expr.VerdictDrop},
+		},
+	})
+
 	if err := conn.Flush(); err != nil {
 		return fmt.Errorf("failed to apply proxy redirect rules: %w", err)
 	}
 
-	e.logger.Debugf("Set up proxy DNAT redirect: %s TCP 80 -> %s:%d, TCP 443 -> %s:%d, UDP+TCP 53 -> %s:%d",
+	e.logger.Debugf("Set up proxy DNAT redirect: %s TCP 80 -> %s:%d, TCP 443 -> %s:%d, UDP+TCP 53 -> %s:%d (forward-egress drop)",
 		vmIP, gateway, ports.HTTPPort, gateway, ports.TLSPort, gateway, ports.DNSPort)
 	return nil
 }
 
-// cleanupProxyRedirect removes the PREROUTING chain with proxy DNAT rules.
+// cleanupProxyRedirect removes the PREROUTING and forward-egress chains with proxy rules.
 // This is called during Stop/Remove when egress filtering was active.
 func (e *Engine) cleanupProxyRedirect() error {
 	conn, err := nftables.New()
@@ -547,7 +582,7 @@ func (e *Engine) cleanupProxyRedirect() error {
 		return nil
 	}
 
-	// Find the sbx table and its prerouting chain.
+	// Find the sbx table and clean up proxy-related chains.
 	tables, err := conn.ListTables()
 	if err != nil {
 		e.logger.Warningf("Failed to list nftables tables: %v", err)
@@ -565,17 +600,25 @@ func (e *Engine) cleanupProxyRedirect() error {
 			return nil
 		}
 
+		// Delete both prerouting (DNAT rules) and forward-egress (drop non-standard ports) chains.
+		chainsToDelete := []string{"prerouting", "forward-egress"}
 		for _, chain := range chains {
-			if chain.Table.Name == nftTableName && chain.Name == "prerouting" {
-				conn.DelChain(chain)
-				if err := conn.Flush(); err != nil {
-					e.logger.Warningf("Failed to delete prerouting chain: %v", err)
-				} else {
-					e.logger.Debugf("Cleaned up proxy redirect prerouting chain")
+			if chain.Table.Name != nftTableName {
+				continue
+			}
+			for _, name := range chainsToDelete {
+				if chain.Name == name {
+					conn.DelChain(chain)
 				}
-				return nil
 			}
 		}
+
+		if err := conn.Flush(); err != nil {
+			e.logger.Warningf("Failed to delete proxy chains: %v", err)
+		} else {
+			e.logger.Debugf("Cleaned up proxy redirect chains (prerouting, forward-egress)")
+		}
+		return nil
 	}
 
 	return nil
