@@ -92,7 +92,7 @@ func (e *Engine) spawnProxy(vmDir string, egress model.EgressPolicy, bindAddress
 // buildProxyArgs constructs the command-line arguments for the proxy process.
 func buildProxyArgs(egress model.EgressPolicy, httpPort, tlsPort, dnsPort int, bindAddress string) []string {
 	args := []string{
-		"--no-log",
+		"--logger", "json",
 		"internal-vm-proxy",
 		"--bind-address", bindAddress,
 		"--port", strconv.Itoa(httpPort),

@@ -30,7 +30,7 @@ func TestBuildProxyArgs(t *testing.T) {
 			dnsPort:     5353,
 			bindAddress: "10.68.40.1",
 			expArgs: []string{
-				"--no-log",
+				"--logger", "json",
 				"internal-vm-proxy",
 				"--bind-address", "10.68.40.1",
 				"--port", "8080",
@@ -53,7 +53,7 @@ func TestBuildProxyArgs(t *testing.T) {
 			dnsPort:     5354,
 			bindAddress: "10.68.40.1",
 			expArgs: []string{
-				"--no-log",
+				"--logger", "json",
 				"internal-vm-proxy",
 				"--bind-address", "10.68.40.1",
 				"--port", "9090",
@@ -77,7 +77,7 @@ func TestBuildProxyArgs(t *testing.T) {
 			dnsPort:     5300,
 			bindAddress: "",
 			expArgs: []string{
-				"--no-log",
+				"--logger", "json",
 				"internal-vm-proxy",
 				"--bind-address", "",
 				"--port", "3128",

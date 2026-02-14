@@ -110,20 +110,42 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	// Block requests to raw IP addresses — domain-based rules cannot be evaluated
 	// without a domain name, and allowing IPs would bypass all egress filtering.
 	if domain == "" {
-		p.logger.Infof("denied HTTP request to IP/unidentifiable host src=%s method=%s url=%s host=%s",
-			r.RemoteAddr, r.Method, r.URL.String(), r.Host)
+		p.logger.WithValues(log.Kv{
+			"action":   "deny",
+			"protocol": "http",
+			"method":   r.Method,
+			"host":     r.Host,
+			"url":      r.URL.String(),
+			"src":      r.RemoteAddr,
+			"reason":   "ip-address",
+		}).Infof("denied request")
 		http.Error(w, fmt.Sprintf("blocked by proxy policy (IP addresses not allowed): %s", r.Host), http.StatusForbidden)
 		return
 	}
 
 	action := p.matcher.Match(domain)
 	if action == ActionDeny {
-		p.logger.Infof("denied HTTP request domain=%q src=%s method=%s url=%s", domain, r.RemoteAddr, r.Method, r.URL.String())
+		p.logger.WithValues(log.Kv{
+			"action":   "deny",
+			"protocol": "http",
+			"method":   r.Method,
+			"domain":   domain,
+			"url":      r.URL.String(),
+			"src":      r.RemoteAddr,
+			"reason":   "rule-match",
+		}).Infof("denied request")
 		http.Error(w, fmt.Sprintf("blocked by proxy policy: %s", r.Host), http.StatusForbidden)
 		return
 	}
 
-	p.logger.Debugf("allowed HTTP request domain=%q src=%s method=%s url=%s", domain, r.RemoteAddr, r.Method, r.URL.String())
+	p.logger.WithValues(log.Kv{
+		"action":   "allow",
+		"protocol": "http",
+		"method":   r.Method,
+		"domain":   domain,
+		"url":      r.URL.String(),
+		"src":      r.RemoteAddr,
+	}).Infof("allowed request")
 	p.forwardHTTP(w, r)
 }
 
@@ -135,19 +157,38 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	// domain-based TLS/SNI filtering by establishing a CONNECT tunnel directly to
 	// an IP address (which would bypass the TLS proxy's SNI inspection entirely).
 	if domain == "" {
-		p.logger.Infof("denied CONNECT to IP/unidentifiable host src=%s target=%s", r.RemoteAddr, r.Host)
+		p.logger.WithValues(log.Kv{
+			"action":   "deny",
+			"protocol": "http-connect",
+			"target":   r.Host,
+			"src":      r.RemoteAddr,
+			"reason":   "ip-address",
+		}).Infof("denied request")
 		http.Error(w, fmt.Sprintf("blocked by proxy policy (IP addresses not allowed): %s", r.Host), http.StatusForbidden)
 		return
 	}
 
 	action := p.matcher.Match(domain)
 	if action == ActionDeny {
-		p.logger.Infof("denied CONNECT request domain=%q src=%s target=%s", domain, r.RemoteAddr, r.Host)
+		p.logger.WithValues(log.Kv{
+			"action":   "deny",
+			"protocol": "http-connect",
+			"domain":   domain,
+			"target":   r.Host,
+			"src":      r.RemoteAddr,
+			"reason":   "rule-match",
+		}).Infof("denied request")
 		http.Error(w, fmt.Sprintf("blocked by proxy policy: %s", r.Host), http.StatusForbidden)
 		return
 	}
 
-	p.logger.Debugf("allowed CONNECT request domain=%q src=%s target=%s", domain, r.RemoteAddr, r.Host)
+	p.logger.WithValues(log.Kv{
+		"action":   "allow",
+		"protocol": "http-connect",
+		"domain":   domain,
+		"target":   r.Host,
+		"src":      r.RemoteAddr,
+	}).Infof("allowed request")
 
 	// Dial the target.
 	targetConn, err := p.dialContext(r.Context(), "tcp", r.Host)

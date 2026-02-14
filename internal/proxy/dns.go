@@ -132,12 +132,25 @@ func (d *DNSProxy) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 	action := d.matcher.Match(domain)
 
 	if action == ActionDeny {
-		d.logger.Infof("denied DNS query domain=%q type=%s src=%s", domain, dns.TypeToString[q.Qtype], w.RemoteAddr().String())
+		d.logger.WithValues(log.Kv{
+			"action":   "deny",
+			"protocol": "dns",
+			"domain":   domain,
+			"qtype":    dns.TypeToString[q.Qtype],
+			"src":      w.RemoteAddr().String(),
+			"reason":   "rule-match",
+		}).Infof("denied request")
 		d.refuseDNS(w, r)
 		return
 	}
 
-	d.logger.Debugf("allowed DNS query domain=%q type=%s src=%s", domain, dns.TypeToString[q.Qtype], w.RemoteAddr().String())
+	d.logger.WithValues(log.Kv{
+		"action":   "allow",
+		"protocol": "dns",
+		"domain":   domain,
+		"qtype":    dns.TypeToString[q.Qtype],
+		"src":      w.RemoteAddr().String(),
+	}).Infof("allowed request")
 	d.forwardDNS(w, r, domain)
 }
 
