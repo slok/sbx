@@ -1,20 +1,25 @@
-# sbx - MicroVM Sandbox Management Tool
+# sbx
 
-A CLI tool for creating and managing microVM sandboxes.
+Lightweight, secure microVM sandboxes powered by [Firecracker](https://firecracker-microvm.github.io/). Create isolated environments in milliseconds, run commands, control network egress, and manage everything from the CLI or Go SDK.
 
 ## Features
 
-- Create sandboxes from YAML configuration
-- Multiple sandbox engines:
-  - **Firecracker**: MicroVM sandboxes
-  - **Fake**: Simulated engine for unit testing
-- SQLite-based persistent storage
-- Comprehensive test coverage with integration tests
+- **Fast microVMs** — Firecracker sandboxes boot in ~125ms
+- **Full lifecycle** — Create, start, stop, remove sandboxes
+- **Exec & shell** — Run commands or open interactive shells inside sandboxes
+- **File transfer** — Copy files between host and sandbox (SCP-based)
+- **Port forwarding** — Forward local ports to sandbox services via SSH tunnels
+- **Session config** — Inject environment variables and egress policies per start
+- **Egress filtering** — HTTP/TLS/DNS proxy with domain allowlists (no MITM)
+- **Image management** — Pull pre-built images or create snapshots from sandboxes
+- **Go SDK** — Full programmatic access via `github.com/slok/sbx/pkg/lib`
+- **Pure Go** — SQLite storage with no CGO dependencies
 
 ## Requirements
 
-- Go 1.24+ (for building from source)
-- Firecracker host requirements (KVM, networking tools)
+- Linux with KVM support (`/dev/kvm`)
+- Root or `CAP_NET_ADMIN` capability (for TAP devices and nftables)
+- Go 1.24+ (building from source only)
 
 ## Installation
 
@@ -25,439 +30,185 @@ go install github.com/slok/sbx/cmd/sbx@latest
 Or build from source:
 
 ```bash
+git clone https://github.com/slok/sbx.git && cd sbx
 make build
-# Binary will be in bin/sbx
+# Binary: ./bin/sbx
 ```
 
-## Usage
-
-### Commands Overview
-
-- `sbx create` - Create a new sandbox from configuration
-- `sbx list` - List all sandboxes with filtering options
-- `sbx status` - Show detailed information about a sandbox
-- `sbx start` - Start a stopped sandbox
-- `sbx stop` - Stop a running sandbox
-- `sbx rm` - Remove a sandbox
-- `sbx exec` - Execute a command in a running sandbox
-- `sbx shell` - Open an interactive shell in a running sandbox
-- `sbx cp` - Copy files between host and sandbox
-- `sbx forward` - Forward ports from localhost to a running sandbox
-- `sbx snapshot` - Create a snapshot image from a sandbox
-- `sbx image list` - List available images (releases and snapshots)
-- `sbx image pull` - Pull an image release
-- `sbx image rm` - Remove an installed image
-- `sbx image inspect` - Inspect an image manifest
-- `sbx doctor` - Run preflight checks for sandbox engines
-
-### Create a Sandbox
-
-Create a new sandbox:
+## Quick Start
 
 ```bash
-sbx create --name example-sandbox --engine firecracker \
-  --firecracker-root-fs /path/to/rootfs.ext4 \
-  --firecracker-kernel /path/to/vmlinux
-```
-
-Create a sandbox from a pulled image (includes kernel + rootfs):
-
-```bash
+# Pull a pre-built image (kernel + rootfs + firecracker binary)
 sbx image pull v0.1.0
-sbx create --name example-sandbox --engine firecracker --from-image v0.1.0
+
+# Create a sandbox from the image
+sbx create --name my-sandbox --engine firecracker --from-image v0.1.0
+
+# Start it
+sbx start my-sandbox
+
+# Run a command
+sbx exec my-sandbox -- cat /etc/os-release
+
+# Open an interactive shell
+sbx shell my-sandbox
+
+# Stop and clean up
+sbx stop my-sandbox
+sbx rm my-sandbox
 ```
 
-Create a sandbox from a snapshot image (see [Snapshots](#snapshots)):
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `sbx create` | Create a new sandbox |
+| `sbx start` | Start a stopped sandbox (with optional session config) |
+| `sbx stop` | Stop a running sandbox |
+| `sbx rm` | Remove a sandbox (`--force` to stop first) |
+| `sbx list` | List sandboxes (filter by `--status`, output `--format json`) |
+| `sbx status` | Show detailed sandbox information |
+| `sbx exec` | Execute a command inside a running sandbox |
+| `sbx shell` | Open an interactive shell in a sandbox |
+| `sbx cp` | Copy files between host and sandbox |
+| `sbx forward` | Forward local ports to a sandbox |
+| `sbx snapshot` | Create a snapshot image from a sandbox |
+| `sbx image list` | List available images (releases + snapshots) |
+| `sbx image pull` | Pull a pre-built image |
+| `sbx image rm` | Remove a local image |
+| `sbx image inspect` | Inspect an image manifest |
+| `sbx doctor` | Run preflight health checks |
+
+See [docs/commands.md](docs/commands.md) for the full reference with all flags and options.
+
+## Common Patterns
+
+### Dev Environment
 
 ```bash
-sbx create --name restored --engine firecracker --from-image my-snapshot
+# Create and start with environment variables
+sbx create --name dev --engine firecracker --from-image v0.1.0 --disk 20
+sbx start dev --env APP_ENV=development --env LOG_LEVEL=debug
+
+# Install tools, copy project files, forward ports
+sbx exec dev -- apk add git nodejs npm
+sbx cp ./my-project dev:/workspace
+sbx forward dev 3000 8080
 ```
 
-When `--from-image` is used, `--firecracker-root-fs` and `--firecracker-kernel` are not needed.
+### Agentic / AI Sandbox with Egress Control
 
-Example configuration (`sandbox.yaml`):
+```bash
+# Create a sandbox for an AI agent with restricted network
+sbx create --name agent-sandbox --engine firecracker --from-image v0.1.0
+
+# Start with session config: env vars + egress allowlist
+sbx start agent-sandbox -f session.yaml --env ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
+
+# Agent runs inside the sandbox with controlled access
+sbx exec agent-sandbox -- /usr/local/bin/my-agent
+
+# Snapshot the result for later inspection
+sbx stop agent-sandbox
+sbx snapshot agent-sandbox --name agent-result-001
+```
+
+### Snapshot & Restore
+
+```bash
+# Set up a base environment
+sbx create --name base --engine firecracker --from-image v0.1.0
+sbx start base
+sbx exec base -- apk add python3 py3-pip git
+sbx stop base
+
+# Snapshot it as a reusable image
+sbx snapshot base --name python-dev
+
+# Create new sandboxes from the snapshot (instant clones)
+sbx create --name project-a --engine firecracker --from-image python-dev
+sbx create --name project-b --engine firecracker --from-image python-dev
+```
+
+## Session Configuration
+
+Sessions are ephemeral, per-start configuration. Unlike sandbox config (set at creation), session config can change every time you start a sandbox. This is useful for injecting secrets, toggling environments, or controlling network access.
+
+Pass a session file with `-f` or individual env vars with `--env`:
+
+```bash
+sbx start my-sandbox -f session.yaml --env EXTRA_VAR=value
+```
+
+Example `session.yaml`:
 
 ```yaml
-name: example-sandbox
-engine:
-  firecracker:
-    kernel_image: /path/to/vmlinux
-    root_fs: /path/to/rootfs.ext4
-packages:
-  - curl
-  - git
-  - vim
+name: dev
 env:
-  ENVIRONMENT: development
-  LOG_LEVEL: debug
-resources:
-  vcpus: 2
-  memory_mb: 2048
-  disk_gb: 10
+  DATABASE_URL: postgres://localhost:5432/mydb
+  API_KEY: sk-secret-key
+
+egress:
+  default: deny
+  rules:
+    - { domain: "github.com", action: allow }
+    - { domain: "*.github.com", action: allow }
+    - { domain: "registry.npmjs.org", action: allow }
+    - { domain: "api.openai.com", action: allow }
 ```
 
-**Engine Configuration:**
+The egress filter intercepts HTTP, TLS (via SNI), and DNS traffic. It does **not** perform MITM — TLS connections are tunneled, not decrypted. See [docs/networking.md](docs/networking.md) and [docs/security.md](docs/security.md) for details.
 
-Currently supported engines:
+See [examples/sessions/](examples/sessions/) for more session configuration patterns.
 
-- **Firecracker Engine**:
-  ```yaml
-  engine:
-    firecracker:
-      kernel_image: /path/to/vmlinux
-      root_fs: /path/to/rootfs.ext4
-  ```
+## Go SDK
 
-Only one engine can be specified per sandbox configuration.
+The `pkg/lib` package provides full programmatic access. Use `EngineFake` for testing without real infrastructure.
 
-Override the sandbox name:
+```go
+import "github.com/slok/sbx/pkg/lib"
 
-```bash
-sbx create -f sandbox.yaml --name my-custom-name
+func main() {
+    ctx := context.Background()
+
+    client, _ := lib.New(ctx, lib.Config{
+        DBPath: "/tmp/sbx-test.db",
+        Engine: lib.EngineFake,
+    })
+    defer client.Close()
+
+    // Create and start.
+    client.CreateSandbox(ctx, lib.CreateSandboxOpts{
+        Name:      "my-sandbox",
+        Engine:    lib.EngineFake,
+        Resources: lib.Resources{VCPUs: 2, MemoryMB: 1024, DiskGB: 10},
+    })
+    client.StartSandbox(ctx, "my-sandbox", &lib.StartSandboxOpts{
+        Env: map[string]string{"APP_ENV": "dev"},
+    })
+
+    // Run a command.
+    result, _ := client.Exec(ctx, "my-sandbox", []string{"echo", "hello"}, nil)
+    fmt.Println("exit:", result.ExitCode)
+
+    // Cleanup.
+    client.RemoveSandbox(ctx, "my-sandbox", true)
+}
 ```
 
-### List Sandboxes
-
-List all sandboxes in table format (default):
-
-```bash
-sbx list
-```
-
-Example output:
-```
-ID                           NAME               STATUS     CREATED
-01JQYXZ2ABCDEFGH1234567890  example-sandbox    running    2 hours ago
-01JQYZ3BCDEFGHIJ2345678901  test-sandbox       stopped    1 day ago
-```
-
-Filter by status:
-
-```bash
-sbx list --status running   # Show only running sandboxes
-sbx list --status stopped   # Show only stopped sandboxes
-```
-
-Output in JSON format:
-
-```bash
-sbx list --format json
-```
-
-### Show Sandbox Status
-
-Get detailed information about a specific sandbox by name or ID:
-
-```bash
-sbx status example-sandbox
-```
-
-Example output:
-```
-Name:       example-sandbox
-ID:         01JQYXZ2ABCDEFGH1234567890
-Status:     running
-Engine:     firecracker
-RootFS:     /path/to/rootfs.ext4
-Kernel:     /path/to/vmlinux
-VCPUs:      2
-Memory:     2048 MB
-Disk:       10 GB
-Created:    2026-01-30 10:30:45 UTC
-Started:    2026-01-30 10:30:47 UTC
-```
-
-You can also use the sandbox ID:
-
-```bash
-sbx status 01JQYXZ2ABCDEFGH1234567890
-```
-
-Output in JSON format:
-
-```bash
-sbx status example-sandbox --format json
-```
-
-### Start a Sandbox
-
-Start a stopped sandbox:
-
-```bash
-sbx start example-sandbox
-```
-
-The sandbox must be in `stopped` status to be started.
-
-### Stop a Sandbox
-
-Stop a running sandbox:
-
-```bash
-sbx stop example-sandbox
-```
-
-The sandbox must be in `running` status to be stopped.
-
-### Remove a Sandbox
-
-Remove a sandbox:
-
-```bash
-sbx rm example-sandbox
-```
-
-Force remove a running sandbox (stops it first):
-
-```bash
-sbx rm example-sandbox --force
-```
-
-### Snapshots
-
-Snapshots are local images created from an existing sandbox. They bundle both the kernel and rootfs into `~/.sbx/images/<name>/`, making them indistinguishable from pulled release images. This means `--from-image` works for both releases and snapshots.
-
-Create a snapshot:
-
-```bash
-sbx snapshot example-sandbox --name my-snapshot
-```
-
-Auto-generate the name:
-
-```bash
-sbx snapshot example-sandbox
-# → example-sandbox-20260207-0935
-```
-
-List all images (releases and snapshots):
-
-```bash
-sbx image list
-```
-
-The `SOURCE` column shows `release` or `snapshot` to distinguish them.
-
-Use a snapshot to create a new sandbox:
-
-```bash
-sbx create --name restored --engine firecracker --from-image my-snapshot
-```
-
-Important snapshot behavior:
-
-- Source sandbox must be in `stopped` status
-- Snapshot names must be unique across all images and use `[a-zA-Z0-9._-]`
-- Snapshots are stored under `~/.sbx/images/` alongside release images
-- Snapshots capture rootfs + kernel (no memory/device state)
-- Snapshots persist even if the source sandbox is removed
-- Use `sbx image rm <name>` to remove a snapshot
-
-### Image Management
-
-List available images (both remote releases and local snapshots):
-
-```bash
-sbx image list
-```
-
-Pull a release image:
-
-```bash
-sbx image pull v0.1.0
-```
-
-Inspect an image manifest:
-
-```bash
-sbx image inspect v0.1.0
-```
-
-Remove an image (release or snapshot):
-
-```bash
-sbx image rm v0.1.0
-```
-
-### Complete Lifecycle Example
-
-Here's a complete workflow showing sandbox lifecycle:
-
-```bash
-# Create a new sandbox (starts in "stopped" state)
-sbx create -f sandbox.yaml
-# Output: Created sandbox: example-sandbox (01JQYXZ2ABCDEFGH1234567890)
-
-# List all sandboxes
-sbx list
-# Shows: example-sandbox with status "stopped"
-
-# Start the sandbox (boots VM, applies session config)
-sbx start example-sandbox
-# Output: Started sandbox: example-sandbox
-
-# Check detailed status
-sbx status example-sandbox
-
-# Stop the sandbox
-sbx stop example-sandbox
-# Output: Stopped sandbox: example-sandbox
-
-# Start it again with different session config
-sbx start example-sandbox -f session.yaml
-# Output: Started sandbox: example-sandbox
-
-# Remove the sandbox (must stop first or use --force)
-sbx stop example-sandbox
-sbx rm example-sandbox
-# Output: Removed sandbox: example-sandbox
-
-# Or force remove while running
-sbx rm example-sandbox --force
-```
-
-### Global Options
-
-All commands support:
-
-```bash
---db-path /path/to/custom.db  # Use custom database path
-```
-
-Or via environment variable:
-
-```bash
-export SBX_DB_PATH=/path/to/custom.db
-sbx list
-```
-
-## Development
-
-### Prerequisites
-
-- Go 1.24+
-- make
-- mockery (for generating mocks)
-
-### Running Tests
-
-```bash
-# Unit tests only
-make test
-
-# Integration tests only
-make test-integration
-
-# All tests
-make test-all
-
-# With coverage
-make ci-test
-```
-
-### CI/CD
-
-The project uses GitHub Actions for continuous integration:
-
-- **Check Job**: Runs `golangci-lint` for code quality checks
-- **Unit Test Job**: Runs all unit tests with race detector and coverage reporting
-- **Integration Test Job**: Runs end-to-end CLI tests
-- **Build Job**: Builds the binary and uploads as artifact
-- **Tagged Release Job**: Creates GitHub releases with binaries on version tags
-
-#### CI Scripts
-
-- `scripts/check/check.sh` - Runs golangci-lint
-- `scripts/check/unit-test.sh` - Runs unit tests with race detector and coverage
-- `scripts/check/integration-test.sh` - Runs integration tests
-
-#### Images
-
-Pre-built VM images (kernel, rootfs, firecracker binary) are managed via the [slok/sbx-images](https://github.com/slok/sbx-images) repository. Use `sbx image pull <version>` to download them locally. See [docs/images.md](docs/images.md) for details.
-
-#### Test Coverage
-
-Current coverage by layer:
-- **Model**: 100%
-- **App Services**: 100% (create, list, status, start, stop, remove)
-- **Printer**: 100% (table, JSON, time utilities)
-- **Engine/Fake**: 96.4%
-- **Storage/Memory**: 96.1%
-- **Storage/SQLite**: 76.3%
-
-### Generating Mocks
-
-```bash
-make go-gen
-```
-
-Mocks are generated for:
-- `internal/sandbox.Engine`
-- `internal/storage.Repository`
-- `internal/image.ImageManager`
-
-### Code Quality
-
-```bash
-# Run linters
-make check
-
-# CI-style checks (requires golangci-lint)
-make ci-check
-```
-
-## Project Structure
-
-```
-sbx/
-├── cmd/sbx/              # CLI entry point
-│   ├── main.go
-│   └── commands/         # CLI commands
-├── internal/
-│   ├── model/            # Domain models
-│   ├── image/            # Image manager (GitHub releases + local snapshots)
-│   ├── log/              # Logging interface
-│   ├── printer/          # Output formatting (table, JSON)
-│   ├── sandbox/          # Sandbox engine interface + implementations
-│   ├── storage/          # Storage interface + implementations (SQLite)
-│   └── app/              # Business logic services
-│       ├── create/       # Create sandbox
-│       ├── imagecreate/  # Create snapshot image from sandbox
-│       ├── imagelist/    # List images
-│       ├── imageinspect/ # Inspect image manifest
-│       ├── imagepull/    # Pull image release
-│       ├── imagerm/      # Remove image
-│       ├── list/         # List sandboxes
-│       ├── status/       # Get sandbox status
-│       ├── start/        # Start sandbox
-│       ├── stop/         # Stop sandbox
-│       └── remove/       # Remove sandbox
-├── pkg/lib/              # Public SDK for programmatic access
-├── test/integration/     # End-to-end tests
-├── testdata/             # Example configs
-└── scripts/              # CI and image scripts
-```
-
-## Architecture
-
-The project follows a clean architecture pattern:
-
-1. **Domain Layer** (`internal/model`): Core business models and validation
-2. **Sandbox Layer** (`internal/sandbox`): Sandbox lifecycle management interface
-3. **Storage Layer** (`internal/storage`): Persistence interface with SQLite implementation
-4. **App Layer** (`internal/app`): Business logic orchestration for all operations
-5. **Printer Layer** (`internal/printer`): Output formatting (table, JSON) with time utilities
-6. **CLI Layer** (`cmd/sbx`): User-facing commands
-
-### Dependencies
-
-- `github.com/alecthomas/kingpin/v2` - CLI framework
-- `github.com/oklog/ulid/v2` - ULID generation
-- `modernc.org/sqlite` - Pure Go SQLite (no CGO)
-- `github.com/golang-migrate/migrate/v4` - Database migrations
-- `github.com/sirupsen/logrus` - Structured logging
-- `github.com/stretchr/testify` - Testing utilities
+See [`pkg/lib/`](pkg/lib/) for the full API and [`pkg/lib/example_test.go`](pkg/lib/example_test.go) for runnable examples.
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [Commands Reference](docs/commands.md) | Full CLI reference with all flags and options |
+| [Architecture](docs/architecture.md) | Project structure, layers, and design decisions |
+| [Development](docs/development.md) | Building, testing, CI/CD, and contributing |
+| [Networking](docs/networking.md) | TAP devices, nftables, SSH, port forwarding |
+| [Images](docs/images.md) | Image management, releases, and snapshots |
+| [Security](docs/security.md) | Egress filtering, proxy architecture, security model |
 
 ## License
 
-MIT
+[MIT](LICENSE)

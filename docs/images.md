@@ -94,7 +94,9 @@ sbx create --name my-vm --engine firecracker --from-image v0.1.0
 
 Uses the kernel, rootfs, and Firecracker binary from a pulled image. The image must be pulled first (`sbx image pull`).
 
-The `--from-image` flag conflicts with `--firecracker-root-fs`, `--firecracker-kernel`, and `--from-snapshot`.
+The `--from-image` flag conflicts with `--firecracker-root-fs` and `--firecracker-kernel`.
+
+`--from-image` works with both pulled releases and snapshot images created via `sbx snapshot`. See [commands.md](commands.md) for the full CLI reference.
 
 ## Global Flags
 
@@ -102,3 +104,8 @@ All image subcommands support:
 
 - `--repo <owner/name>` - GitHub repository (default: `slok/sbx-images`)
 - `--images-dir <path>` - Local storage directory (default: `~/.sbx/images`)
+
+## Related
+
+- [Commands Reference](commands.md) — Full CLI reference for image commands
+- [Security](security.md) — Egress filtering and security model

@@ -700,3 +700,9 @@ cat /proc/sys/net/ipv4/ip_forward
 | `CAP_NET_ADMIN` error on start | Binary missing capability | `sudo setcap cap_net_admin+ep ./bin/sbx` |
 | Sandbox works but newly installed Docker breaks it | Docker added `FORWARD policy drop` after sbx rules were created | Restart sandbox: `sbx stop && sbx start -f session.yaml` |
 | DNS times out after stop/start with stale nftables | Old nftables chains not cleaned up | Do a full `sbx stop && sbx start -f session.yaml` cycle |
+
+## Related
+
+- [Security](security.md) — Egress filtering configuration and security model
+- [Commands Reference](commands.md) — CLI reference for `start`, `forward`, and other networking-related commands
+- [Images](images.md) — Image management and releases
