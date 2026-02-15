@@ -136,11 +136,24 @@ func (t *TLSProxy) handleConn(ctx context.Context, clientConn net.Conn) {
 	action := t.matcher.Match(domain)
 
 	if action == ActionDeny {
-		t.logger.Infof("denied TLS connection domain=%q sni=%q src=%s", domain, sni, clientConn.RemoteAddr())
+		t.logger.WithValues(log.Kv{
+			"action":   "deny",
+			"protocol": "tls",
+			"domain":   domain,
+			"sni":      sni,
+			"src":      clientConn.RemoteAddr().String(),
+			"reason":   "rule-match",
+		}).Infof("denied request")
 		return // Close connection — client sees a connection reset.
 	}
 
-	t.logger.Debugf("allowed TLS connection domain=%q sni=%q src=%s", domain, sni, clientConn.RemoteAddr())
+	t.logger.WithValues(log.Kv{
+		"action":   "allow",
+		"protocol": "tls",
+		"domain":   domain,
+		"sni":      sni,
+		"src":      clientConn.RemoteAddr().String(),
+	}).Infof("allowed request")
 
 	// Dial the real destination on port 443.
 	targetAddr := net.JoinHostPort(sni, "443")
