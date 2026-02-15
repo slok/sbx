@@ -438,6 +438,72 @@ func TestProxyBindAddressRestricts(t *testing.T) {
 	// Connection refused or timeout — expected.
 }
 
+func TestTLSProxyIPasSNIDenied(t *testing.T) {
+	// The TLS proxy should block connections where the SNI is an IP address,
+	// even with default allow. This tests the full binary via integration.
+	config := intproxy.NewConfig(t)
+
+	httpPort := intproxy.GetFreePort(t)
+	tlsPort := intproxy.GetFreePort(t)
+	_, tlsAddr, cancel := intproxy.StartProxyWithTLS(t, config, httpPort, tlsPort, "allow", nil)
+	defer cancel()
+
+	// Send a raw ClientHello with an IP address in the SNI field.
+	// Go's TLS client won't send IP as SNI (per RFC 6066), so we craft
+	// a minimal ClientHello manually.
+	conn, err := net.DialTimeout("tcp", tlsAddr, 2*time.Second)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	clientHello := buildClientHelloWithIPSNI("140.82.121.4")
+	_, err = conn.Write(clientHello)
+	require.NoError(t, err)
+
+	// The proxy should close the connection.
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	buf := make([]byte, 1)
+	_, err = conn.Read(buf)
+	assert.Error(t, err, "expected proxy to close connection for IP-as-SNI")
+}
+
+// buildClientHelloWithIPSNI constructs a minimal TLS ClientHello with the given
+// IP address string in the SNI extension. This simulates what tools like
+// `openssl s_client -servername 140.82.121.4` send on the wire.
+func buildClientHelloWithIPSNI(ip string) []byte {
+	sniBytes := []byte(ip)
+
+	// SNI extension (type 0x0000).
+	sniEntry := []byte{0x00}                                                 // host_name type
+	sniEntry = append(sniEntry, byte(len(sniBytes)>>8), byte(len(sniBytes))) // name length
+	sniEntry = append(sniEntry, sniBytes...)
+
+	sniList := append([]byte{byte(len(sniEntry) >> 8), byte(len(sniEntry))}, sniEntry...)
+	sniExt := []byte{0x00, 0x00} // extension type = SNI
+	sniExt = append(sniExt, byte(len(sniList)>>8), byte(len(sniList)))
+	sniExt = append(sniExt, sniList...)
+
+	extensions := sniExt
+	extensionsData := append([]byte{byte(len(extensions) >> 8), byte(len(extensions))}, extensions...)
+
+	var hello []byte
+	hello = append(hello, 0x03, 0x03)                         // client_version: TLS 1.2
+	hello = append(hello, make([]byte, 32)...)                // random (32 bytes)
+	hello = append(hello, 0x00)                               // session_id length = 0
+	hello = append(hello, 0x00, 0x04, 0x13, 0x01, 0x00, 0xff) // cipher_suites
+	hello = append(hello, 0x01, 0x00)                         // compression: null
+	hello = append(hello, extensionsData...)
+
+	handshake := []byte{0x01}
+	handshake = append(handshake, byte(len(hello)>>16), byte(len(hello)>>8), byte(len(hello)))
+	handshake = append(handshake, hello...)
+
+	record := []byte{0x16, 0x03, 0x01}
+	record = append(record, byte(len(handshake)>>8), byte(len(handshake)))
+	record = append(record, handshake...)
+
+	return record
+}
+
 func TestDNSProxyDefaultAllow(t *testing.T) {
 	config := intproxy.NewConfig(t)
 

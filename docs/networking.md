@@ -305,11 +305,15 @@ How it works:
 
 1. Accepts the raw TCP connection (DNAT'd from port 443).
 2. Peeks at the TLS ClientHello to extract the SNI (Server Name Indication) field.
-3. Checks the SNI domain against rules.
-4. If **allowed**: Dials the real destination on port 443, replays the ClientHello bytes, and creates a bidirectional tunnel. The TLS handshake completes directly between the client and the real server.
-5. If **denied**: Closes the connection (client sees connection reset).
+3. Normalizes the SNI: strips trailing dots (FQDN form, e.g., `github.com.` → `github.com`).
+4. **Blocks IP addresses and empty SNI**: If the SNI is an IP address (e.g., `140.82.121.4`) or empty, `ExtractDomain()` returns `""` and the connection is denied immediately. Domain-based rules cannot be evaluated without a domain. This mirrors the HTTP proxy's behavior and prevents bypass via raw IP connections on port 443.
+5. Checks the SNI domain against rules.
+6. If **allowed**: Dials the real destination on port 443, replays the ClientHello bytes, and creates a bidirectional tunnel. The TLS handshake completes directly between the client and the real server.
+7. If **denied**: Closes the connection (client sees connection reset).
 
 The SNI extraction uses Go's `tls.Server` with a `GetConfigForClient` callback to capture `hello.ServerName`, then aborts the handshake. This reuses Go's battle-tested TLS parser instead of implementing manual ClientHello parsing.
+
+> **Note**: Go's TLS client does NOT send IP addresses as SNI (per RFC 6066 §3). However, other clients like `openssl s_client` and `curl` can, and a VM may contain any client software.
 
 > **Source**: `internal/proxy/tls.go`
 
@@ -369,12 +373,14 @@ graph TD
 | Attack Vector | How It's Blocked |
 |---|---|
 | Connect to arbitrary IP:port | `forward-egress` chain drops all forwarded (non-DNAT'd) traffic |
-| Use raw IP to bypass domain rules | Proxy returns 403 for any IP-based request (HTTP and CONNECT) |
+| Use raw IP to bypass domain rules (HTTP) | HTTP proxy returns 403 for any IP-based request (GET and CONNECT) |
+| Use raw IP as TLS SNI | TLS proxy denies connections where `ExtractDomain(sni)` returns empty (IP or no SNI) |
+| Trailing dot in domain (e.g., `github.com.`) | `ExtractDomain()` strips trailing dots before rule matching |
 | Resolve blocked domains via UDP DNS | UDP 53 is DNAT'd to DNS proxy, which returns `REFUSED` |
 | Resolve blocked domains via TCP DNS | TCP 53 is also DNAT'd to DNS proxy |
 | Resolve blocked domains via DoH | DoH goes through HTTPS (port 443), TLS proxy checks the SNI. Even if resolved, the IP can't be used directly (proxy blocks IPs). See [Known Limitations](#known-limitations) |
 | Connect on non-standard ports (SSH 22, DoT 853, etc.) | `forward-egress` drops all forwarded traffic from the TAP |
-| Use CONNECT tunnel with an IP address | Proxy blocks CONNECT to IPs with 403 |
+| Use CONNECT tunnel with an IP address | HTTP proxy blocks CONNECT to IPs with 403 |
 | Use trailing dot to bypass domain rules (`github.com.`) | Trailing dots are stripped before rule matching in all three proxies (HTTP, TLS, DNS) |
 | Port-scan gateway to find proxy ports | `input-egress` chain drops all non-DNAT'd traffic to the host. Direct connections to proxy ports lack the `ct status dnat` bit |
 | Access host services (Ollama, dev servers, SSH, etc.) | `input-egress` chain drops all traffic from VM to host that isn't DNAT'd |
