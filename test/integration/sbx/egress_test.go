@@ -465,6 +465,32 @@ egress:
 	}
 }
 
+func TestEgressTLSIPasSNIBlocked(t *testing.T) {
+	// Verify that a TLS connection using an IP address as SNI is blocked by the
+	// TLS proxy, even with default allow. This tests the full VM→DNAT→proxy path.
+	config := intsbx.NewConfig(t)
+	dbPath := newTestDB(t)
+	name := uniqueName("egripsni")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	_ = startSandboxWithEgress(ctx, t, config, dbPath, name, `name: egress-ip-sni-test
+egress:
+  default: allow
+`)
+
+	// From inside the VM, try to curl an HTTPS endpoint using a raw IP address.
+	// The TLS proxy should block this because ExtractDomain returns empty for IPs.
+	// curl uses the IP as the Host header but Go's/curl's TLS sends empty SNI for IPs,
+	// which also triggers the empty domain check.
+	_, stderr, err := intsbx.RunExec(ctx, config, dbPath, name, []string{
+		"curl", "-sk", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "5", "https://1.1.1.1/",
+	})
+	// curl should fail — the proxy closes the connection before TLS completes.
+	assert.Error(t, err, "curl https to raw IP should be blocked by TLS proxy: stderr=%s", stderr)
+}
+
 func TestEgressNoProxyWithoutEgressConfig(t *testing.T) {
 	config := intsbx.NewConfig(t)
 	dbPath := newTestDB(t)

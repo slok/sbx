@@ -388,3 +388,117 @@ func TestTLSProxy_DomainRuleCheck(t *testing.T) {
 		})
 	}
 }
+
+// TestTLSProxy_IPasSNI verifies that the TLS proxy blocks connections where the
+// SNI is an IP address, even when the default policy is allow. Go's TLS client
+// won't send IP as SNI (per RFC 6066), so we craft a raw ClientHello with the
+// IP in the SNI extension field using net.Pipe().
+func TestTLSProxy_IPasSNI(t *testing.T) {
+	tests := map[string]struct {
+		sni string
+	}{
+		"IPv4 address as SNI.": {
+			sni: "140.82.121.4",
+		},
+		"IPv6 address as SNI.": {
+			sni: "::1",
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			require := require.New(t)
+
+			matcher, err := NewRuleMatcher(ActionAllow, nil)
+			require.NoError(err)
+
+			dialedTarget := make(chan struct{}, 1)
+
+			proxyListener, err := net.Listen("tcp", "127.0.0.1:0")
+			require.NoError(err)
+			proxyAddr := proxyListener.Addr().String()
+			proxyListener.Close()
+
+			tlsProxy, err := NewTLSProxy(TLSProxyConfig{
+				ListenAddr: proxyAddr,
+				Matcher:    matcher,
+				DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+					dialedTarget <- struct{}{}
+					return nil, fmt.Errorf("should not dial")
+				},
+			})
+			require.NoError(err)
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			go func() { _ = tlsProxy.Run(ctx) }()
+			waitForTCPPort(t, proxyAddr, 3*time.Second)
+
+			// Send a raw ClientHello with the IP as SNI.
+			conn, err := net.DialTimeout("tcp", proxyAddr, 2*time.Second)
+			require.NoError(err)
+			defer conn.Close()
+
+			clientHello := buildClientHelloWithSNI(test.sni)
+			_, err = conn.Write(clientHello)
+			require.NoError(err)
+
+			// The proxy should close the connection without dialing the target.
+			_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			buf := make([]byte, 1)
+			_, err = conn.Read(buf)
+			assert.Error(t, err, "expected proxy to close connection for IP-as-SNI")
+
+			// Verify the target was never dialed.
+			select {
+			case <-dialedTarget:
+				t.Fatal("proxy should not dial the target for IP-as-SNI")
+			default:
+				// Good — target was not dialed.
+			}
+		})
+	}
+}
+
+// buildClientHelloWithSNI constructs a minimal TLS ClientHello with the given
+// string in the SNI extension. Unlike Go's TLS library, this function will
+// include IP addresses in the SNI field (which violates RFC 6066 but is what
+// attack tools like openssl s_client do).
+func buildClientHelloWithSNI(sni string) []byte {
+	sniBytes := []byte(sni)
+
+	// SNI extension (type 0x0000).
+	sniEntry := []byte{0x00}                                                 // host_name type
+	sniEntry = append(sniEntry, byte(len(sniBytes)>>8), byte(len(sniBytes))) // name length
+	sniEntry = append(sniEntry, sniBytes...)
+
+	sniList := append([]byte{byte(len(sniEntry) >> 8), byte(len(sniEntry))}, sniEntry...)
+	sniExt := []byte{0x00, 0x00} // extension type = SNI
+	sniExt = append(sniExt, byte(len(sniList)>>8), byte(len(sniList)))
+	sniExt = append(sniExt, sniList...)
+
+	extensions := sniExt
+	extensionsData := append([]byte{byte(len(extensions) >> 8), byte(len(extensions))}, extensions...)
+
+	// ClientHello body.
+	var hello []byte
+	hello = append(hello, 0x03, 0x03)                         // client_version: TLS 1.2
+	hello = append(hello, make([]byte, 32)...)                // random (32 bytes of zeros)
+	hello = append(hello, 0x00)                               // session_id length = 0
+	hello = append(hello, 0x00, 0x04, 0x13, 0x01, 0x00, 0xff) // cipher_suites: length=4, TLS_AES_128_GCM, renegotiation
+	hello = append(hello, 0x01, 0x00)                         // compression: length=1, null
+	hello = append(hello, extensionsData...)
+
+	// Handshake message (type 1 = ClientHello).
+	handshake := []byte{0x01}
+	handshake = append(handshake, byte(len(hello)>>16), byte(len(hello)>>8), byte(len(hello)))
+	handshake = append(handshake, hello...)
+
+	// TLS record (type 22 = Handshake, version 0x0301 = TLS 1.0).
+	record := []byte{0x16, 0x03, 0x01}
+	record = append(record, byte(len(handshake)>>8), byte(len(handshake)))
+	record = append(record, handshake...)
+
+	return record
+}

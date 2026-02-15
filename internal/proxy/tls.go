@@ -123,6 +123,16 @@ func (t *TLSProxy) handleConn(ctx context.Context, clientConn net.Conn) {
 	sni = strings.TrimSuffix(sni, ".")
 
 	domain := ExtractDomain(sni)
+
+	// Block connections with an IP address as SNI (or any SNI that doesn't yield
+	// a domain name). Domain-based rules cannot be evaluated without a domain,
+	// and allowing IPs would bypass all egress filtering. This mirrors the HTTP
+	// proxy's behavior in proxy.go.
+	if domain == "" {
+		t.logger.Infof("denied TLS connection to IP/empty SNI sni=%q src=%s", sni, clientConn.RemoteAddr())
+		return
+	}
+
 	action := t.matcher.Match(domain)
 
 	if action == ActionDeny {
